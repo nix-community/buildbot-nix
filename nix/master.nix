@@ -9,6 +9,7 @@ in
 {
   options = {
     services.buildbot-nix.master = {
+      enable = lib.mkEnableOption "buildbot-master";
       port = lib.mkOption {
         type = lib.types.int;
         default = 1810;
@@ -74,7 +75,7 @@ in
       };
     };
   };
-  config = {
+  config = lib.mkIf cfg.enable {
     services.buildbot-master = {
       enable = true;
       masterCfg = "${../buildbot_nix/master.py}";
