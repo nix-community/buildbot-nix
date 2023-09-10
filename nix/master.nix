@@ -71,9 +71,10 @@ in
           restarted.
         '';
       };
-      url = lib.mkOption {
+      domain = lib.mkOption {
         type = lib.types.str;
-        description = "Buildbot url";
+        description = "Buildbot domain";
+        example = "buildbot.numtide.com";
       };
     };
   };
@@ -97,7 +98,7 @@ in
         PORT = builtins.toString cfg.port;
         DB_URL = cfg.dbUrl;
         GITHUB_OAUTH_ID = cfg.github.oauthId;
-        BUILDBOT_URL = cfg.url;
+        BUILDBOT_URL = "https://${cfg.domain}/";
         BUILDBOT_GITHUB_USER = cfg.github.githubUser;
         GITHUB_ADMINS = builtins.toString cfg.github.githubAdmins;
         NIX_SUPPORTED_SYSTEMS = builtins.toString cfg.buildSystems;
@@ -125,15 +126,16 @@ in
       ];
     };
 
-    services.nginx.virtualHosts.${cfg.url} = {
-      locations."/".proxyPass = "http://127.0.0.1:${cfg.port}/";
+    services.nginx.enable = true;
+    services.nginx.virtualHosts.${cfg.domain} = {
+      locations."/".proxyPass = "http://127.0.0.1:${builtins.toString cfg.port}/";
       locations."/sse" = {
-        proxyPass = "http://127.0.0.1:${cfg.port}/sse";
+        proxyPass = "http://127.0.0.1:${builtins.toString cfg.port}/sse";
         # proxy buffering will prevent sse to work
         extraConfig = "proxy_buffering off;";
       };
       locations."/ws" = {
-        proxyPass = "http://127.0.0.1:${cfg.port}/ws";
+        proxyPass = "http://127.0.0.1:${builtins.toString cfg.port}/ws";
         proxyWebsockets = true;
         # raise the proxy timeout for the websocket
         extraConfig = "proxy_read_timeout 6000s;";
@@ -147,5 +149,6 @@ in
     systemd.tmpfiles.rules = [
       "d /var/www/buildbot/nix-outputs 0755 buildbot buildbot - -"
     ];
+
   };
 }

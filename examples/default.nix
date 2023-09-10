@@ -37,7 +37,7 @@ in
       {
         services.buildbot-nix.master = {
           enable = true;
-          url = "https://buildbot.thalheim.io";
+          domain = "buildbot2.thalheim.io";
           workersFile = "/var/lib/secrets/buildbot-nix/workers.json";
           github = {
             tokenFile = "/var/lib/secrets/buildbot-nix/github-token";
@@ -48,6 +48,13 @@ in
             githubAdmins = [ "Mic92" ];
           };
         };
+        services.nginx.virtualHosts."buildbot2.thalheim.io" = {
+          enableACME = true;
+          forceSSL = true;
+        };
+        networking.firewall.allowedTCPPorts = [ 80 443 ];
+        security.acme.acceptTerms = true;
+        security.acme.defaults.email = "joerg.acme@thalheim.io";
       }
       buildbot-nix.nixosModules.buildbot-master
     ];
