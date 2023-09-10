@@ -14,7 +14,7 @@ in
     services.buildbot-nix.worker = {
       enable = lib.mkEnableOption "buildbot-worker";
       package = lib.mkOption {
-        type = lib.types.str;
+        type = lib.types.package;
         default = pkgs.buildbot-worker;
         defaultText = "pkgs.buildbot-worker";
         description = "The buildbot-worker package to use.";
@@ -30,7 +30,7 @@ in
       };
     };
   };
-  config = lib.mkIf config.services.buildbot-worker.enable {
+  config = lib.mkIf cfg.enable {
     nix.settings.allowed-users = [ "buildbot-worker" ];
     users.users.buildbot-worker = {
       description = "Buildbot Worker User.";
