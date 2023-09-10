@@ -33,6 +33,7 @@ def read_secret_file(secret_name: str) -> str:
 
 GITHUB_OAUTH_ID = os.environ.get("GITHUB_OAUTH_ID")
 GITHUB_OAUTH_SECRET = read_secret_file("github-oauth-secret")
+GITHUB_ADMINS = os.environ.get("GITHUB_ADMINS", "").split(" ")
 GITHUB_TOKEN_SECRET_NAME = "github-token"
 GITHUB_TOKEN = read_secret_file(GITHUB_TOKEN_SECRET_NAME)
 GITHUB_WEBHOOK_SECRET = read_secret_file("github-webhook-secret")
@@ -199,15 +200,13 @@ def build_config() -> dict[str, Any]:
     systemd_secrets = secrets.SecretInAFile(dirname=credentials)
     c["secretsProviders"] = [systemd_secrets]
 
-    github_admins = os.environ.get("GITHUB_ADMINS", "").split(",")
-
     c["www"] = {
         "avatar_methods": [util.AvatarGitHub()],
         "port": int(os.environ.get("PORT", "1810")),
         "auth": util.GitHubAuth(GITHUB_OAUTH_ID, GITHUB_OAUTH_SECRET),
         "authz": util.Authz(
             roleMatchers=[
-                util.RolesFromUsername(roles=["admin"], usernames=github_admins)
+                util.RolesFromUsername(roles=["admin"], usernames=GITHUB_ADMINS)
             ],
             allowRules=[
                 util.AnyEndpointMatcher(role="admin", defaultDeny=False),
