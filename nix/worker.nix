@@ -26,7 +26,6 @@ in
       };
       workerPasswordFile = lib.mkOption {
         type = lib.types.str;
-        default = "/var/lib/buildbot-worker/worker-password";
         description = "The buildbot worker password file.";
       };
     };

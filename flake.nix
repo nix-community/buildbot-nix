@@ -9,7 +9,7 @@
 
   outputs = inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } ({ lib, ... }: {
-      systems = lib.systems.flakeExposed;
+      systems = [ "x86_64-linux" ];
       flake = {
         nixosModules.buildbot-master = ./nix/master.nix;
         nixosModules.buildbot-worker = ./nix/worker.nix;

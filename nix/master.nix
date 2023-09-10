@@ -59,10 +59,12 @@ in
       };
       buildSystems = lib.mkOption {
         type = lib.types.listOf lib.types.str;
+        default = [ pkgs.hostPlatform.system ];
         description = "Systems that we will be build";
       };
       evalMaxMemorySize = lib.mkOption {
         type = lib.types.str;
+        default = "2048";
         description = ''
           Maximum memory size for nix-eval-jobs (in MiB) per
           worker. After the limit is reached, the worker is
@@ -113,6 +115,7 @@ in
     };
 
     services.postgresql = {
+      enable = true;
       ensureDatabases = [ "buildbot" ];
       ensureUsers = [
         {
