@@ -80,7 +80,7 @@ in
   config = lib.mkIf cfg.enable {
     services.buildbot-master = {
       enable = true;
-      masterCfg = "${../buildbot_nix/master.py}";
+      masterCfg = "${../buildbot_nix}/master.py";
       dbUrl = config.services.buildbot-nix.master.dbUrl;
       pythonPackages = ps: [
         ps.requests
