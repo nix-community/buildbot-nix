@@ -57,9 +57,10 @@ in
       environment.PYTHONPATH = "${python.withPackages (_: [cfg.package])}/${python.sitePackages}";
       environment.MASTER_URL = ''tcp:host=localhost:port=9989'';
       environment.BUILDBOT_DIR = buildbotDir;
-      environment.WORKER_PASSWORD_FILE = cfg.workerPasswordFile;
 
       serviceConfig = {
+        LoadCredential = [ "worker-password-file:${cfg.workerPasswordFile}" ];
+        Environment = [ "WORKER_PASSWORD_FILE=%d/worker-password-file" ];
         Type = "simple";
         User = "buildbot-worker";
         Group = "buildbot-worker";
