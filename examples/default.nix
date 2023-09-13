@@ -2,27 +2,12 @@
 let
   # some example configuration to make it eval
   dummy = { config, modulesPath, ... }: {
-    imports = [
-      #srvos.nixosModules.server
-      #srvos.nixosModules.hardware-hetzner-cloud
-      disko.nixosModules.disko
-      ./disko.nix
-      "${modulesPath}/profiles/qemu-guest.nix"
-    ];
     config = {
       networking.hostName = "example-common";
       system.stateVersion = config.system.nixos.version;
-      services.openssh.enable = true;
       users.users.root.initialPassword = "fnord23";
-      users.users.root.openssh.authorizedKeys.keys = [
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKbBp2dH2X3dcU1zh+xW3ZsdYROKpJd3n13ssOP092qE joerg@turingmachine"
-      ];
-
-      #users.users.root.initialPassword = "fnord23";
-      #boot.loader.grub.devices = lib.mkForce [ "/dev/sda" ];
-      #fileSystems."/".device = lib.mkDefault "/dev/sda";
-
-      #systemd.network.networks."10-uplink".networkConfig.Address = [ "2a01:4f9:c012:539b::/64" ];
+      boot.loader.grub.devices = lib.mkForce [ "/dev/sda" ];
+      fileSystems."/".device = lib.mkDefault "/dev/sda";
     };
   };
 
