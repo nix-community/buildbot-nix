@@ -1,4 +1,4 @@
-{ nixpkgs, system, srvos, buildbot-nix, disko, ... }:
+{ nixpkgs, system, buildbot-nix, ... }:
 let
   # some example configuration to make it eval
   dummy = { config, modulesPath, ... }: {
@@ -15,7 +15,7 @@ let
   inherit (lib) nixosSystem;
 in
 {
-  example-master = nixosSystem {
+  "example-master-${system}" = nixosSystem {
     inherit system;
     modules = [
       dummy
@@ -44,7 +44,7 @@ in
       buildbot-nix.nixosModules.buildbot-master
     ];
   };
-  example-worker = nixosSystem {
+  "example-worker-${system}" = nixosSystem {
     inherit system;
     modules = [
       dummy

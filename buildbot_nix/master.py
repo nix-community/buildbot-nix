@@ -44,6 +44,7 @@ BUILDBOT_URL = os.environ["BUILDBOT_URL"]
 BUILDBOT_GITHUB_USER = os.environ["BUILDBOT_GITHUB_USER"]
 NIX_SUPPORTED_SYSTEMS = os.environ["NIX_SUPPORTED_SYSTEMS"].split(" ")
 NIX_EVAL_MAX_MEMORY_SIZE = int(os.environ.get("NIX_EVAL_MAX_MEMORY_SIZE", "4096"))
+BUILDBOT_DB_URL = os.environ.get("DB_URL", "sqlite:///state.sqlite")
 
 
 def config_for_project(
@@ -225,7 +226,7 @@ def build_config() -> dict[str, Any]:
         ),
     }
 
-    c["db"] = {"db_url": os.environ.get("DB_URL", "sqlite:///state.sqlite")}
+    c["db"] = {"db_url": BUILDBOT_DB_URL}
 
     c["protocols"] = {"pb": {"port": "tcp:9989:interface=\\:\\:"}}
     c["buildbotURL"] = BUILDBOT_URL
