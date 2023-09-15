@@ -3,6 +3,7 @@
 import multiprocessing
 import os
 import socket
+from dataclasses import dataclass
 from pathlib import Path
 
 from buildbot_worker.bot import Worker
@@ -15,13 +16,20 @@ def require_env(key: str) -> str:
     return val
 
 
-PASSWD = Path(require_env("WORKER_PASSWORD_FILE")).read_text().strip("\r\n")
-BUILDBOT_DIR = require_env("BUILDBOT_DIR")
-MASTER_URL = require_env("MASTER_URL")
+@dataclass
+class WorkerConfig:
+    password: str = Path(require_env("WORKER_PASSWORD_FILE")).read_text().rstrip("\r\n")
+    worker_count: int = int(
+        os.environ.get("WORKER_COUNT", str(multiprocessing.cpu_count()))
+    )
+    buildbot_dir: str = require_env("BUILDBOT_DIR")
+    master_url: str = require_env("MASTER_URL")
 
 
-def setup_worker(application: service.Application, id: int) -> None:
-    basedir = f"{BUILDBOT_DIR}-{id}"
+def setup_worker(
+    application: service.Application, id: int, config: WorkerConfig
+) -> None:
+    basedir = f"{config.buildbot_dir}-{id}"
     os.makedirs(basedir, mode=0o700, exist_ok=True)
 
     hostname = socket.gethostname()
@@ -36,10 +44,10 @@ def setup_worker(application: service.Application, id: int) -> None:
         None,
         None,
         workername,
-        PASSWD,
+        config.password,
         basedir,
         keepalive,
-        connection_string=MASTER_URL,
+        connection_string=config.master_url,
         umask=umask,
         maxdelay=maxdelay,
         numcpus=numcpus,
@@ -50,9 +58,12 @@ def setup_worker(application: service.Application, id: int) -> None:
     s.setServiceParent(application)
 
 
+def setup_workers(application: service.Application, config: WorkerConfig) -> None:
+    for i in range(config.worker_count):
+        setup_worker(application, i, config)
+
+
 # note: this line is matched against to check that this is a worker
 # directory; do not edit it.
 application = service.Application("buildbot-worker")
-
-for i in range(multiprocessing.cpu_count()):
-    setup_worker(application, i)
+setup_workers(application, WorkerConfig())
