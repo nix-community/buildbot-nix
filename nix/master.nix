@@ -50,7 +50,8 @@ in
         };
         githubAdmins = lib.mkOption {
           type = lib.types.listOf lib.types.str;
-          description = "Users that are allowed to login to buildbot and do stuff";
+          default = [ ];
+          description = "Users that are allowed to login to buildbot, trigger builds and change settings";
         };
       };
       workersFile = lib.mkOption {
