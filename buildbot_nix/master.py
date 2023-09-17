@@ -20,7 +20,6 @@ from buildbot_nix import (  # noqa: E402
     nix_update_flake_config,
 )
 from github_projects import GithubProject, load_projects  # noqa: E402
-from irc_notify import NotifyFailedBuilds  # noqa: E402
 
 
 def read_secret_file(secret_name: str) -> str:
@@ -192,9 +191,7 @@ def build_config() -> dict[str, Any]:
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
-        ),
-        # Notify on irc
-        NotifyFailedBuilds("irc://buildbot|mic92@irc.r:6667/#xxx"),
+        )
     ]
 
     systemd_secrets = secrets.SecretInAFile(dirname=credentials)
