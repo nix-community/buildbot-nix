@@ -1,7 +1,7 @@
 { nixpkgs, system, buildbot-nix, ... }:
 let
   # some example configuration to make it eval
-  dummy = { config, modulesPath, ... }: {
+  dummy = { config, ... }: {
     config = {
       networking.hostName = "example-common";
       system.stateVersion = config.system.nixos.version;
@@ -28,7 +28,7 @@ in
             tokenFile = "/var/lib/secrets/buildbot-nix/github-token";
             webhookSecretFile = "/var/lib/secrets/buildbot-nix/github-webhook-secret";
             oauthSecretFile = "/var/lib/secrets/buildbot-nix/github-oauth-secret";
-            oauthId = "2516248ec6289e4d9818122cce0cbde39e4b788d";
+            oauthId = "aaaaaaaaaaaaaaaaaaaa";
             githubUser = "mic92-buildbot";
             githubAdmins = [ "Mic92" ];
           };
