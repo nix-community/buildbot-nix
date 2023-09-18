@@ -6,7 +6,7 @@ import os
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Generator, List
+from typing import Any
 
 from buildbot.plugins import steps, util
 from buildbot.process import buildstep, logobserver, remotecommand
@@ -348,7 +348,7 @@ def nix_eval_config(
     worker_names: list[str],
     github_token_secret: str,
     supported_systems: list[str],
-    automerge_users: List[str] = [],
+    automerge_users: list[str] = [],
     max_memory_size: int = 4096,
 ) -> util.BuilderConfig:
     """
