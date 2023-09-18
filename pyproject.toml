@@ -1,3 +1,10 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+select = ["E", "F", "I", "U"]
+ignore = [ "E501" ]
+
 [tool.mypy]
 python_version = "3.10"
 warn_redundant_casts = true
