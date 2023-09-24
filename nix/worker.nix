@@ -67,7 +67,7 @@ in
         WorkingDirectory = "/var/lib/buildbot-worker";
 
         # Restart buildbot with a delay. This time way we can use buildbot to deploy itself.
-        ExecReload = "+${pkgs.systemd}/bin/systemd-run --on-active=60 ${pkgs.systemd}/bin/systemctl restart buildbot-worker";
+        ExecReload = "+${config.systemd.package}/bin/systemd-run --on-active=60 ${config.systemd.package}/bin/systemctl restart buildbot-worker";
         ExecStart = "${python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
       };
     };
