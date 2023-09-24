@@ -2,7 +2,7 @@
   imports = [
     inputs.treefmt-nix.flakeModule
   ];
-  perSystem = { config, pkgs, ... }: {
+  perSystem = { pkgs, ... }: {
     treefmt = {
       projectRootFile = ".git/config";
       programs.nixpkgs-fmt.enable = true;

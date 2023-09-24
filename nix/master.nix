@@ -10,11 +10,6 @@ in
   options = {
     services.buildbot-nix.master = {
       enable = lib.mkEnableOption "buildbot-master";
-      port = lib.mkOption {
-        type = lib.types.int;
-        default = 1810;
-        description = "Port on which buildbot-master is listening";
-      };
       dbUrl = lib.mkOption {
         type = lib.types.str;
         default = "postgresql://@/buildbot";
@@ -82,7 +77,40 @@ in
   config = lib.mkIf cfg.enable {
     services.buildbot-master = {
       enable = true;
-      masterCfg = "${../buildbot_nix}/master.py";
+      extraImports = ''
+        import sys
+        sys.path.append("${../buildbot_nix}")
+        from datetime import timedelta
+        from buildbot_nix import GithubConfig, NixConfigurator
+      '';
+      extraConfig = ''
+        c["www"]["plugins"] = c["www"].get("plugins", {})
+        c["www"]["plugins"].update(
+            dict(base_react={}, waterfall_view={}, console_view={}, grid_view={})
+        )
+      '';
+      configurators = [
+        ''
+          util.JanitorConfigurator(logHorizon=timedelta(weeks=4), hour=12, dayOfWeek=6)
+        ''
+        ''
+          NixConfigurator(
+              github=GithubConfig(
+                  oauth_id=${builtins.toJSON cfg.github.oauthId},
+                  admins=${builtins.toJSON cfg.github.githubAdmins},
+                  buildbot_user=${builtins.toJSON cfg.github.githubUser},
+              ),
+              nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
+              nix_supported_systems=${builtins.toJSON cfg.buildSystems},
+          )
+        ''
+      ];
+      buildbotUrl =
+        let
+          host = config.services.nginx.virtualHosts.${cfg.domain};
+          hasSSL = host.forceSSL || host.addSSL;
+        in
+        "${if hasSSL then "https" else "http"}://${cfg.domain}/";
       dbUrl = config.services.buildbot-nix.master.dbUrl;
       pythonPackages = ps: [
         ps.requests
@@ -95,16 +123,6 @@ in
     };
 
     systemd.services.buildbot-master = {
-      environment = {
-        PORT = builtins.toString cfg.port;
-        DB_URL = cfg.dbUrl;
-        GITHUB_OAUTH_ID = cfg.github.oauthId;
-        BUILDBOT_URL = "https://${cfg.domain}/";
-        BUILDBOT_GITHUB_USER = cfg.github.githubUser;
-        GITHUB_ADMINS = builtins.toString cfg.github.githubAdmins;
-        NIX_SUPPORTED_SYSTEMS = builtins.toString cfg.buildSystems;
-        NIX_EVAL_MAX_MEMORY_SIZE = builtins.toString cfg.evalMaxMemorySize;
-      };
       serviceConfig = {
         # in master.py we read secrets from $CREDENTIALS_DIRECTORY
         LoadCredential = [
@@ -129,14 +147,14 @@ in
 
     services.nginx.enable = true;
     services.nginx.virtualHosts.${cfg.domain} = {
-      locations."/".proxyPass = "http://127.0.0.1:${builtins.toString cfg.port}/";
+      locations."/".proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/";
       locations."/sse" = {
-        proxyPass = "http://127.0.0.1:${builtins.toString cfg.port}/sse";
+        proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/sse";
         # proxy buffering will prevent sse to work
         extraConfig = "proxy_buffering off;";
       };
       locations."/ws" = {
-        proxyPass = "http://127.0.0.1:${builtins.toString cfg.port}/ws";
+        proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/ws";
         proxyWebsockets = true;
         # raise the proxy timeout for the websocket
         extraConfig = "proxy_read_timeout 6000s;";
