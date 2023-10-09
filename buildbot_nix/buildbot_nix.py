@@ -353,14 +353,11 @@ def nix_eval_config(
     worker_names: list[str],
     github_token_secret: str,
     supported_systems: list[str],
-    automerge_users: list[str] = [],
     max_memory_size: int = 4096,
 ) -> util.BuilderConfig:
     """
     Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
-    If all builds succeed and the build was for a PR opened by the flake update bot,
-    this PR is merged.
     """
     factory = util.BuildFactory()
     # check out the source
@@ -406,44 +403,6 @@ def nix_eval_config(
             haltOnFailure=True,
         )
     )
-    if len(automerge_users) > 0:
-
-        def check_auto_merge(step: steps.BuildStep) -> bool:
-            print("Checking if we should merge")
-            props = step.build.getProperties()
-            if props.getProperty("event") != "pull_request":
-                print("Not a pull request")
-                return False
-            if props.getProperty(
-                "github.repository.default_branch"
-            ) != props.getProperty("branch"):
-                print("Not on default branch")
-                return False
-            if not any(
-                owner in automerge_users for owner in props.getProperty("owners")
-            ):
-                print(
-                    f"PR opened by {step.getProperty('owner')} not in {automerge_users}"
-                )
-                return False
-            return True
-
-        factory.addStep(
-            steps.ShellCommand(
-                name="Merge pull-request",
-                env=dict(GITHUB_TOKEN=util.Secret(github_token_secret)),
-                command=[
-                    "gh",
-                    "pr",
-                    "merge",
-                    "--repo",
-                    util.Property("project"),
-                    "--rebase",
-                    util.Property("pullrequesturl"),
-                ],
-                doStepIf=check_auto_merge,
-            )
-        )
 
     return util.BuilderConfig(
         name=f"{project.name}/nix-eval",
@@ -634,7 +593,6 @@ def config_for_project(
                 [worker_names[0]],
                 github_token_secret=github.token_secret_name,
                 supported_systems=nix_supported_systems,
-                automerge_users=[github.buildbot_user],
                 max_memory_size=nix_eval_max_memory_size,
             ),
             nix_build_config(
