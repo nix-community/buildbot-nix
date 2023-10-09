@@ -459,6 +459,7 @@ def nix_build_config(
                 ],
             )
         )
+
     factory.addStep(
         steps.ShellCommand(
             name="Register gcroot",
@@ -472,8 +473,7 @@ def nix_build_config(
                 "-r",
                 util.Property("out_path"),
             ],
-            doStepIf=util.Interpolate("branch")
-            == util.Interpolate("github.repository.default_branch"),
+            doStepIf=lambda s: s.getProperty("branch") == s.getProperty("github.repository.default_branch"),
         )
     )
     factory.addStep(
