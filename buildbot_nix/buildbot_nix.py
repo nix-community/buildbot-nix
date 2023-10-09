@@ -685,6 +685,7 @@ class NixConfigurator(ConfiguratorBase):
                 config["workers"].append(worker.Worker(worker_name, item["pass"]))
                 worker_names.append(worker_name)
 
+        config["projects"] = config.get("projects", [])
         for project in projects:
             config_for_project(
                 config,

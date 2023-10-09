@@ -3,7 +3,7 @@
   description = "A nixos module to make buildbot a proper Nix-CI.";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:Mic92/nixpkgs/buildbot";
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 
@@ -15,7 +15,9 @@
   outputs = inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } ({ lib, ... }:
       {
-        imports = inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix;
+        imports = [
+          ./nix/checks/flake-module.nix
+        ] ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix;
         systems = [ "x86_64-linux" "aarch64-linux" ];
         flake = {
           nixosModules.buildbot-master = ./nix/master.nix;
