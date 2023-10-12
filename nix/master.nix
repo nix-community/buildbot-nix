@@ -39,14 +39,22 @@ in
           description = "Github oauth id. Used for the login button";
         };
         # Most likely you want to use the same user as for the buildbot
-        githubUser = lib.mkOption {
+        user = lib.mkOption {
           type = lib.types.str;
           description = "Github user that is used for the buildbot";
         };
-        githubAdmins = lib.mkOption {
+        admins = lib.mkOption {
           type = lib.types.listOf lib.types.str;
           default = [ ];
           description = "Users that are allowed to login to buildbot, trigger builds and change settings";
+        };
+        topic = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = "build-with-buildbot";
+          description = ''
+            Projects that have this topic will be built by buildbot.
+            If null, all projects that the buildbot github user has access to, are built.
+          '';
         };
       };
       workersFile = lib.mkOption {
@@ -97,8 +105,9 @@ in
           NixConfigurator(
               github=GithubConfig(
                   oauth_id=${builtins.toJSON cfg.github.oauthId},
-                  admins=${builtins.toJSON cfg.github.githubAdmins},
-                  buildbot_user=${builtins.toJSON cfg.github.githubUser},
+                  admins=${builtins.toJSON cfg.github.admins},
+                  buildbot_user=${builtins.toJSON cfg.github.user},
+                  topic=${builtins.toJSON cfg.github.topic},
               ),
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},

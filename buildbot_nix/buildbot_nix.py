@@ -511,6 +511,7 @@ class GithubConfig:
     webhook_secret_name: str = "github-webhook-secret"
     token_secret_name: str = "github-token"
     project_cache_file: Path = Path("github-project-cache.json")
+    topic_filter: str | None = "build-with-buildbot"
 
     def token(self) -> str:
         return read_secret_file(self.token_secret_name)
@@ -633,7 +634,8 @@ class NixConfigurator(ConfiguratorBase):
 
     def configure(self, config: dict[str, Any]) -> None:
         projects = load_projects(self.github.token(), self.github.project_cache_file)
-        projects = [p for p in projects if "build-with-buildbot" in p.topics]
+        if self.github.topic_filter is not None:
+            projects = [p for p in projects if self.github.topic_filter in p.topics]
         worker_config = json.loads(read_secret_file(self.nix_workers_secret_name))
         worker_names = []
         config["workers"] = config.get("workers", [])
