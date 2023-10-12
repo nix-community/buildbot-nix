@@ -109,6 +109,7 @@ in
                   buildbot_user=${builtins.toJSON cfg.github.user},
                   topic=${builtins.toJSON cfg.github.topic},
               ),
+              url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},
           )

@@ -19,7 +19,11 @@ from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
-from github_projects import GithubProject, load_projects  # noqa: E402
+from github_projects import (  # noqa: E402
+    GithubProject,
+    create_project_hook,
+    load_projects,
+)
 from twisted.internet import defer
 
 
@@ -511,7 +515,7 @@ class GithubConfig:
     webhook_secret_name: str = "github-webhook-secret"
     token_secret_name: str = "github-token"
     project_cache_file: Path = Path("github-project-cache.json")
-    topic_filter: str | None = "build-with-buildbot"
+    topic: str | None = "build-with-buildbot"
 
     def token(self) -> str:
         return read_secret_file(self.token_secret_name)
@@ -621,6 +625,7 @@ class NixConfigurator(ConfiguratorBase):
         # Shape of this file:
         # [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
         github: GithubConfig,
+        url: str,
         nix_supported_systems: list[str],
         nix_eval_max_memory_size: int = 4096,
         nix_workers_secret_name: str = "buildbot-nix-workers",
@@ -630,12 +635,13 @@ class NixConfigurator(ConfiguratorBase):
         self.nix_eval_max_memory_size = nix_eval_max_memory_size
         self.nix_supported_systems = nix_supported_systems
         self.github = github
+        self.url = url
         self.systemd_credentials_dir = os.environ["CREDENTIALS_DIRECTORY"]
 
     def configure(self, config: dict[str, Any]) -> None:
         projects = load_projects(self.github.token(), self.github.project_cache_file)
-        if self.github.topic_filter is not None:
-            projects = [p for p in projects if self.github.topic_filter in p.topics]
+        if self.github.topic is not None:
+            projects = [p for p in projects if self.github.topic in p.topics]
         worker_config = json.loads(read_secret_file(self.nix_workers_secret_name))
         worker_names = []
         config["workers"] = config.get("workers", [])
@@ -647,6 +653,15 @@ class NixConfigurator(ConfiguratorBase):
                 worker_names.append(worker_name)
 
         config["projects"] = config.get("projects", [])
+
+        for project in projects:
+            create_project_hook(
+                project.owner,
+                project.repo,
+                self.github.token(),
+                f"{self.url}/change_hook/github",
+            )
+
         for project in projects:
             config_for_project(
                 config,
@@ -657,6 +672,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.nix_supported_systems,
                 self.nix_eval_max_memory_size,
             )
+
         config["services"] = config.get("services", [])
         config["services"].append(
             reporters.GitHubStatusPush(

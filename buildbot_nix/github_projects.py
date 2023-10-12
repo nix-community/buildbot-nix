@@ -30,18 +30,28 @@ def http_request(
     headers = headers.copy()
     headers["User-Agent"] = "buildbot-nix"
     req = urllib.request.Request(url, headers=headers, method=method, data=body)
-    resp = urllib.request.urlopen(req)
+    try:
+        resp = urllib.request.urlopen(req)
+    except urllib.request.HTTPError as e:
+        body = ""
+        try:
+            body = e.fp.read()
+        except Exception:
+            pass
+        raise Exception(
+            f"Request for {method} {url} failed with {e.code} {e.reason}: {body}"
+        ) from e
     return HttpResponse(resp)
 
 
 def paginated_github_request(url: str, token: str) -> list[dict[str, Any]]:
     next_url: str | None = url
-    repos = []
+    items = []
     while next_url:
         try:
             res = http_request(
                 next_url,
-                headers={"Authorization": f"token {token}"},
+                headers={"Authorization": f"Bearer {token}"},
             )
         except OSError as e:
             raise Exception(f"failed to fetch {next_url}: {e}") from e
@@ -53,34 +63,67 @@ def paginated_github_request(url: str, token: str) -> list[dict[str, Any]]:
                 link_parts = link.split(";")
                 if link_parts[1].strip() == 'rel="next"':
                     next_url = link_parts[0][1:-1]
-        repos += res.json()
-    return repos
+        items += res.json()
+    return items
 
 
 class GithubProject:
-    def __init__(self, repo: dict[str, Any]) -> None:
-        self.repo = repo
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.data = data
+
+    @property
+    def repo(self) -> str:
+        return self.data["name"]
+
+    @property
+    def owner(self) -> str:
+        return self.data["owner"]["login"]
 
     @property
     def name(self) -> str:
-        return self.repo["full_name"]
+        return self.data["full_name"]
 
     @property
     def url(self) -> str:
-        return self.repo["html_url"]
+        return self.data["html_url"]
 
     @property
     def id(self) -> str:
-        n = self.repo["full_name"]
+        n = self.data["full_name"]
         return n.replace("/", "-")
 
     @property
     def default_branch(self) -> str:
-        return self.repo["default_branch"]
+        return self.data["default_branch"]
 
     @property
     def topics(self) -> list[str]:
-        return self.repo["topics"]
+        return self.data["topics"]
+
+
+def create_project_hook(owner: str, repo: str, token: str, webhook_url: str) -> None:
+    hooks = paginated_github_request(
+        f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100", token
+    )
+    config = dict(url=webhook_url, content_type="json", insecure_ssl="0")
+    data = dict(name="web", active=True, events=["push", "pull_request"], config=config)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    for hook in hooks:
+        if hook["config"]["url"] == webhook_url:
+            log.msg(f"hook for {owner}/{repo} already exists")
+            return
+
+    http_request(
+        f"https://api.github.com/repos/{owner}/{repo}/hooks",
+        method="POST",
+        headers=headers,
+        data=data,
+    )
 
 
 def load_projects(github_token: str, repo_cache_file: Path) -> list[GithubProject]:
