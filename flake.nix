@@ -3,7 +3,7 @@
   description = "A nixos module to make buildbot a proper Nix-CI.";
 
   inputs = {
-    nixpkgs.url = "github:Mic92/nixpkgs/buildbot";
+    nixpkgs.url = "github:Nixos/nixpkgs/nixpkgs-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 
