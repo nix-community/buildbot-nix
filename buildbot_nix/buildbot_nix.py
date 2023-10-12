@@ -654,12 +654,15 @@ class NixConfigurator(ConfiguratorBase):
 
         config["projects"] = config.get("projects", [])
 
+        webhook_secret = read_secret_file(self.github.webhook_secret_name)
+
         for project in projects:
             create_project_hook(
                 project.owner,
                 project.repo,
                 self.github.token(),
                 f"{self.url}/change_hook/github",
+                webhook_secret,
             )
 
         for project in projects:
@@ -707,7 +710,7 @@ class NixConfigurator(ConfiguratorBase):
             "change_hook_dialects", {}
         )
         config["www"]["change_hook_dialects"]["github"] = {
-            "secret": read_secret_file(self.github.webhook_secret_name),
+            "secret": webhook_secret,
             "strict": True,
             "token": self.github.token(),
             "github_property_whitelist": "*",

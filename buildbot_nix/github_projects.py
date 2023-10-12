@@ -101,11 +101,11 @@ class GithubProject:
         return self.data["topics"]
 
 
-def create_project_hook(owner: str, repo: str, token: str, webhook_url: str) -> None:
+def create_project_hook(owner: str, repo: str, token: str, webhook_url: str, webhook_secret) -> None:
     hooks = paginated_github_request(
         f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100", token
     )
-    config = dict(url=webhook_url, content_type="json", insecure_ssl="0")
+    config = dict(url=webhook_url, content_type="json", insecure_ssl="0", secret=webhook_secret)
     data = dict(name="web", active=True, events=["push", "pull_request"], config=config)
     headers = {
         "Authorization": f"Bearer {token}",
