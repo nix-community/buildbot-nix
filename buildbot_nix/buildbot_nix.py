@@ -3,6 +3,7 @@
 import json
 import multiprocessing
 import os
+import signal
 import sys
 import uuid
 from collections import defaultdict
@@ -23,8 +24,10 @@ from github_projects import (  # noqa: E402
     GithubProject,
     create_project_hook,
     load_projects,
+    refresh_projects,
 )
-from twisted.internet import defer
+from twisted.internet import defer, threads
+from twisted.python.failure import Failure
 
 
 class BuildTrigger(Trigger):
@@ -51,10 +54,10 @@ class BuildTrigger(Trigger):
             **kwargs,
         )
 
-    def createTriggerProperties(self, props: Any) -> Any:
+    def createTriggerProperties(self, props: Any) -> Any:  # noqa: N802
         return props
 
-    def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:
+    def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:  # noqa: N802
         build_props = self.build.getProperties()
         repo_name = build_props.getProperty(
             "github.base.repo.full_name",
@@ -94,7 +97,7 @@ class BuildTrigger(Trigger):
             triggered_schedulers.append((sch, props))
         return triggered_schedulers
 
-    def getCurrentSummary(self) -> dict[str, str]:
+    def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
         """
         The original build trigger will the generic builder name `nix-build` in this case, which is not helpful
         """
@@ -248,6 +251,58 @@ class UpdateBuildOutput(steps.BuildStep):
         os.makedirs(p, exist_ok=True)
         (p / attr).write_text(out_path)
         return util.SUCCESS
+
+
+class ReloadGithubProjects(steps.BuildStep):
+    name = "reload_github_projects"
+
+    def __init__(self, token: str, project_cache_file: Path, **kwargs: Any) -> None:
+        self.token = token
+        self.project_cache_file = project_cache_file
+        super().__init__(**kwargs)
+
+    def reload_projects(self) -> None:
+        refresh_projects(self.token, self.project_cache_file)
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, object, Any]:
+        d = threads.deferToThread(self.reload_projects)
+
+        self.error_msg = ""
+
+        def error_cb(failure: Failure) -> int:
+            self.error_msg += failure.getTraceback()
+            return util.FAILURE
+
+        d.addCallbacks(lambda _: util.SUCCESS, error_cb)
+        res = yield d
+        if res == util.SUCCESS:
+            # reload the buildbot config
+            os.kill(os.getpid(), signal.SIGHUP)
+            return util.SUCCESS
+        else:
+            log: Log = yield self.addLog("log")
+            log.addStderr(f"Failed to reload project list: {self.error_msg}")
+            return util.FAILURE
+
+
+def reload_github_projects(
+    worker_names: list[str],
+    github_token_secret: str,
+    project_cache_file: Path,
+) -> util.BuilderConfig:
+    """
+    Updates the flake an opens a PR for it.
+    """
+    factory = util.BuildFactory()
+    factory.addStep(
+        ReloadGithubProjects(github_token_secret, project_cache_file=project_cache_file)
+    )
+    return util.BuilderConfig(
+        name="reload-github-projects",
+        workernames=worker_names,
+        factory=factory,
+    )
 
 
 def nix_update_flake_config(
@@ -676,6 +731,21 @@ class NixConfigurator(ConfiguratorBase):
                 self.nix_eval_max_memory_size,
             )
 
+        # Reload github projects
+        config["builders"].append(
+            reload_github_projects(
+                [worker_names[0]],
+                self.github.token(),
+                self.github.project_cache_file,
+            )
+        )
+        config["schedulers"].append(
+            schedulers.ForceScheduler(
+                name="reload-github-projects",
+                builderNames=["reload-github-projects"],
+                buttonName="Update projects",
+            )
+        )
         config["services"] = config.get("services", [])
         config["services"].append(
             reporters.GitHubStatusPush(

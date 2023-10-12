@@ -1,7 +1,9 @@
 import http.client
 import json
+import os
 import urllib.request
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 from twisted.python import log
@@ -33,13 +35,13 @@ def http_request(
     try:
         resp = urllib.request.urlopen(req)
     except urllib.request.HTTPError as e:
-        body = ""
+        resp_body = ""
         try:
-            body = e.fp.read()
+            resp_body = e.fp.read().decode("utf-8", "replace")
         except Exception:
             pass
         raise Exception(
-            f"Request for {method} {url} failed with {e.code} {e.reason}: {body}"
+            f"Request for {method} {url} failed with {e.code} {e.reason}: {resp_body}"
         ) from e
     return HttpResponse(resp)
 
@@ -101,11 +103,15 @@ class GithubProject:
         return self.data["topics"]
 
 
-def create_project_hook(owner: str, repo: str, token: str, webhook_url: str, webhook_secret) -> None:
+def create_project_hook(
+    owner: str, repo: str, token: str, webhook_url: str, webhook_secret: str
+) -> None:
     hooks = paginated_github_request(
         f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100", token
     )
-    config = dict(url=webhook_url, content_type="json", insecure_ssl="0", secret=webhook_secret)
+    config = dict(
+        url=webhook_url, content_type="json", insecure_ssl="0", secret=webhook_secret
+    )
     data = dict(name="web", active=True, events=["push", "pull_request"], config=config)
     headers = {
         "Authorization": f"Bearer {token}",
@@ -126,16 +132,25 @@ def create_project_hook(owner: str, repo: str, token: str, webhook_url: str, web
     )
 
 
+def refresh_projects(github_token: str, repo_cache_file: Path) -> None:
+    repos = paginated_github_request(
+        "https://api.github.com/user/repos?per_page=100",
+        github_token,
+    )
+    with NamedTemporaryFile("w", delete=False, dir=repo_cache_file.parent) as f:
+        try:
+            f.write(json.dumps(repos))
+            f.flush()
+            os.rename(f.name, repo_cache_file)
+        except OSError:
+            os.unlink(f.name)
+            raise
+
+
 def load_projects(github_token: str, repo_cache_file: Path) -> list[GithubProject]:
     if repo_cache_file.exists():
         log.msg("fetching github repositories from cache")
         repos: list[dict[str, Any]] = json.loads(repo_cache_file.read_text())
     else:
-        log.msg("fetching github repositories from api")
-        repos = paginated_github_request(
-            "https://api.github.com/user/repos?per_page=100",
-            github_token,
-        )
-        repo_cache_file.write_text(json.dumps(repos, indent=2))
-
+        refresh_projects(github_token, repo_cache_file)
     return [GithubProject(repo) for repo in repos]
