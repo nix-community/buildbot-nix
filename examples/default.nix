@@ -29,8 +29,8 @@ in
             webhookSecretFile = "/var/lib/secrets/buildbot-nix/github-webhook-secret";
             oauthSecretFile = "/var/lib/secrets/buildbot-nix/github-oauth-secret";
             oauthId = "aaaaaaaaaaaaaaaaaaaa";
-            githubUser = "mic92-buildbot";
-            githubAdmins = [ "Mic92" ];
+            user = "mic92-buildbot";
+            admins = [ "Mic92" ];
           };
         };
         services.nginx.virtualHosts."buildbot2.thalheim.io" = {
