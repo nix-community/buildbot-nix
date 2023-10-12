@@ -337,7 +337,7 @@ def nix_update_flake_config(
                 "--base",
                 project.default_branch,
             ],
-            doStepIf=util.Interpolate("has_pr") != "OPEN",
+            doStepIf=lambda s: s.getProperty("has_pr") != "OPEN",
         )
     )
     return util.BuilderConfig(
@@ -468,12 +468,13 @@ def nix_build_config(
                 "--add-root",
                 # FIXME: cleanup old build attributes
                 util.Interpolate(
-                    "/nix/var/nix/profiles/per-user/buildbot-worker/result-%(prop:attr)s"
+                    "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
                 ),
                 "-r",
                 util.Property("out_path"),
             ],
-            doStepIf=lambda s: s.getProperty("branch") == s.getProperty("github.repository.default_branch"),
+            doStepIf=lambda s: s.getProperty("branch")
+            == s.getProperty("github.repository.default_branch"),
         )
     )
     factory.addStep(
