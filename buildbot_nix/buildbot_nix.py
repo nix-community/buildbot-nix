@@ -3,6 +3,7 @@
 import json
 import multiprocessing
 import os
+import random
 import signal
 import sys
 import uuid
@@ -13,19 +14,16 @@ from pathlib import Path
 from typing import Any
 
 from buildbot.configurators import ConfiguratorBase
-from buildbot.plugins import reporters, schedulers, secrets, steps, util, worker
+from buildbot.plugins import (reporters, schedulers, secrets, steps, util,
+                              worker)
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.log import Log
 from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
-from github_projects import (  # noqa: E402
-    GithubProject,
-    create_project_hook,
-    load_projects,
-    refresh_projects,
-)
+from github_projects import (GithubProject, create_project_hook,  # noqa: E402
+                             load_projects, refresh_projects)
 from twisted.internet import defer, threads
 from twisted.python.failure import Failure
 
@@ -579,6 +577,11 @@ def config_for_project(
     nix_supported_systems: list[str],
     nix_eval_max_memory_size: int,
 ) -> Project:
+    # get a deterministic jitter for the project
+    random.seed(project.name)
+    # don't run all projects at the same time
+    jitter = random.randint(1, 60) * 60
+
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
         [
@@ -623,13 +626,11 @@ def config_for_project(
                 builderNames=[f"{project.name}/update-flake"],
                 buttonName="Update flakes",
             ),
-            # updates flakes once a weeek
-            schedulers.NightlyTriggerable(
+            # updates flakes once a week
+            schedulers.Periodic(
                 name=f"{project.id}-update-flake-weekly",
                 builderNames=[f"{project.name}/update-flake"],
-                hour=3,
-                minute=0,
-                dayOfWeek=6,
+                periodicBuildTimer=24*60*60*7 + jitter,
             ),
         ]
     )
