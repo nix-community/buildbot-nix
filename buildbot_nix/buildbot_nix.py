@@ -3,6 +3,7 @@
 import json
 import multiprocessing
 import os
+import random
 import signal
 import sys
 import uuid
@@ -209,12 +210,6 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
             log: Log = yield self.addLog("nix_error")
             log.addStderr(f"{attr} failed to evaluate:\n{error}")
             return util.FAILURE
-        path = self.getProperty("out_path")
-
-        # FIXME: actually we should check if it exists in the remote machine
-        if os.path.exists(path):
-            # build already succeeded
-            return util.SKIPPED
 
         # run `nix build`
         cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
@@ -438,13 +433,7 @@ def nix_eval_config(
             name="evaluate flake",
             supported_systems=supported_systems,
             command=[
-                "nix",
-                "run",
-                "--option",
-                "accept-flake-config",
-                "true",
-                "github:nix-community/nix-eval-jobs",
-                "--",
+                "nix-eval-jobs",
                 "--workers",
                 multiprocessing.cpu_count(),
                 "--max-memory-size",
@@ -585,6 +574,11 @@ def config_for_project(
     nix_supported_systems: list[str],
     nix_eval_max_memory_size: int,
 ) -> Project:
+    ## get a deterministic jitter for the project
+    #random.seed(project.name)
+    ## don't run all projects at the same time
+    #jitter = random.randint(1, 60) * 60
+
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
         [
@@ -629,14 +623,12 @@ def config_for_project(
                 builderNames=[f"{project.name}/update-flake"],
                 buttonName="Update flakes",
             ),
-            # updates flakes once a weeek
-            schedulers.NightlyTriggerable(
-                name=f"{project.id}-update-flake-weekly",
-                builderNames=[f"{project.name}/update-flake"],
-                hour=3,
-                minute=0,
-                dayOfWeek=6,
-            ),
+            # updates flakes once a week
+            #schedulers.Periodic(
+            #    name=f"{project.id}-update-flake-weekly",
+            #    builderNames=[f"{project.name}/update-flake"],
+            #    periodicBuildTimer=24 * 60 * 60 * 7 + jitter,
+            #),
         ]
     )
     has_cachix_auth_token = os.path.isfile(
@@ -739,12 +731,20 @@ class NixConfigurator(ConfiguratorBase):
                 self.github.project_cache_file,
             )
         )
-        config["schedulers"].append(
-            schedulers.ForceScheduler(
-                name="reload-github-projects",
-                builderNames=["reload-github-projects"],
-                buttonName="Update projects",
-            )
+        config["schedulers"].extend(
+            [
+                schedulers.ForceScheduler(
+                    name="reload-github-projects",
+                    builderNames=["reload-github-projects"],
+                    buttonName="Update projects",
+                ),
+                # project list twice a day
+                schedulers.Periodic(
+                    name="reload-github-projects-bidaily",
+                    builderNames=["reload-github-projects"],
+                    periodicBuildTimer=12 * 60 * 60,
+                ),
+            ]
         )
         config["services"] = config.get("services", [])
         config["services"].append(
