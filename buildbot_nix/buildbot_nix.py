@@ -14,16 +14,19 @@ from pathlib import Path
 from typing import Any
 
 from buildbot.configurators import ConfiguratorBase
-from buildbot.plugins import (reporters, schedulers, secrets, steps, util,
-                              worker)
+from buildbot.plugins import reporters, schedulers, secrets, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.log import Log
 from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
-from github_projects import (GithubProject, create_project_hook,  # noqa: E402
-                             load_projects, refresh_projects)
+from github_projects import (  # noqa: E402
+    GithubProject,
+    create_project_hook,
+    load_projects,
+    refresh_projects,
+)
 from twisted.internet import defer, threads
 from twisted.python.failure import Failure
 
@@ -630,7 +633,7 @@ def config_for_project(
             schedulers.Periodic(
                 name=f"{project.id}-update-flake-weekly",
                 builderNames=[f"{project.name}/update-flake"],
-                periodicBuildTimer=24*60*60*7 + jitter,
+                periodicBuildTimer=24 * 60 * 60 * 7 + jitter,
             ),
         ]
     )
@@ -734,12 +737,20 @@ class NixConfigurator(ConfiguratorBase):
                 self.github.project_cache_file,
             )
         )
-        config["schedulers"].append(
-            schedulers.ForceScheduler(
-                name="reload-github-projects",
-                builderNames=["reload-github-projects"],
-                buttonName="Update projects",
-            )
+        config["schedulers"].extend(
+            [
+                schedulers.ForceScheduler(
+                    name="reload-github-projects",
+                    builderNames=["reload-github-projects"],
+                    buttonName="Update projects",
+                ),
+                # project list twice a day
+                schedulers.Periodic(
+                    name="reload-github-projects-bidaily",
+                    builderNames=["reload-github-projects"],
+                    periodicBuildTimer=12 * 60 * 60,
+                ),
+            ]
         )
         config["services"] = config.get("services", [])
         config["services"].append(
