@@ -53,6 +53,7 @@ in
         pkgs.openssh
         pkgs.gh
         pkgs.nix
+        pkgs.nix-eval-jobs
       ];
       environment.PYTHONPATH = "${python.withPackages (_: [cfg.package])}/${python.sitePackages}";
       environment.MASTER_URL = ''tcp:host=localhost:port=9989'';
