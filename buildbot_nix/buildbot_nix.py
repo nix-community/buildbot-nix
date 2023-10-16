@@ -3,7 +3,6 @@
 import json
 import multiprocessing
 import os
-import random
 import signal
 import sys
 import uuid
@@ -575,9 +574,9 @@ def config_for_project(
     nix_eval_max_memory_size: int,
 ) -> Project:
     ## get a deterministic jitter for the project
-    #random.seed(project.name)
+    # random.seed(project.name)
     ## don't run all projects at the same time
-    #jitter = random.randint(1, 60) * 60
+    # jitter = random.randint(1, 60) * 60
 
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
@@ -624,11 +623,11 @@ def config_for_project(
                 buttonName="Update flakes",
             ),
             # updates flakes once a week
-            #schedulers.Periodic(
+            # schedulers.Periodic(
             #    name=f"{project.id}-update-flake-weekly",
             #    builderNames=[f"{project.name}/update-flake"],
             #    periodicBuildTimer=24 * 60 * 60 * 7 + jitter,
-            #),
+            # ),
         ]
     )
     has_cachix_auth_token = os.path.isfile(
