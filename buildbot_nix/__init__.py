@@ -25,6 +25,7 @@ from .github_projects import (  # noqa: E402
     create_project_hook,
     load_projects,
     refresh_projects,
+    slugify_project_name
 )
 from twisted.internet import defer, threads
 from twisted.python.failure import Failure
@@ -63,7 +64,7 @@ class BuildTrigger(Trigger):
             "github.base.repo.full_name",
             build_props.getProperty("github.repository.full_name"),
         )
-        project_id = repo_name.replace("/", "-")
+        project_id = slugify_project_name(repo_name)
         source = f"nix-eval-{project_id}"
 
         sch = self.schedulerNames[0]
@@ -151,7 +152,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 "github.base.repo.full_name",
                 build_props.getProperty("github.repository.full_name"),
             )
-            project_id = repo_name.replace("/", "-")
+            project_id = slugify_project_name(repo_name)
             scheduler = f"{project_id}-nix-build"
             filtered_jobs = []
             for job in jobs:

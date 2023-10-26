@@ -69,6 +69,10 @@ def paginated_github_request(url: str, token: str) -> list[dict[str, Any]]:
     return items
 
 
+def slugify_project_name(name: str) -> str:
+    return name.replace(".", "-").replace("/", "-")
+
+
 class GithubProject:
     def __init__(self, data: dict[str, Any]) -> None:
         self.data = data
@@ -91,8 +95,7 @@ class GithubProject:
 
     @property
     def id(self) -> str:
-        n = self.data["full_name"]
-        return n.replace("/", "-")
+        return slugify_project_name(self.data["full_name"])
 
     @property
     def default_branch(self) -> str:
