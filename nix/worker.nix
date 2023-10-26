@@ -56,7 +56,7 @@ in
         pkgs.nix-eval-jobs
       ];
       environment.PYTHONPATH = "${python.withPackages (_: [cfg.package])}/${python.sitePackages}";
-      environment.MASTER_URL = ''tcp:host=localhost:port=9989'';
+      environment.MASTER_URL = cfg.masterUrl;
       environment.BUILDBOT_DIR = buildbotDir;
 
       serviceConfig = {
