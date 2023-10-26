@@ -148,9 +148,8 @@ def refresh_projects(github_token: str, repo_cache_file: Path) -> None:
 
 
 def load_projects(github_token: str, repo_cache_file: Path) -> list[GithubProject]:
-    if repo_cache_file.exists():
-        log.msg("fetching github repositories from cache")
-        repos: list[dict[str, Any]] = json.loads(repo_cache_file.read_text())
-    else:
+    if not repo_cache_file.exists():
+        log.msg("fetching github repositories")
         refresh_projects(github_token, repo_cache_file)
+    repos: list[dict[str, Any]] = json.loads(repo_cache_file.read_text())
     return [GithubProject(repo) for repo in repos]
