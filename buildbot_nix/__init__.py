@@ -761,20 +761,6 @@ class NixConfigurator(ConfiguratorBase):
         config["secretsProviders"] = config.get("secretsProviders", [])
         config["secretsProviders"].append(systemd_secrets)
         config["www"] = config.get("www", {})
-        config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
-        config["www"]["avatar_methods"].append(util.AvatarGitHub())
-        config["www"]["auth"] = util.GitHubAuth(
-            self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
-        )
-        config["www"]["authz"] = util.Authz(
-            roleMatchers=[
-                util.RolesFromUsername(roles=["admin"], usernames=self.github.admins)
-            ],
-            allowRules=[
-                util.AnyEndpointMatcher(role="admin", defaultDeny=False),
-                util.AnyControlEndpointMatcher(role="admins"),
-            ],
-        )
         config["www"]["change_hook_dialects"] = config["www"].get(
             "change_hook_dialects", {}
         )
@@ -784,3 +770,19 @@ class NixConfigurator(ConfiguratorBase):
             "token": self.github.token(),
             "github_property_whitelist": "*",
         }
+
+        if not config["www"].get("auth"):
+            config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
+            config["www"]["avatar_methods"].append(util.AvatarGitHub())
+            config["www"]["auth"] = util.GitHubAuth(
+                self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
+            )
+            config["www"]["authz"] = util.Authz(
+                roleMatchers=[
+                    util.RolesFromUsername(roles=["admin"], usernames=self.github.admins)
+                ],
+                allowRules=[
+                    util.AnyEndpointMatcher(role="admin", defaultDeny=False),
+                    util.AnyControlEndpointMatcher(role="admins"),
+                ],
+            )
