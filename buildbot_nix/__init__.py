@@ -20,7 +20,7 @@ from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
-from github_projects import (  # noqa: E402
+from .github_projects import (  # noqa: E402
     GithubProject,
     create_project_hook,
     load_projects,
