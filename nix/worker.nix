@@ -25,7 +25,7 @@ in
         description = "The buildbot master url.";
       };
       workerPasswordFile = lib.mkOption {
-        type = lib.types.str;
+        type = lib.types.path;
         description = "The buildbot worker password file.";
       };
     };

@@ -2,18 +2,22 @@
   name = "from-nixos";
   nodes = {
     # `self` here is set by using specialArgs in `lib.nix`
-    node1 = { self, ... }: {
+    node1 = { self, pkgs, ... }: {
       imports = [
         self.nixosModules.buildbot-master
       ];
       services.buildbot-nix.master = {
         enable = true;
         domain = "buildbot2.thalheim.io";
-        workersFile = "/var/lib/secrets/buildbot-nix/workers.json";
+        workersFile = pkgs.writeText "workers.json" ''
+          [
+            { "name": "eve", "pass": "XXXXXXXXXXXXXXXXXXXX", "cores": 16 }
+          ]
+        '';
         github = {
-          tokenFile = "/var/lib/secrets/buildbot-nix/github-token";
-          webhookSecretFile = "/var/lib/secrets/buildbot-nix/github-webhook-secret";
-          oauthSecretFile = "/var/lib/secrets/buildbot-nix/github-oauth-secret";
+          tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000";
+          webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000";
+          oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
           oauthId = "aaaaaaaaaaaaaaaaaaaa";
           user = "mic92-buildbot";
           admins = [ "Mic92" ];

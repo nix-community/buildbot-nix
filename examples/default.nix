@@ -19,28 +19,25 @@ in
     inherit system;
     modules = [
       dummy
-      {
+      ({ pkgs, ... }: {
         services.buildbot-nix.master = {
           enable = true;
           domain = "buildbot2.thalheim.io";
-          workersFile = "/var/lib/secrets/buildbot-nix/workers.json";
+          workersFile = pkgs.writeText "workers.json" ''
+            [
+              { "name": "eve", "pass": "XXXXXXXXXXXXXXXXXXXX", "cores": 16 }
+            ]
+          '';
           github = {
-            tokenFile = "/var/lib/secrets/buildbot-nix/github-token";
-            webhookSecretFile = "/var/lib/secrets/buildbot-nix/github-webhook-secret";
-            oauthSecretFile = "/var/lib/secrets/buildbot-nix/github-oauth-secret";
+            tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000";
+            webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000";
+            oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
             oauthId = "aaaaaaaaaaaaaaaaaaaa";
             user = "mic92-buildbot";
             admins = [ "Mic92" ];
           };
         };
-        services.nginx.virtualHosts."buildbot2.thalheim.io" = {
-          enableACME = true;
-          forceSSL = true;
-        };
-        networking.firewall.allowedTCPPorts = [ 80 443 ];
-        security.acme.acceptTerms = true;
-        security.acme.defaults.email = "joerg.acme@thalheim.io";
-      }
+      })
       buildbot-nix.nixosModules.buildbot-master
     ];
   };
@@ -48,12 +45,12 @@ in
     inherit system;
     modules = [
       dummy
-      {
+      ({ pkgs, ... }: {
         services.buildbot-nix.worker = {
           enable = true;
-          workerPasswordFile = "/var/lib/secrets/buildbot-nix/worker-password";
+          workerPasswordFile = pkgs.writeText "worker-password-file" "";
         };
-      }
+      })
       buildbot-nix.nixosModules.buildbot-worker
     ];
   };
