@@ -122,13 +122,22 @@ in
         in
         "${if hasSSL then "https" else "http"}://${cfg.domain}/";
       dbUrl = config.services.buildbot-nix.master.dbUrl;
+      package = (pkgs.buildbot.overrideAttrs (old: {
+        patches = old.patches ++ [ ./0001-allow-secrets-to-be-group-readable.patch ];
+      }));
       pythonPackages = ps: [
         ps.requests
         ps.treq
         ps.psycopg2
         (ps.toPythonModule pkgs.buildbot-worker)
+        ps.setuptools
         pkgs.buildbot-plugins.www
         pkgs.buildbot-plugins.www-react
+        pkgs.buildbot-plugins.console-view
+        pkgs.buildbot-plugins.waterfall-view
+        pkgs.buildbot-plugins.grid-view
+        pkgs.buildbot-plugins.wsgi-dashboards
+        pkgs.buildbot-plugins.badges
       ];
     };
 
