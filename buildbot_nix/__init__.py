@@ -20,15 +20,16 @@ from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
+from twisted.internet import defer, threads
+from twisted.python.failure import Failure
+
 from .github_projects import (  # noqa: E402
     GithubProject,
     create_project_hook,
     load_projects,
     refresh_projects,
-    slugify_project_name
+    slugify_project_name,
 )
-from twisted.internet import defer, threads
-from twisted.python.failure import Failure
 
 
 class BuildTrigger(Trigger):
@@ -615,13 +616,15 @@ def config_for_project(
             ),
             # allow to manually trigger a nix-build
             schedulers.ForceScheduler(
-                name=f"{project.id}-force", builderNames=[f"{project.name}/nix-eval"],
+                name=f"{project.id}-force",
+                builderNames=[f"{project.name}/nix-eval"],
                 properties=[
                     util.StringParameter(
                         name="project",
                         label="Name of the GitHub repository.",
-                        default=project.name)
-                ]
+                        default=project.name,
+                    )
+                ],
             ),
             # allow to manually update flakes
             schedulers.ForceScheduler(
@@ -786,7 +789,9 @@ class NixConfigurator(ConfiguratorBase):
             )
             config["www"]["authz"] = util.Authz(
                 roleMatchers=[
-                    util.RolesFromUsername(roles=["admin"], usernames=self.github.admins)
+                    util.RolesFromUsername(
+                        roles=["admin"], usernames=self.github.admins
+                    )
                 ],
                 allowRules=[
                     util.AnyEndpointMatcher(role="admin", defaultDeny=False),

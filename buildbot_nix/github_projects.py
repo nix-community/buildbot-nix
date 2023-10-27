@@ -139,12 +139,14 @@ def refresh_projects(github_token: str, repo_cache_file: Path) -> None:
     repos = []
 
     for repo in paginated_github_request(
-            "https://api.github.com/user/repos?per_page=100",
-            github_token,
+        "https://api.github.com/user/repos?per_page=100",
+        github_token,
     ):
         if not repo["permissions"]["admin"]:
-            name = repo['full_name']
-            log.msg(f"skipping {name} because we do not have admin privileges, needed for hook management")
+            name = repo["full_name"]
+            log.msg(
+                f"skipping {name} because we do not have admin privileges, needed for hook management"
+            )
         else:
             repos.append(repo)
 
