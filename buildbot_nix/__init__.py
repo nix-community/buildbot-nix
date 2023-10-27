@@ -20,14 +20,16 @@ from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
-from github_projects import (  # noqa: E402
+from twisted.internet import defer, threads
+from twisted.python.failure import Failure
+
+from .github_projects import (  # noqa: E402
     GithubProject,
     create_project_hook,
     load_projects,
     refresh_projects,
+    slugify_project_name,
 )
-from twisted.internet import defer, threads
-from twisted.python.failure import Failure
 
 
 class BuildTrigger(Trigger):
@@ -63,7 +65,7 @@ class BuildTrigger(Trigger):
             "github.base.repo.full_name",
             build_props.getProperty("github.repository.full_name"),
         )
-        project_id = repo_name.replace("/", "-")
+        project_id = slugify_project_name(repo_name)
         source = f"nix-eval-{project_id}"
 
         sch = self.schedulerNames[0]
@@ -151,7 +153,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 "github.base.repo.full_name",
                 build_props.getProperty("github.repository.full_name"),
             )
-            project_id = repo_name.replace("/", "-")
+            project_id = slugify_project_name(repo_name)
             scheduler = f"{project_id}-nix-build"
             filtered_jobs = []
             for job in jobs:
@@ -310,7 +312,7 @@ def nix_update_flake_config(
     """
     factory = util.BuildFactory()
     url_with_secret = util.Interpolate(
-        f"https://git:%(secret:{github_token_secret})s@github.com/{project.name}"
+        f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s"
     )
     factory.addStep(
         steps.Git(
@@ -546,7 +548,7 @@ def read_secret_file(secret_name: str) -> str:
     if directory is None:
         print("directory not set", file=sys.stderr)
         sys.exit(1)
-    return Path(directory).joinpath(secret_name).read_text()
+    return Path(directory).joinpath(secret_name).read_text().rstrip()
 
 
 @dataclass
@@ -614,7 +616,15 @@ def config_for_project(
             ),
             # allow to manually trigger a nix-build
             schedulers.ForceScheduler(
-                name=f"{project.id}-force", builderNames=[f"{project.name}/nix-eval"]
+                name=f"{project.id}-force",
+                builderNames=[f"{project.name}/nix-eval"],
+                properties=[
+                    util.StringParameter(
+                        name="project",
+                        label="Name of the GitHub repository.",
+                        default=project.name,
+                    )
+                ],
             ),
             # allow to manually update flakes
             schedulers.ForceScheduler(
@@ -761,20 +771,6 @@ class NixConfigurator(ConfiguratorBase):
         config["secretsProviders"] = config.get("secretsProviders", [])
         config["secretsProviders"].append(systemd_secrets)
         config["www"] = config.get("www", {})
-        config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
-        config["www"]["avatar_methods"].append(util.AvatarGitHub())
-        config["www"]["auth"] = util.GitHubAuth(
-            self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
-        )
-        config["www"]["authz"] = util.Authz(
-            roleMatchers=[
-                util.RolesFromUsername(roles=["admin"], usernames=self.github.admins)
-            ],
-            allowRules=[
-                util.AnyEndpointMatcher(role="admin", defaultDeny=False),
-                util.AnyControlEndpointMatcher(role="admins"),
-            ],
-        )
         config["www"]["change_hook_dialects"] = config["www"].get(
             "change_hook_dialects", {}
         )
@@ -784,3 +780,21 @@ class NixConfigurator(ConfiguratorBase):
             "token": self.github.token(),
             "github_property_whitelist": "*",
         }
+
+        if not config["www"].get("auth"):
+            config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
+            config["www"]["avatar_methods"].append(util.AvatarGitHub())
+            config["www"]["auth"] = util.GitHubAuth(
+                self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
+            )
+            config["www"]["authz"] = util.Authz(
+                roleMatchers=[
+                    util.RolesFromUsername(
+                        roles=["admin"], usernames=self.github.admins
+                    )
+                ],
+                allowRules=[
+                    util.AnyEndpointMatcher(role="admin", defaultDeny=False),
+                    util.AnyControlEndpointMatcher(role="admins"),
+                ],
+            )

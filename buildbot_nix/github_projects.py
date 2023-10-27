@@ -69,6 +69,10 @@ def paginated_github_request(url: str, token: str) -> list[dict[str, Any]]:
     return items
 
 
+def slugify_project_name(name: str) -> str:
+    return name.replace(".", "-").replace("/", "-")
+
+
 class GithubProject:
     def __init__(self, data: dict[str, Any]) -> None:
         self.data = data
@@ -91,8 +95,7 @@ class GithubProject:
 
     @property
     def id(self) -> str:
-        n = self.data["full_name"]
-        return n.replace("/", "-")
+        return slugify_project_name(self.data["full_name"])
 
     @property
     def default_branch(self) -> str:
@@ -133,10 +136,20 @@ def create_project_hook(
 
 
 def refresh_projects(github_token: str, repo_cache_file: Path) -> None:
-    repos = paginated_github_request(
+    repos = []
+
+    for repo in paginated_github_request(
         "https://api.github.com/user/repos?per_page=100",
         github_token,
-    )
+    ):
+        if not repo["permissions"]["admin"]:
+            name = repo["full_name"]
+            log.msg(
+                f"skipping {name} because we do not have admin privileges, needed for hook management"
+            )
+        else:
+            repos.append(repo)
+
     with NamedTemporaryFile("w", delete=False, dir=repo_cache_file.parent) as f:
         try:
             f.write(json.dumps(repos))
@@ -148,9 +161,8 @@ def refresh_projects(github_token: str, repo_cache_file: Path) -> None:
 
 
 def load_projects(github_token: str, repo_cache_file: Path) -> list[GithubProject]:
-    if repo_cache_file.exists():
-        log.msg("fetching github repositories from cache")
-        repos: list[dict[str, Any]] = json.loads(repo_cache_file.read_text())
-    else:
+    if not repo_cache_file.exists():
+        log.msg("fetching github repositories")
         refresh_projects(github_token, repo_cache_file)
+    repos: list[dict[str, Any]] = json.loads(repo_cache_file.read_text())
     return [GithubProject(repo) for repo in repos]
