@@ -164,7 +164,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                     filtered_jobs.append(job)
 
             self.build.addStepsAfterCurrentStep(
-                [BuildTrigger(scheduler=scheduler, name="build flake", jobs=jobs)]
+                [
+                    BuildTrigger(
+                        scheduler=scheduler, name="build flake", jobs=filtered_jobs
+                    )
+                ]
             )
 
         return result
