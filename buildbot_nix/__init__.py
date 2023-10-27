@@ -311,7 +311,7 @@ def nix_update_flake_config(
     """
     factory = util.BuildFactory()
     url_with_secret = util.Interpolate(
-        f"https://git:%(secret:{github_token_secret})s@github.com/{project.name}"
+        f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s"
     )
     factory.addStep(
         steps.Git(
@@ -615,7 +615,13 @@ def config_for_project(
             ),
             # allow to manually trigger a nix-build
             schedulers.ForceScheduler(
-                name=f"{project.id}-force", builderNames=[f"{project.name}/nix-eval"]
+                name=f"{project.id}-force", builderNames=[f"{project.name}/nix-eval"],
+                properties=[
+                    util.StringParameter(
+                        name="project",
+                        label="Name of the GitHub repository.",
+                        default=project.name)
+                ]
             ),
             # allow to manually update flakes
             schedulers.ForceScheduler(
