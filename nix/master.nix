@@ -130,7 +130,6 @@ in
         ps.treq
         ps.psycopg2
         (ps.toPythonModule pkgs.buildbot-worker)
-        ps.setuptools
         pkgs.buildbot-plugins.www
         pkgs.buildbot-plugins.www-react
         pkgs.buildbot-plugins.console-view
