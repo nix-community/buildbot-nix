@@ -86,8 +86,6 @@ in
     services.buildbot-master = {
       enable = true;
       extraImports = ''
-        import sys
-        sys.path.append("${../buildbot_nix}")
         from datetime import timedelta
         from buildbot_nix import GithubConfig, NixConfigurator
       '';
@@ -137,10 +135,12 @@ in
         pkgs.buildbot-plugins.grid-view
         pkgs.buildbot-plugins.wsgi-dashboards
         pkgs.buildbot-plugins.badges
+        (pkgs.python3.pkgs.callPackage ../default.nix { })
       ];
     };
 
     systemd.services.buildbot-master = {
+      after = [ "postgresql.service" ];
       serviceConfig = {
         # in master.py we read secrets from $CREDENTIALS_DIRECTORY
         LoadCredential = [

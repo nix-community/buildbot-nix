@@ -3,7 +3,7 @@
   description = "A nixos module to make buildbot a proper Nix-CI.";
 
   inputs = {
-    nixpkgs.url = "github:Nixos/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:Nixos/nixpkgs/nixos-unstable-small";
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 
@@ -39,6 +39,7 @@
               pkgs.bashInteractive
             ];
           };
+          packages.buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
           checks =
             let
               nixosMachines = lib.mapAttrs' (name: config: lib.nameValuePair "nixos-${name}" config.config.system.build.toplevel) ((lib.filterAttrs (_: config: config.pkgs.system == system)) self.nixosConfigurations);
