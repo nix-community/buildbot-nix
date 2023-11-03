@@ -31,7 +31,6 @@ in
     };
   };
   config = lib.mkIf cfg.enable {
-    nix.settings.allowed-users = [ "buildbot-worker" ];
     users.users.buildbot-worker = {
       description = "Buildbot Worker User.";
       isSystemUser = true;
