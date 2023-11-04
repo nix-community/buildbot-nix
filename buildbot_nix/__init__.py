@@ -721,7 +721,7 @@ class NixConfigurator(ConfiguratorBase):
                 project.owner,
                 project.repo,
                 self.github.token(),
-                f"{self.url}/change_hook/github",
+                self.url + "change_hook/github",
                 webhook_secret,
             )
 
