@@ -101,6 +101,12 @@ in
 
     services.buildbot-master = {
       enable = true;
+
+      # disable example workers from nixpkgs
+      builders = [ ];
+      schedulers = [ ];
+      workers = [ ];
+
       home = "/var/lib/buildbot";
       extraImports = ''
         from datetime import timedelta
