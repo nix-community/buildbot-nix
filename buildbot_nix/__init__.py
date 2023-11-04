@@ -235,8 +235,9 @@ class UpdateBuildOutput(steps.BuildStep):
     on the target machine.
     """
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, path: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self.path = path
 
     def run(self) -> Generator[Any, object, Any]:
         props = self.build.getProperties()
@@ -247,9 +248,8 @@ class UpdateBuildOutput(steps.BuildStep):
         attr = os.path.basename(props.getProperty("attr"))
         out_path = props.getProperty("out_path")
         # XXX don't hardcode this
-        p = Path("/var/www/buildbot/nix-outputs/")
-        os.makedirs(p, exist_ok=True)
-        (p / attr).write_text(out_path)
+        self.path.mkdir(parents=True, exist_ok=True)
+        (self.path / attr).write_text(out_path)
         return util.SUCCESS
 
 
@@ -471,6 +471,7 @@ def nix_build_config(
     worker_names: list[str],
     has_cachix_auth_token: bool = False,
     has_cachix_signing_key: bool = False,
+    outputs_path: Path | None = None,
 ) -> util.BuilderConfig:
     """
     Builds one nix flake attribute.
@@ -536,7 +537,13 @@ def nix_build_config(
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
         )
     )
-    factory.addStep(UpdateBuildOutput(name="Update build output"))
+    if outputs_path is not None:
+        factory.addStep(
+            UpdateBuildOutput(
+                name="Update build output",
+                path=outputs_path,
+            )
+        )
     return util.BuilderConfig(
         name=f"{project.name}/nix-build",
         project=project.name,
@@ -578,6 +585,7 @@ def config_for_project(
     github: GithubConfig,
     nix_supported_systems: list[str],
     nix_eval_max_memory_size: int,
+    outputs_path: Path | None = None,
 ) -> Project:
     ## get a deterministic jitter for the project
     # random.seed(project.name)
@@ -666,6 +674,7 @@ def config_for_project(
                 worker_names,
                 has_cachix_auth_token,
                 has_cachix_signing_key,
+                outputs_path=outputs_path,
             ),
             nix_update_flake_config(
                 project,
@@ -689,6 +698,7 @@ class NixConfigurator(ConfiguratorBase):
         nix_supported_systems: list[str],
         nix_eval_max_memory_size: int = 4096,
         nix_workers_secret_name: str = "buildbot-nix-workers",
+        outputs_path: str | None = None,
     ) -> None:
         super().__init__()
         self.nix_workers_secret_name = nix_workers_secret_name
@@ -697,6 +707,10 @@ class NixConfigurator(ConfiguratorBase):
         self.github = github
         self.url = url
         self.systemd_credentials_dir = os.environ["CREDENTIALS_DIRECTORY"]
+        if outputs_path is None:
+            self.outputs_path = None
+        else:
+            self.outputs_path = Path(outputs_path)
 
     def configure(self, config: dict[str, Any]) -> None:
         projects = load_projects(self.github.token(), self.github.project_cache_file)
@@ -734,6 +748,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.github,
                 self.nix_supported_systems,
                 self.nix_eval_max_memory_size,
+                self.outputs_path,
             )
 
         # Reload github projects
