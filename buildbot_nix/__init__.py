@@ -603,6 +603,7 @@ def config_for_project(
                     == c.properties.getProperty("github.repository.default_branch"),
                 ),
                 builderNames=[f"{project.name}/nix-eval"],
+                treeStableTimer=5,
             ),
             # this is compatible with bors or github's merge queue
             schedulers.SingleBranchScheduler(

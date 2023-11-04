@@ -209,6 +209,6 @@ in
 
     # Allow buildbot-master to write to this directory
     systemd.tmpfiles.rules = lib.optional (cfg.outputsPath != null)
-      "d ${cfg.outputPath} 0755 buildbot buildbot - -";
+      "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
   };
 }
