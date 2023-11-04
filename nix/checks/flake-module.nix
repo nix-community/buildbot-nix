@@ -10,6 +10,7 @@
         in
         {
           master = import ./master.nix checkArgs;
+          worker = import ./worker.nix checkArgs;
         };
     };
 }
