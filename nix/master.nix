@@ -83,8 +83,18 @@ in
     };
   };
   config = lib.mkIf cfg.enable {
+    # By default buildbot uses a normal user, which is not a good default, because
+    # we grant normal users potentially access to other resources. Also
+    # we don't to be able to ssh into buildbot.
+
+    users.users.buildbot = {
+      isNormalUser = lib.mkForce false;
+      isSystemUser = true;
+    };
+
     services.buildbot-master = {
       enable = true;
+      home = "/var/lib/buildbot";
       extraImports = ''
         from datetime import timedelta
         from buildbot_nix import GithubConfig, NixConfigurator
