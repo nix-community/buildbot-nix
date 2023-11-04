@@ -32,6 +32,12 @@ in
   };
   config = lib.mkIf cfg.enable {
     nix.settings.extra-allowed-users = [ "buildbot-worker" ];
+
+    # Allow buildbot-worker to create gcroots
+    systemd.tmpfiles.rules = [
+      "d /nix/var/nix/gcroots/per-user/${config.users.users.buildbot-worker.name} 0755 ${config.users.users.buildbot-worker.name} root - -"
+    ];
+
     users.users.buildbot-worker = {
       description = "Buildbot Worker User.";
       isSystemUser = true;
