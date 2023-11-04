@@ -80,11 +80,34 @@ in
         description = "Buildbot domain";
         example = "buildbot.numtide.com";
       };
+
+      outputsPath = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
+        default = null;
+        example = "/var/www/buildbot/nix-outputs";
+      };
     };
   };
   config = lib.mkIf cfg.enable {
+    # By default buildbot uses a normal user, which is not a good default, because
+    # we grant normal users potentially access to other resources. Also
+    # we don't to be able to ssh into buildbot.
+
+    users.users.buildbot = {
+      isNormalUser = lib.mkForce false;
+      isSystemUser = true;
+    };
+
     services.buildbot-master = {
       enable = true;
+
+      # disable example workers from nixpkgs
+      builders = [ ];
+      schedulers = [ ];
+      workers = [ ];
+
+      home = "/var/lib/buildbot";
       extraImports = ''
         from datetime import timedelta
         from buildbot_nix import GithubConfig, NixConfigurator
@@ -110,6 +133,7 @@ in
               url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},
+              outputs_path=${if cfg.outputsPath == null then "None" else builtins.toJSON cfg.outputsPath},
           )
         ''
       ];
@@ -165,27 +189,26 @@ in
 
     services.nginx.enable = true;
     services.nginx.virtualHosts.${cfg.domain} = {
-      locations."/".proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/";
-      locations."/sse" = {
-        proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/sse";
-        # proxy buffering will prevent sse to work
-        extraConfig = "proxy_buffering off;";
+      locations = {
+        "/".proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/";
+        "/sse" = {
+          proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/sse";
+          # proxy buffering will prevent sse to work
+          extraConfig = "proxy_buffering off;";
+        };
+        "/ws" = {
+          proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/ws";
+          proxyWebsockets = true;
+          # raise the proxy timeout for the websocket
+          extraConfig = "proxy_read_timeout 6000s;";
+        };
+      } // lib.optionalAttrs (cfg.outputsPath != null) {
+        "/nix-outputs".root = cfg.outputsPath;
       };
-      locations."/ws" = {
-        proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/ws";
-        proxyWebsockets = true;
-        # raise the proxy timeout for the websocket
-        extraConfig = "proxy_read_timeout 6000s;";
-      };
-
-      # In this directory we store the lastest build store paths for nix attributes
-      locations."/nix-outputs".root = "/var/www/buildbot/";
     };
 
     # Allow buildbot-master to write to this directory
-    systemd.tmpfiles.rules = [
-      "d /var/www/buildbot/nix-outputs 0755 buildbot buildbot - -"
-    ];
-
+    systemd.tmpfiles.rules = lib.optional (cfg.outputsPath != null)
+      "d ${cfg.outputPath} 0755 buildbot buildbot - -";
   };
 }
