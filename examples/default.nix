@@ -36,6 +36,8 @@ in
             user = "mic92-buildbot";
             admins = [ "Mic92" ];
           };
+          # optional
+          # outputsPath = "/var/www/buildbot/nix-outputs";
         };
       })
       buildbot-nix.nixosModules.buildbot-master
