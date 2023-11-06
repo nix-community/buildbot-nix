@@ -719,15 +719,17 @@ class NixConfigurator(ConfiguratorBase):
             projects = [p for p in projects if self.github.topic in p.topics]
         worker_config = json.loads(read_secret_file(self.nix_workers_secret_name))
         worker_names = []
-        config["workers"] = config.get("workers", [])
+
+        config.setdefault("projects", [])
+        config.setdefault("secretsProviders", [])
+        config.setdefault("www", {})
+
         for item in worker_config:
             cores = item.get("cores", 0)
             for i in range(cores):
                 worker_name = f"{item['name']}-{i}"
                 config["workers"].append(worker.Worker(worker_name, item["pass"]))
                 worker_names.append(worker_name)
-
-        config["projects"] = config.get("projects", [])
 
         webhook_secret = read_secret_file(self.github.webhook_secret_name)
 
@@ -775,7 +777,6 @@ class NixConfigurator(ConfiguratorBase):
                 ),
             ]
         )
-        config["services"] = config.get("services", [])
         config["services"].append(
             reporters.GitHubStatusPush(
                 token=self.github.token(),
@@ -788,9 +789,7 @@ class NixConfigurator(ConfiguratorBase):
         systemd_secrets = secrets.SecretInAFile(
             dirname=os.environ["CREDENTIALS_DIRECTORY"]
         )
-        config["secretsProviders"] = config.get("secretsProviders", [])
         config["secretsProviders"].append(systemd_secrets)
-        config["www"] = config.get("www", {})
         config["www"]["change_hook_dialects"] = config["www"].get(
             "change_hook_dialects", {}
         )
