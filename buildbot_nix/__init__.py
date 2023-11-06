@@ -421,7 +421,7 @@ def nix_eval_config(
     factory = util.BuildFactory()
     # check out the source
     url_with_secret = util.Interpolate(
-        f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s"
+        f"https://git:%(secret:{github_token_secret})s@github.com/{project.name}"
     )
     factory.addStep(
         steps.Git(
