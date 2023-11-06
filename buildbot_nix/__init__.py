@@ -809,7 +809,9 @@ class NixConfigurator(ConfiguratorBase):
 
         if not config["www"].get("auth"):
             config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
-            config["www"]["avatar_methods"].append(util.AvatarGitHub())
+            config["www"]["avatar_methods"].append(
+                util.AvatarGitHub(self.github.token())
+            )
             config["www"]["auth"] = util.GitHubAuth(
                 self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
             )
