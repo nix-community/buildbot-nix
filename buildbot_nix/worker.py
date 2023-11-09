@@ -29,11 +29,11 @@ class WorkerConfig:
 def setup_worker(
     application: service.Application, id: int, config: WorkerConfig
 ) -> None:
-    basedir = f"{config.buildbot_dir}-{id}"
+    basedir = f"{config.buildbot_dir}-{id:03}"
     os.makedirs(basedir, mode=0o700, exist_ok=True)
 
     hostname = socket.gethostname()
-    workername = f"{hostname}-{id}"
+    workername = f"{hostname}-{id:03}"
     keepalive = 600
     umask = None
     maxdelay = 300
