@@ -87,6 +87,12 @@ in
         default = null;
         example = "/var/www/buildbot/nix-outputs";
       };
+
+      prometheusExporterPort = lib.mkOption {
+        type = lib.types.nullOr lib.types.port;
+        default = null;
+        description = "Port where metrics will be served";
+      };
     };
   };
   config = lib.mkIf cfg.enable {
@@ -117,6 +123,9 @@ in
         c["www"]["plugins"].update(
             dict(base_react={}, waterfall_view={}, console_view={}, grid_view={})
         )
+        ${lib.optionalString (cfg.prometheusExporterPort != null) ''
+          c['services'].append(reporters.Prometheus(port=${builtins.toString cfg.prometheusExporterPort}))
+        ''}
       '';
       configurators = [
         ''
@@ -160,7 +169,19 @@ in
         pkgs.buildbot-plugins.wsgi-dashboards
         pkgs.buildbot-plugins.badges
         (pkgs.python3.pkgs.callPackage ../default.nix { })
-      ];
+      ] ++ lib.optional (cfg.prometheusExporterPort != null)
+        (ps.buildPythonPackage rec {
+          pname = "buildbot-prometheus";
+          version = "0c81a89bbe34628362652fbea416610e215b5d1e";
+          src = pkgs.fetchFromGitHub {
+            owner = "claws";
+            repo = "buildbot-prometheus";
+            rev = version;
+            hash = "sha256-bz2Nv2RZ44i1VoPvQ/XjGMfTT6TmW6jhEVwItPk23SM=";
+          };
+          propagatedBuildInputs = [ ps.prometheus-client ];
+          doCheck = false;
+        });
     };
 
     systemd.services.buildbot-master = {
