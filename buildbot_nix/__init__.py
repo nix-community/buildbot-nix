@@ -644,6 +644,13 @@ def config_for_project(
                 name=f"{project.id}-update-flake",
                 builderNames=[f"{project.name}/update-flake"],
                 buttonName="Update flakes",
+                properties=[
+                    util.StringParameter(
+                        name="project",
+                        label="Name of the GitHub repository.",
+                        default=project.name,
+                    )
+                ],
             ),
             # updates flakes once a week
             # schedulers.Periodic(
