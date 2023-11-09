@@ -723,7 +723,7 @@ class NixConfigurator(ConfiguratorBase):
         for item in worker_config:
             cores = item.get("cores", 0)
             for i in range(cores):
-                worker_name = f"{item['name']}-{i}"
+                worker_name = f"{item['name']}-{i:03}"
                 config["workers"].append(worker.Worker(worker_name, item["pass"]))
                 worker_names.append(worker_name)
 
