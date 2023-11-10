@@ -599,7 +599,7 @@ def config_for_project(
     config["schedulers"].extend(
         [
             schedulers.SingleBranchScheduler(
-                name=f"default-branch-{project.id}",
+                name=f"{project.id}-default-branch",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
                     filter_fn=lambda c: c.branch
@@ -610,7 +610,7 @@ def config_for_project(
             ),
             # this is compatible with bors or github's merge queue
             schedulers.SingleBranchScheduler(
-                name=f"merge-queue-{project.id}",
+                name=f"{project.id}-merge-queue",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
                     branch_re="(gh-readonly-queue/.*|staging|trying)",
@@ -619,7 +619,7 @@ def config_for_project(
             ),
             # build all pull requests
             schedulers.SingleBranchScheduler(
-                name=f"prs-{project.id}",
+                name=f"{project.id}-prs",
                 change_filter=util.ChangeFilter(
                     repository=project.url, category="pull"
                 ),
