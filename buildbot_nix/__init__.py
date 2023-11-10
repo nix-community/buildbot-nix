@@ -412,6 +412,7 @@ def nix_eval_config(
     worker_names: list[str],
     github_token_secret: str,
     supported_systems: list[str],
+    eval_lock: util.WorkerLock,
     max_memory_size: int = 4096,
 ) -> util.BuilderConfig:
     """
@@ -454,6 +455,7 @@ def nix_eval_config(
                 ".#checks",
             ],
             haltOnFailure=True,
+            locks=[eval_lock.access("counting")],
         )
     )
 
@@ -585,6 +587,7 @@ def config_for_project(
     github: GithubConfig,
     nix_supported_systems: list[str],
     nix_eval_max_memory_size: int,
+    eval_lock: util.WorkerLock,
     outputs_path: Path | None = None,
 ) -> Project:
     ## get a deterministic jitter for the project
@@ -644,6 +647,13 @@ def config_for_project(
                 name=f"{project.id}-update-flake",
                 builderNames=[f"{project.name}/update-flake"],
                 buttonName="Update flakes",
+                properties=[
+                    util.StringParameter(
+                        name="project",
+                        label="Name of the GitHub repository.",
+                        default=project.name,
+                    )
+                ],
             ),
             # updates flakes once a week
             # schedulers.Periodic(
@@ -669,6 +679,7 @@ def config_for_project(
                 github_token_secret=github.token_secret_name,
                 supported_systems=nix_supported_systems,
                 max_memory_size=nix_eval_max_memory_size,
+                eval_lock=eval_lock,
             ),
             nix_build_config(
                 project,
@@ -719,17 +730,20 @@ class NixConfigurator(ConfiguratorBase):
             projects = [p for p in projects if self.github.topic in p.topics]
         worker_config = json.loads(read_secret_file(self.nix_workers_secret_name))
         worker_names = []
-        config["workers"] = config.get("workers", [])
+
+        config.setdefault("projects", [])
+        config.setdefault("secretsProviders", [])
+        config.setdefault("www", {})
+
         for item in worker_config:
             cores = item.get("cores", 0)
             for i in range(cores):
-                worker_name = f"{item['name']}-{i}"
+                worker_name = f"{item['name']}-{i:03}"
                 config["workers"].append(worker.Worker(worker_name, item["pass"]))
                 worker_names.append(worker_name)
 
-        config["projects"] = config.get("projects", [])
-
         webhook_secret = read_secret_file(self.github.webhook_secret_name)
+        eval_lock = util.WorkerLock("nix-eval", maxCount=1)
 
         for project in projects:
             create_project_hook(
@@ -749,6 +763,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.github,
                 self.nix_supported_systems,
                 self.nix_eval_max_memory_size,
+                eval_lock,
                 self.outputs_path,
             )
 
@@ -775,7 +790,6 @@ class NixConfigurator(ConfiguratorBase):
                 ),
             ]
         )
-        config["services"] = config.get("services", [])
         config["services"].append(
             reporters.GitHubStatusPush(
                 token=self.github.token(),
@@ -788,9 +802,7 @@ class NixConfigurator(ConfiguratorBase):
         systemd_secrets = secrets.SecretInAFile(
             dirname=os.environ["CREDENTIALS_DIRECTORY"]
         )
-        config["secretsProviders"] = config.get("secretsProviders", [])
         config["secretsProviders"].append(systemd_secrets)
-        config["www"] = config.get("www", {})
         config["www"]["change_hook_dialects"] = config["www"].get(
             "change_hook_dialects", {}
         )
@@ -803,7 +815,9 @@ class NixConfigurator(ConfiguratorBase):
 
         if not config["www"].get("auth"):
             config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
-            config["www"]["avatar_methods"].append(util.AvatarGitHub())
+            config["www"]["avatar_methods"].append(
+                util.AvatarGitHub(self.github.token())
+            )
             config["www"]["auth"] = util.GitHubAuth(
                 self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
             )
