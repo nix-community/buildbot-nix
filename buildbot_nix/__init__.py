@@ -412,6 +412,7 @@ def nix_eval_config(
     worker_names: list[str],
     github_token_secret: str,
     supported_systems: list[str],
+    eval_lock: util.WorkerLock,
     max_memory_size: int = 4096,
 ) -> util.BuilderConfig:
     """
@@ -454,6 +455,7 @@ def nix_eval_config(
                 ".#checks",
             ],
             haltOnFailure=True,
+            locks=[eval_lock.access("counting")],
         )
     )
 
@@ -585,6 +587,7 @@ def config_for_project(
     github: GithubConfig,
     nix_supported_systems: list[str],
     nix_eval_max_memory_size: int,
+    eval_lock: util.WorkerLock,
     outputs_path: Path | None = None,
 ) -> Project:
     ## get a deterministic jitter for the project
@@ -676,6 +679,7 @@ def config_for_project(
                 github_token_secret=github.token_secret_name,
                 supported_systems=nix_supported_systems,
                 max_memory_size=nix_eval_max_memory_size,
+                eval_lock=eval_lock,
             ),
             nix_build_config(
                 project,
@@ -739,6 +743,7 @@ class NixConfigurator(ConfiguratorBase):
                 worker_names.append(worker_name)
 
         webhook_secret = read_secret_file(self.github.webhook_secret_name)
+        eval_lock = util.WorkerLock("nix-eval", maxCount=1)
 
         for project in projects:
             create_project_hook(
@@ -758,6 +763,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.github,
                 self.nix_supported_systems,
                 self.nix_eval_max_memory_size,
+                eval_lock,
                 self.outputs_path,
             )
 
