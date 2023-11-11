@@ -131,7 +131,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
-        # run nix-instanstiate to generate the dict of stages
+        # run nix-eval-jobs --flake .#checks to generate the dict of stages
         cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
         yield self.runCommand(cmd)
 
