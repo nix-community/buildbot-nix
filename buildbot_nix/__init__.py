@@ -455,7 +455,7 @@ def nix_eval_config(
                 ".#checks",
             ],
             haltOnFailure=True,
-            locks=[eval_lock.access("counting")],
+            locks=[eval_lock.access("exclusive")],
         )
     )
 
@@ -743,7 +743,7 @@ class NixConfigurator(ConfiguratorBase):
                 worker_names.append(worker_name)
 
         webhook_secret = read_secret_file(self.github.webhook_secret_name)
-        eval_lock = util.WorkerLock("nix-eval", maxCount=1)
+        eval_lock = util.WorkerLock("nix-eval")
 
         for project in projects:
             create_project_hook(
