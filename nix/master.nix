@@ -75,6 +75,14 @@ in
           restarted.
         '';
       };
+      evalWorkerCount = lib.mkOption {
+        type = lib.types.nullOr lib.types.int;
+        default = null;
+        description = ''
+          Number of nix-eval-jobs worker processes. If null, the number of cores is used.
+          If you experience memory issues (buildbot-workers going out-of-memory), you can reduce this number.
+        '';
+      };
       domain = lib.mkOption {
         type = lib.types.str;
         description = "Buildbot domain";
@@ -141,6 +149,7 @@ in
               ),
               url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
+              nix_eval_worker_count=${builtins.toJSON cfg.evalWorkerCount},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},
               outputs_path=${if cfg.outputsPath == null then "None" else builtins.toJSON cfg.outputsPath},
           )
