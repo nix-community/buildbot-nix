@@ -413,7 +413,8 @@ def nix_eval_config(
     github_token_secret: str,
     supported_systems: list[str],
     eval_lock: util.WorkerLock,
-    max_memory_size: int = 4096,
+    worker_count: int,
+    max_memory_size: int,
 ) -> util.BuilderConfig:
     """
     Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
@@ -441,7 +442,7 @@ def nix_eval_config(
             command=[
                 "nix-eval-jobs",
                 "--workers",
-                multiprocessing.cpu_count(),
+                str(worker_count),
                 "--max-memory-size",
                 str(max_memory_size),
                 "--option",
@@ -586,6 +587,7 @@ def config_for_project(
     worker_names: list[str],
     github: GithubConfig,
     nix_supported_systems: list[str],
+    nix_eval_worker_count: int,
     nix_eval_max_memory_size: int,
     eval_lock: util.WorkerLock,
     outputs_path: Path | None = None,
@@ -678,6 +680,7 @@ def config_for_project(
                 [worker_names[0]],
                 github_token_secret=github.token_secret_name,
                 supported_systems=nix_supported_systems,
+                worker_count=nix_eval_worker_count,
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
             ),
@@ -708,13 +711,15 @@ class NixConfigurator(ConfiguratorBase):
         github: GithubConfig,
         url: str,
         nix_supported_systems: list[str],
-        nix_eval_max_memory_size: int = 4096,
+        nix_eval_worker_count: int | None,
+        nix_eval_max_memory_size: int,
         nix_workers_secret_name: str = "buildbot-nix-workers",
         outputs_path: str | None = None,
     ) -> None:
         super().__init__()
         self.nix_workers_secret_name = nix_workers_secret_name
         self.nix_eval_max_memory_size = nix_eval_max_memory_size
+        self.nix_eval_worker_count = nix_eval_worker_count
         self.nix_supported_systems = nix_supported_systems
         self.github = github
         self.url = url
@@ -762,6 +767,7 @@ class NixConfigurator(ConfiguratorBase):
                 worker_names,
                 self.github,
                 self.nix_supported_systems,
+                self.nix_eval_worker_count or multiprocessing.cpu_count(),
                 self.nix_eval_max_memory_size,
                 eval_lock,
                 self.outputs_path,
@@ -816,7 +822,7 @@ class NixConfigurator(ConfiguratorBase):
         if not config["www"].get("auth"):
             config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
             config["www"]["avatar_methods"].append(
-                util.AvatarGitHub(self.github.token())
+                util.AvatarGitHub(token=self.github.token())
             )
             config["www"]["auth"] = util.GitHubAuth(
                 self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
