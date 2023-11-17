@@ -96,6 +96,8 @@ class BuildTrigger(Trigger):
             # we use this to identify builds when running a retry
             props.setProperty("build_uuid", str(uuid.uuid4()), source)
             props.setProperty("error", error, source)
+            props.setProperty("is_cached", job.get("isCached"), source)
+
             triggered_schedulers.append((sch, props))
         return triggered_schedulers
 
@@ -212,9 +214,15 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
             attr = self.getProperty("attr")
             # show eval error
             self.build.results = util.FAILURE
-            log: Log = yield self.addLog("nix_error")
-            log.addStderr(f"{attr} failed to evaluate:\n{error}")
+            error_log: Log = yield self.addLog("nix_error")
+            error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
             return util.FAILURE
+
+        status = self.getProperty("is_cached")
+        if status is not None:
+            log: Log = yield self.addLog("log")
+            log.addStderr("Build is already the binary cache.")
+            return util.SKIPPED
 
         # run `nix build`
         cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
@@ -245,6 +253,13 @@ class UpdateBuildOutput(steps.BuildStep):
             "github.repository.default_branch"
         ):
             return util.SKIPPED
+
+        status = self.getProperty("is_cached")
+        if status is not None:
+            log: Log = yield self.addLog("log")
+            log.addStderr("Build is already the binary cache.")
+            return util.SKIPPED
+
         attr = os.path.basename(props.getProperty("attr"))
         out_path = props.getProperty("out_path")
         # XXX don't hardcode this
@@ -452,6 +467,7 @@ def nix_eval_config(
                 # FIXME: don't hardcode this
                 "/var/lib/buildbot-worker/gcroot",
                 "--force-recurse",
+                "--check-cache-status",
                 "--flake",
                 ".#checks",
             ],
@@ -514,6 +530,7 @@ def nix_build_config(
                     util.Secret("cachix-name"),
                     util.Interpolate("result-%(prop:attr)s"),
                 ],
+                doStepIf=lambda s: s.getProperty("isCached"),
             )
         )
 
@@ -530,7 +547,8 @@ def nix_build_config(
                 "-r",
                 util.Property("out_path"),
             ],
-            doStepIf=lambda s: s.getProperty("branch")
+            doStepIf=lambda s: s.getProperty("isCached")
+            or s.getProperty("branch")
             == s.getProperty("github.repository.default_branch"),
         )
     )
@@ -538,6 +556,7 @@ def nix_build_config(
         steps.ShellCommand(
             name="Delete temporary gcroots",
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
+            doStepIf=lambda s: s.getProperty("isCached"),
         )
     )
     if outputs_path is not None:
