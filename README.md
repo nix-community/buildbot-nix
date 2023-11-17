@@ -13,7 +13,8 @@ We currently primarly support Github as a platform but we are also looking into
 supporting other CIs such as gitea.
 
 Buildbot requires a GitHub app, to allow login for GitHub users to its
-dashboard.
+dashboard. After installing the app, create oauth credentials and set them in
+the buildbot-nix nixos module.
 
 Furthermore buildbot requires a github token with the following permissions:
 
