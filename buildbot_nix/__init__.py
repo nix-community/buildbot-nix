@@ -31,6 +31,8 @@ from .github_projects import (  # noqa: E402
     slugify_project_name,
 )
 
+SKIPPED_BUILDER_NAME = "skipped-builds"
+
 
 class BuildTrigger(Trigger):
     """
@@ -38,16 +40,22 @@ class BuildTrigger(Trigger):
     """
 
     def __init__(
-        self, scheduler: str, jobs: list[dict[str, Any]], **kwargs: Any
+        self,
+        builds_scheduler: str,
+        skipped_builds_scheduler: str,
+        jobs: list[dict[str, Any]],
+        **kwargs: Any,
     ) -> None:
         if "name" not in kwargs:
             kwargs["name"] = "trigger"
         self.jobs = jobs
         self.config = None
+        self.builds_scheduler = builds_scheduler
+        self.skipped_builds_scheduler = skipped_builds_scheduler
         Trigger.__init__(
             self,
             waitForFinish=True,
-            schedulerNames=[scheduler],
+            schedulerNames=[builds_scheduler, skipped_builds_scheduler],
             haltOnFailure=True,
             flunkOnFailure=True,
             sourceStamps=[],
@@ -68,7 +76,6 @@ class BuildTrigger(Trigger):
         project_id = slugify_project_name(repo_name)
         source = f"nix-eval-{project_id}"
 
-        sch = self.schedulerNames[0]
         triggered_schedulers = []
         for job in self.jobs:
             attr = job.get("attr", "eval-error")
@@ -77,28 +84,38 @@ class BuildTrigger(Trigger):
                 name = f"github:{repo_name}#checks.{name}"
             else:
                 name = f"checks.{name}"
-            drv_path = job.get("drvPath")
             error = job.get("error")
+            props = Properties()
+            props.setProperty("virtual_builder_tags", "", source)
+
+            if error is not None:
+                props.setProperty("error", error, source)
+                props.setProperty("virtual_builder_name", f"{name}", source)
+                triggered_schedulers.append((self.skipped_builds_scheduler, props))
+                continue
+
+            if job.get("isCached"):
+                props.setProperty("virtual_builder_name", f"{name}", source)
+                triggered_schedulers.append((self.skipped_builds_scheduler, props))
+                continue
+
+            drv_path = job.get("drvPath")
             system = job.get("system")
             out_path = job.get("outputs", {}).get("out")
 
             build_props.setProperty(f"{attr}-out_path", out_path, source)
             build_props.setProperty(f"{attr}-drv_path", drv_path, source)
 
-            props = Properties()
             props.setProperty("virtual_builder_name", name, source)
             props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
-            props.setProperty("virtual_builder_tags", "", source)
             props.setProperty("attr", attr, source)
             props.setProperty("system", system, source)
             props.setProperty("drv_path", drv_path, source)
             props.setProperty("out_path", out_path, source)
             # we use this to identify builds when running a retry
             props.setProperty("build_uuid", str(uuid.uuid4()), source)
-            props.setProperty("error", error, source)
-            props.setProperty("is_cached", job.get("isCached"), source)
 
-            triggered_schedulers.append((sch, props))
+            triggered_schedulers.append((self.builds_scheduler, props))
         return triggered_schedulers
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
@@ -156,7 +173,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 build_props.getProperty("github.repository.full_name"),
             )
             project_id = slugify_project_name(repo_name)
-            scheduler = f"{project_id}-nix-build"
             filtered_jobs = []
             for job in jobs:
                 system = job.get("system")
@@ -168,7 +184,10 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
-                        scheduler=scheduler, name="build flake", jobs=filtered_jobs
+                        builds_scheduler=f"{project_id}-nix-build",
+                        skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
+                        name="build flake",
+                        jobs=filtered_jobs,
                     )
                 ]
             )
@@ -195,35 +214,32 @@ class RetryCounter:
 RETRY_COUNTER = RetryCounter(retries=2)
 
 
+class EvalErrorStep(steps.BuildStep):
+    """
+    Shows the error message of a failed evaluation.
+    """
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, object, Any]:
+        error = self.getProperty("error")
+        attr = self.getProperty("attr")
+        # show eval error
+        error_log: Log = yield self.addLog("nix_error")
+        error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
+        return util.FAILURE
+
+
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
     """
-    Builds a nix derivation if evaluation was successful,
-    otherwise this shows the evaluation error.
+    Builds a nix derivation.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
-        self.observer = logobserver.BufferLogObserver()
-        self.addLogObserver("stdio", self.observer)
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
-        error = self.getProperty("error")
-        if error is not None:
-            attr = self.getProperty("attr")
-            # show eval error
-            self.build.results = util.FAILURE
-            error_log: Log = yield self.addLog("nix_error")
-            error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
-            return util.FAILURE
-
-        cached = self.getProperty("is_cached")
-        if cached:
-            log: Log = yield self.addLog("log")
-            log.addStderr("Build is already the binary cache.")
-            return util.SKIPPED
-
         # run `nix build`
         cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
         yield self.runCommand(cmd)
@@ -252,10 +268,6 @@ class UpdateBuildOutput(steps.BuildStep):
         if props.getProperty("branch") != props.getProperty(
             "github.repository.default_branch"
         ):
-            return util.SKIPPED
-
-        cached = props.getProperty("is_cached")
-        if cached:
             return util.SKIPPED
 
         attr = os.path.basename(props.getProperty("attr"))
@@ -528,7 +540,6 @@ def nix_build_config(
                     util.Secret("cachix-name"),
                     util.Interpolate("result-%(prop:attr)s"),
                 ],
-                doStepIf=lambda s: not s.getProperty("is_cached"),
             )
         )
 
@@ -545,8 +556,7 @@ def nix_build_config(
                 "-r",
                 util.Property("out_path"),
             ],
-            doStepIf=lambda s: not s.getProperty("is_cached")
-            and s.getProperty("branch")
+            doStepIf=lambda s: s.getProperty("branch")
             == s.getProperty("github.repository.default_branch"),
         )
     )
@@ -554,7 +564,6 @@ def nix_build_config(
         steps.ShellCommand(
             name="Delete temporary gcroots",
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
-            doStepIf=lambda s: not s.getProperty("is_cached"),
         )
     )
     if outputs_path is not None:
@@ -566,6 +575,39 @@ def nix_build_config(
         )
     return util.BuilderConfig(
         name=f"{project.name}/nix-build",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
+
+
+def nix_skipped_build_config(
+    project: GithubProject, worker_names: list[str]
+) -> util.BuilderConfig:
+    """
+    Dummy builder that is triggered when a build is skipped.
+    """
+    factory = util.BuildFactory()
+    factory.addStep(
+        EvalErrorStep(
+            name="Nix evaluation",
+            doStepIf=lambda s: s.getProperty("error"),
+            hideStepIf=lambda _, s: not s.getProperty("error"),
+        )
+    )
+
+    # This is just a dummy step showing the cached build
+    factory.addStep(
+        steps.BuildStep(
+            name="Nix build (cached)",
+            doStepIf=lambda _: False,
+            hideStepIf=lambda _, s: s.getProperty("error"),
+        )
+    )
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-skipped-build",
         project=project.name,
         workernames=worker_names,
         collapseRequests=False,
@@ -609,11 +651,6 @@ def config_for_project(
     eval_lock: util.WorkerLock,
     outputs_path: Path | None = None,
 ) -> Project:
-    ## get a deterministic jitter for the project
-    # random.seed(project.name)
-    ## don't run all projects at the same time
-    # jitter = random.randint(1, 60) * 60
-
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
         [
@@ -649,6 +686,11 @@ def config_for_project(
                 name=f"{project.id}-nix-build",
                 builderNames=[f"{project.name}/nix-build"],
             ),
+            # this is triggered from `nix-eval` when the build is skipped
+            schedulers.Triggerable(
+                name=f"{project.id}-nix-skipped-build",
+                builderNames=[f"{project.name}/nix-skipped-build"],
+            ),
             # allow to manually trigger a nix-build
             schedulers.ForceScheduler(
                 name=f"{project.id}-force",
@@ -674,12 +716,6 @@ def config_for_project(
                     )
                 ],
             ),
-            # updates flakes once a week
-            # schedulers.Periodic(
-            #    name=f"{project.id}-update-flake-weekly",
-            #    builderNames=[f"{project.name}/update-flake"],
-            #    periodicBuildTimer=24 * 60 * 60 * 7 + jitter,
-            # ),
         ]
     )
     has_cachix_auth_token = os.path.isfile(
@@ -708,6 +744,7 @@ def config_for_project(
                 has_cachix_signing_key,
                 outputs_path=outputs_path,
             ),
+            nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
             nix_update_flake_config(
                 project,
                 worker_names,
@@ -798,6 +835,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.github.project_cache_file,
             )
         )
+        config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
         config["schedulers"].extend(
             [
                 schedulers.ForceScheduler(
