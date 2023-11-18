@@ -209,12 +209,10 @@ in
     services.postgresql = {
       enable = true;
       ensureDatabases = [ "buildbot" ];
-      ensureUsers = [
-        {
-          name = "buildbot";
-          ensurePermissions."DATABASE buildbot" = "ALL PRIVILEGES";
-        }
-      ];
+      ensureUsers = [{
+        name = "buildbot";
+        ensureDBOwnership = true;
+      }];
     };
 
     services.nginx.enable = true;
