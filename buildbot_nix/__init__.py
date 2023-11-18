@@ -528,7 +528,7 @@ def nix_build_config(
                     util.Secret("cachix-name"),
                     util.Interpolate("result-%(prop:attr)s"),
                 ],
-                doStepIf=lambda s: s.getProperty("isCached"),
+                doStepIf=lambda s: not s.getProperty("is_cached"),
             )
         )
 
@@ -545,8 +545,8 @@ def nix_build_config(
                 "-r",
                 util.Property("out_path"),
             ],
-            doStepIf=lambda s: s.getProperty("isCached")
-            or s.getProperty("branch")
+            doStepIf=lambda s: not s.getProperty("is_cached")
+            and s.getProperty("branch")
             == s.getProperty("github.repository.default_branch"),
         )
     )
@@ -554,7 +554,7 @@ def nix_build_config(
         steps.ShellCommand(
             name="Delete temporary gcroots",
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
-            doStepIf=lambda s: s.getProperty("isCached"),
+            doStepIf=lambda s: not s.getProperty("is_cached"),
         )
     )
     if outputs_path is not None:
