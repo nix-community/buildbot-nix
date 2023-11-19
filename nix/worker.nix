@@ -57,7 +57,6 @@ in
         pkgs.cachix
         pkgs.git
         pkgs.openssh
-        pkgs.gh
         pkgs.nix
         pkgs.nix-eval-jobs
       ];

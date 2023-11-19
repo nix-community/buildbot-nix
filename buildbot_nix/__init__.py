@@ -328,108 +328,6 @@ def reload_github_projects(
     )
 
 
-def nix_update_flake_config(
-    project: GithubProject,
-    worker_names: list[str],
-    github_token_secret: str,
-    github_bot_user: str,
-) -> util.BuilderConfig:
-    """
-    Updates the flake an opens a PR for it.
-    """
-    factory = util.BuildFactory()
-    url_with_secret = util.Interpolate(
-        f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s"
-    )
-    factory.addStep(
-        steps.Git(
-            repourl=url_with_secret,
-            alwaysUseLatest=True,
-            method="clean",
-            submodules=True,
-            haltOnFailure=True,
-        )
-    )
-    factory.addStep(
-        steps.ShellCommand(
-            name="Update flakes",
-            env=dict(
-                GIT_AUTHOR_NAME=github_bot_user,
-                GIT_AUTHOR_EMAIL=f"{github_bot_user}@users.noreply.github.com",
-                GIT_COMMITTER_NAME=github_bot_user,
-                GIT_COMMITTER_EMAIL=f"{github_bot_user}@users.noreply.github.com",
-            ),
-            command=[
-                "nix",
-                "flake",
-                "update",
-                "--commit-lock-file",
-                "--commit-lockfile-summary",
-                "flake.lock: Update",
-            ],
-            haltOnFailure=True,
-        )
-    )
-    factory.addStep(
-        steps.ShellCommand(
-            name="Force-Push to update_flake_lock branch",
-            command=[
-                "git",
-                "push",
-                "--force",
-                "origin",
-                "HEAD:refs/heads/update_flake_lock",
-            ],
-            haltOnFailure=True,
-        )
-    )
-    factory.addStep(
-        steps.SetPropertyFromCommand(
-            env=dict(GITHUB_TOKEN=util.Secret(github_token_secret)),
-            command=[
-                "gh",
-                "pr",
-                "view",
-                "--json",
-                "state",
-                "--template",
-                "{{.state}}",
-                "update_flake_lock",
-            ],
-            decodeRC={0: "SUCCESS", 1: "SUCCESS"},
-            property="has_pr",
-        )
-    )
-    factory.addStep(
-        steps.ShellCommand(
-            name="Create pull-request",
-            env=dict(GITHUB_TOKEN=util.Secret(github_token_secret)),
-            command=[
-                "gh",
-                "pr",
-                "create",
-                "--repo",
-                project.name,
-                "--title",
-                "flake.lock: Update",
-                "--body",
-                "Automatic buildbot update",
-                "--head",
-                "refs/heads/update_flake_lock",
-                "--base",
-                project.default_branch,
-            ],
-            doStepIf=lambda s: s.getProperty("has_pr") != "OPEN",
-        )
-    )
-    return util.BuilderConfig(
-        name=f"{project.name}/update-flake",
-        project=project.name,
-        workernames=worker_names,
-        factory=factory,
-    )
-
-
 def nix_eval_config(
     project: GithubProject,
     worker_names: list[str],
@@ -701,19 +599,6 @@ def config_for_project(
                     )
                 ],
             ),
-            # allow to manually update flakes
-            schedulers.ForceScheduler(
-                name=f"{project.id}-update-flake",
-                builderNames=[f"{project.name}/update-flake"],
-                buttonName="Update flakes",
-                properties=[
-                    util.StringParameter(
-                        name="project",
-                        label="Name of the GitHub repository.",
-                        default=project.name,
-                    )
-                ],
-            ),
         ]
     )
     has_cachix_auth_token = os.path.isfile(
@@ -743,12 +628,6 @@ def config_for_project(
                 outputs_path=outputs_path,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
-            nix_update_flake_config(
-                project,
-                worker_names,
-                github_token_secret=github.token_secret_name,
-                github_bot_user=github.buildbot_user,
-            ),
         ]
     )
 
