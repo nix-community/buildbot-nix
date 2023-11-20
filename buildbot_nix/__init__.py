@@ -86,16 +86,16 @@ class BuildTrigger(Trigger):
                 name = f"checks.{name}"
             error = job.get("error")
             props = Properties()
+            props.setProperty("virtual_builder_name", name, source)
+            props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
             props.setProperty("virtual_builder_tags", "", source)
 
             if error is not None:
                 props.setProperty("error", error, source)
-                props.setProperty("virtual_builder_name", f"{name}", source)
                 triggered_schedulers.append((self.skipped_builds_scheduler, props))
                 continue
 
             if job.get("isCached"):
-                props.setProperty("virtual_builder_name", f"{name}", source)
                 triggered_schedulers.append((self.skipped_builds_scheduler, props))
                 continue
 
@@ -106,8 +106,6 @@ class BuildTrigger(Trigger):
             build_props.setProperty(f"{attr}-out_path", out_path, source)
             build_props.setProperty(f"{attr}-drv_path", drv_path, source)
 
-            props.setProperty("virtual_builder_name", name, source)
-            props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
             props.setProperty("attr", attr, source)
             props.setProperty("system", system, source)
             props.setProperty("drv_path", drv_path, source)
