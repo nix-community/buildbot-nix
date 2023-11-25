@@ -129,7 +129,7 @@ in
       extraConfig = ''
         c["www"]["plugins"] = c["www"].get("plugins", {})
         c["www"]["plugins"].update(
-            dict(base_react={}, waterfall_view={}, console_view={}, grid_view={})
+            dict(base_react={})
         )
         ${lib.optionalString (cfg.prometheusExporterPort != null) ''
           c['services'].append(reporters.Prometheus(port=${builtins.toString cfg.prometheusExporterPort}))
@@ -170,13 +170,7 @@ in
         ps.treq
         ps.psycopg2
         (ps.toPythonModule pkgs.buildbot-worker)
-        pkgs.buildbot-plugins.www
         pkgs.buildbot-plugins.www-react
-        pkgs.buildbot-plugins.console-view
-        pkgs.buildbot-plugins.waterfall-view
-        pkgs.buildbot-plugins.grid-view
-        pkgs.buildbot-plugins.wsgi-dashboards
-        pkgs.buildbot-plugins.badges
         (pkgs.python3.pkgs.callPackage ../default.nix { })
       ] ++ lib.optional (cfg.prometheusExporterPort != null)
         (ps.buildPythonPackage rec {
