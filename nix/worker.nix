@@ -66,6 +66,10 @@ in
       environment.BUILDBOT_DIR = buildbotDir;
 
       serviceConfig = {
+        # We rather want the CI job to fail on OOM than to have a broken buildbot worker.
+        # Otherwise we might end up restarting the worker and the same job is run again.
+        OOMPolicy = "continue";
+
         LoadCredential = [ "worker-password-file:${cfg.workerPasswordFile}" ];
         Environment = [ "WORKER_PASSWORD_FILE=%d/worker-password-file" ];
         Type = "simple";
