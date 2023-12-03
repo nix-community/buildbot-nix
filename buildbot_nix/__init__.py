@@ -20,12 +20,13 @@ from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
+from buildbot.util import asyncSleep
 from twisted.internet import defer, threads
 from twisted.python.failure import Failure
 
-from .github_projects import (  # noqa: E402
+from .github_projects import (
     GithubProject,
-    create_project_hook,
+    create_project_hook,  # noqa: E402
     load_projects,
     refresh_projects,
     slugify_project_name,
@@ -328,6 +329,25 @@ def reload_github_projects(
     )
 
 
+# The builtin retry mechanism doesn't seem to work for github,
+# since github is sometimes not delivering the pull request ref fast enough.
+class GitWithRetry(steps.Git):
+    @defer.inlineCallbacks
+    def run_vc(
+        self, branch: str, revision: str, patch: str
+    ) -> Generator[Any, object, Any]:
+        retry_counter = 0
+        while True:
+            try:
+                res = yield super().run_vc(branch, revision, patch)
+                return res
+            except Exception as e:
+                retry_counter += 1
+                if retry_counter == 3:
+                    raise e
+                self.step_status.setText(f"Retrying git clone (error: {e})")
+                yield asyncSleep(2 << retry_counter)  # 2, 4, 8
+
 
 def nix_eval_config(
     project: GithubProject,
@@ -348,7 +368,7 @@ def nix_eval_config(
         f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s"
     )
     factory.addStep(
-        steps.Git(
+        GitWithRetry(
             repourl=url_with_secret,
             method="clean",
             submodules=True,
@@ -690,8 +710,6 @@ class NixConfigurator(ConfiguratorBase):
                 self.url + "change_hook/github",
                 webhook_secret,
             )
-
-        for project in projects:
             config_for_project(
                 config,
                 project,
