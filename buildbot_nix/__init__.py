@@ -345,7 +345,8 @@ class GitWithRetry(steps.Git):
                 retry_counter += 1
                 if retry_counter == 3:
                     raise e
-                self.step_status.setText(f"Retrying git clone (error: {e})")
+                log: Log = yield self.addLog("log")
+                yield log.addStderr(f"Retrying git clone (error: {e})\n")
                 yield asyncSleep(2 << retry_counter)  # 2, 4, 8
 
 
