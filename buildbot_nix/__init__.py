@@ -21,7 +21,9 @@ from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
 from buildbot.util import asyncSleep
+from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 from twisted.internet import defer, threads
+from twisted.logger import Logger
 from twisted.python.failure import Failure
 
 from .github_projects import (
@@ -33,6 +35,8 @@ from .github_projects import (
 )
 
 SKIPPED_BUILDER_NAME = "skipped-builds"
+
+log = Logger()
 
 
 class BuildTrigger(Trigger):
@@ -546,6 +550,7 @@ def read_secret_file(secret_name: str) -> str:
 class GithubConfig:
     oauth_id: str
     admins: list[str]
+
     buildbot_user: str
     oauth_secret_name: str = "github-oauth-secret"
     webhook_secret_name: str = "github-webhook-secret"
@@ -651,6 +656,83 @@ def config_for_project(
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
         ]
+    )
+
+
+class AnyProjectEndpointMatcher(EndpointMatcherBase):
+    def __init__(self, builders: set[str] = set(), **kwargs: Any) -> None:
+        self.builders = builders
+        super().__init__(**kwargs)
+
+    @defer.inlineCallbacks
+    def check_builder(
+        self, endpoint_object: Any, endpoint_dict: dict[str, Any], object_type: str
+    ) -> Generator[Any, Any, Any]:
+        res = yield endpoint_object.get({}, endpoint_dict)
+        if res is None:
+            return None
+
+        builder = yield self.master.data.get(("builders", res["builderid"]))
+        if builder["name"] in self.builders:
+            log.warn(
+                "Builder {builder} allowed by {role}: {builders}",
+                builder=builder["name"],
+                role=self.role,
+                builders=self.builders,
+            )
+            return Match(self.master, **{object_type: res})
+        else:
+            log.warn(
+                "Builder {builder} not allowed by {role}: {builders}",
+                builder=builder["name"],
+                role=self.role,
+                builders=self.builders,
+            )
+
+    def match_BuildEndpoint_rebuild(  # noqa: N802
+        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+    ) -> Generator[Any, Any, Any]:
+        return self.check_builder(epobject, epdict, "build")
+
+    def match_BuildEndpoint_stop(  # noqa: N802
+        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+    ) -> Generator[Any, Any, Any]:
+        return self.check_builder(epobject, epdict, "build")
+
+    def match_BuildRequestEndpoint_stop(  # noqa: N802
+        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+    ) -> Generator[Any, Any, Any]:
+        return self.check_builder(epobject, epdict, "buildrequest")
+
+
+def setup_authz(projects: list[GithubProject], admins: list[str]) -> util.Authz:
+    allow_rules = []
+    allowed_builders_by_org: defaultdict[str, set[str]] = defaultdict(
+        lambda: {"reload-github-projects"}
+    )
+
+    for project in projects:
+        if project.belongs_to_org:
+            for builder in ["nix-build", "nix-skipped-build", "nix-eval"]:
+                allowed_builders_by_org[project.owner].add(f"{project.name}/{builder}")
+
+    for org, allowed_builders in allowed_builders_by_org.items():
+        allow_rules.append(
+            AnyProjectEndpointMatcher(
+                builders=allowed_builders,
+                role=org,
+                defaultDeny=False,
+            ),
+        )
+
+    allow_rules.append(util.AnyEndpointMatcher(role="admin", defaultDeny=False))
+    allow_rules.append(util.AnyControlEndpointMatcher(role="admins"))
+    return util.Authz(
+        roleMatchers=[
+            util.RolesFromUsername(roles=["admin"], usernames=admins),
+            util.RolesFromGroups(groupPrefix=""),  # so we can match on ORG
+        ],
+        allowRules=allow_rules,
     )
 
 
@@ -779,14 +861,7 @@ class NixConfigurator(ConfiguratorBase):
             config["www"]["auth"] = util.GitHubAuth(
                 self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
             )
-            config["www"]["authz"] = util.Authz(
-                roleMatchers=[
-                    util.RolesFromUsername(
-                        roles=["admin"], usernames=self.github.admins
-                    )
-                ],
-                allowRules=[
-                    util.AnyEndpointMatcher(role="admin", defaultDeny=False),
-                    util.AnyControlEndpointMatcher(role="admins"),
-                ],
+
+            config["www"]["authz"] = setup_authz(
+                admins=self.github.admins, projects=projects
             )
