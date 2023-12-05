@@ -126,15 +126,6 @@ in
         from datetime import timedelta
         from buildbot_nix import GithubConfig, NixConfigurator
       '';
-      extraConfig = ''
-        c["www"]["plugins"] = c["www"].get("plugins", {})
-        c["www"]["plugins"].update(
-            dict(base_react={})
-        )
-        ${lib.optionalString (cfg.prometheusExporterPort != null) ''
-          c['services'].append(reporters.Prometheus(port=${builtins.toString cfg.prometheusExporterPort}))
-        ''}
-      '';
       configurators = [
         ''
           util.JanitorConfigurator(logHorizon=timedelta(weeks=4), hour=12, dayOfWeek=6)
@@ -152,6 +143,7 @@ in
               nix_eval_worker_count=${builtins.toJSON cfg.evalWorkerCount},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},
               outputs_path=${if cfg.outputsPath == null then "None" else builtins.toJSON cfg.outputsPath},
+              prometheus_exporter_port=${if cfg.prometheusExporterPort == null then "None" else builtins.toJSON cfg.prometheusExporterPort},
           )
         ''
       ];
