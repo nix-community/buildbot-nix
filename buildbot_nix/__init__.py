@@ -868,7 +868,9 @@ class NixConfigurator(ConfiguratorBase):
                 util.AvatarGitHub(token=self.github.token())
             )
             config["www"]["auth"] = util.GitHubAuth(
-                self.github.oauth_id, read_secret_file(self.github.oauth_secret_name)
+                self.github.oauth_id,
+                read_secret_file(self.github.oauth_secret_name),
+                apiVersion=4,
             )
 
             config["www"]["authz"] = setup_authz(
