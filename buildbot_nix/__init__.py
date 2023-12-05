@@ -750,6 +750,7 @@ class NixConfigurator(ConfiguratorBase):
         nix_eval_max_memory_size: int,
         nix_workers_secret_name: str = "buildbot-nix-workers",
         outputs_path: str | None = None,
+        prometheus_exporter_port: int | None = None,
     ) -> None:
         super().__init__()
         self.nix_workers_secret_name = nix_workers_secret_name
@@ -763,6 +764,7 @@ class NixConfigurator(ConfiguratorBase):
             self.outputs_path = None
         else:
             self.outputs_path = Path(outputs_path)
+        self.prometheus_exporter_port = prometheus_exporter_port
 
     def configure(self, config: dict[str, Any]) -> None:
         projects = load_projects(self.github.token(), self.github.project_cache_file)
@@ -839,13 +841,20 @@ class NixConfigurator(ConfiguratorBase):
                 context=Interpolate("buildbot/%(prop:status_name)s"),
             )
         )
+        if self.prometheus_exporter_port:
+            config["services"].append(
+                reporters.Prometheus(port=self.prometheus_exporter_port)
+            )
+
         systemd_secrets = secrets.SecretInAFile(
             dirname=os.environ["CREDENTIALS_DIRECTORY"]
         )
         config["secretsProviders"].append(systemd_secrets)
-        config["www"]["change_hook_dialects"] = config["www"].get(
-            "change_hook_dialects", {}
-        )
+
+        config["www"].setdefault("plugins", {})
+        config["www"]["plugins"].update(dict(base_react={}))
+
+        config["www"].setdefault("change_hook_dialects", {})
         config["www"]["change_hook_dialects"]["github"] = {
             "secret": webhook_secret,
             "strict": True,
@@ -853,8 +862,8 @@ class NixConfigurator(ConfiguratorBase):
             "github_property_whitelist": "*",
         }
 
-        if not config["www"].get("auth"):
-            config["www"]["avatar_methods"] = config["www"].get("avatar_methods", [])
+        if "auth" not in config["www"]:
+            config["www"].setdefault("avatar_methods", [])
             config["www"]["avatar_methods"].append(
                 util.AvatarGitHub(token=self.github.token())
             )
