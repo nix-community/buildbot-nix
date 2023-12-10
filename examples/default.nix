@@ -38,6 +38,10 @@ in
           };
           # optional
           # outputsPath = "/var/www/buildbot/nix-outputs";
+
+          # optional nix-eval-jobs settings
+          # evalWorkerCount = 8; # limit number of concurrent evaluations
+          # evalMaxMemorySize = "2048"; # limit memory usage per evaluation
         };
       })
       buildbot-nix.nixosModules.buildbot-master

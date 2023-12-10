@@ -105,6 +105,10 @@ class GithubProject:
     def topics(self) -> list[str]:
         return self.data["topics"]
 
+    @property
+    def belongs_to_org(self) -> bool:
+        return self.data["owner"]["type"] == "Organization"
+
 
 def create_project_hook(
     owner: str, repo: str, token: str, webhook_url: str, webhook_secret: str

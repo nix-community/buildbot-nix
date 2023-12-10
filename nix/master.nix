@@ -75,6 +75,14 @@ in
           restarted.
         '';
       };
+      evalWorkerCount = lib.mkOption {
+        type = lib.types.nullOr lib.types.int;
+        default = null;
+        description = ''
+          Number of nix-eval-jobs worker processes. If null, the number of cores is used.
+          If you experience memory issues (buildbot-workers going out-of-memory), you can reduce this number.
+        '';
+      };
       domain = lib.mkOption {
         type = lib.types.str;
         description = "Buildbot domain";
@@ -112,12 +120,6 @@ in
         from datetime import timedelta
         from buildbot_nix import GithubConfig, NixConfigurator
       '';
-      extraConfig = ''
-        c["www"]["plugins"] = c["www"].get("plugins", {})
-        c["www"]["plugins"].update(
-            dict(base_react={}, waterfall_view={}, console_view={}, grid_view={})
-        )
-      '';
       configurators = [
         ''
           util.JanitorConfigurator(logHorizon=timedelta(weeks=4), hour=12, dayOfWeek=6)
@@ -132,6 +134,7 @@ in
               ),
               url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
+              nix_eval_worker_count=${builtins.toJSON cfg.evalWorkerCount},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},
               outputs_path=${if cfg.outputsPath == null then "None" else builtins.toJSON cfg.outputsPath},
           )
@@ -149,13 +152,7 @@ in
         ps.treq
         ps.psycopg2
         (ps.toPythonModule pkgs.buildbot-worker)
-        pkgs.buildbot-plugins.www
         pkgs.buildbot-plugins.www-react
-        pkgs.buildbot-plugins.console-view
-        pkgs.buildbot-plugins.waterfall-view
-        pkgs.buildbot-plugins.grid-view
-        pkgs.buildbot-plugins.wsgi-dashboards
-        pkgs.buildbot-plugins.badges
         (pkgs.python3.pkgs.callPackage ../default.nix { })
       ];
     };
@@ -176,12 +173,10 @@ in
     services.postgresql = {
       enable = true;
       ensureDatabases = [ "buildbot" ];
-      ensureUsers = [
-        {
-          name = "buildbot";
-          ensurePermissions."DATABASE buildbot" = "ALL PRIVILEGES";
-        }
-      ];
+      ensureUsers = [{
+        name = "buildbot";
+        ensureDBOwnership = true;
+      }];
     };
 
     services.nginx.enable = true;
