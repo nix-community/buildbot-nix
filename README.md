@@ -1,6 +1,6 @@
 # Buildbot-nix
 
-A nixos module to make buildbot a proper Nix-CI.
+A nixos module to make [buildbot](https://www.buildbot.net/) a proper Nix-CI.
 
 For an example checkout the [example](./examples/default.nix) and the module
 descriptions for [master](./nix/master.nix) and [worker](./nix/worker.nix).
