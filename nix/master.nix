@@ -134,7 +134,7 @@ in
               ),
               url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
-              nix_eval_worker_count=${builtins.toJSON cfg.evalWorkerCount},
+              nix_eval_worker_count=${if cfg.evalWorkerCount == null then "None" else builtins.toJSON cfg.evalWorkerCount},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},
               outputs_path=${if cfg.outputsPath == null then "None" else builtins.toJSON cfg.outputsPath},
           )
