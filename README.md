@@ -27,3 +27,4 @@ that.
 
 - [Nix-community infra](https://github.com/nix-community/infra/tree/master/modules/nixos)
 - [Mic92's dotfiles](https://github.com/Mic92/dotfiles/blob/main/nixos/eve/modules/buildbot.nix)
+- [Technical University Munich](https://github.com/TUM-DSE/doctor-cluster-config/tree/master/modules/buildbot)
