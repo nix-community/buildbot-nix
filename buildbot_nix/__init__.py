@@ -439,11 +439,18 @@ def nix_build_config(
                 "--option",
                 "keep-going",
                 "true",
+                "--option",
+                # stop stuck builds after 20 minutes
+                "--max-silent-time",
+                str(60 * 20),
                 "--accept-flake-config",
                 "--out-link",
                 util.Interpolate("result-%(prop:attr)s"),
                 util.Interpolate("%(prop:drv_path)s^*"),
             ],
+            # 3 hours, defaults to 20 minutes
+            # We increase this over the default since the build output might end up in a different `nix build`.
+            timeout=60 * 60 * 3,
             haltOnFailure=True,
         )
     )
