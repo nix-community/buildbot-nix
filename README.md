@@ -18,7 +18,7 @@ the buildbot-nix nixos module.
 
 Furthermore buildbot requires a github token with the following permissions:
 
-- `admin:repo_hook`, `public_repo`, `repo:status`
+- `admin:repo_hook`, `repo`
 
 For github organisations it's recommend to create an additional GitHub user for
 that.
