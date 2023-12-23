@@ -417,11 +417,25 @@ def nix_eval_config(
     )
 
 
+@dataclass
+class CachixConfig:
+    name: str
+    signing_key_secret_name: str | None = None
+    auth_token_secret_name: str | None = None
+
+    def cachix_env(self) -> dict[str, str]:
+        env = {}
+        if self.signing_key_secret_name is not None:
+            env["CACHIX_SIGNING_KEY"] = util.Secret(self.signing_key_secret_name)
+        if self.auth_token_secret_name is not None:
+            env["CACHIX_AUTH_TOKEN"] = util.Secret(self.auth_token_secret_name)
+        return env
+
+
 def nix_build_config(
     project: GithubProject,
     worker_names: list[str],
-    has_cachix_auth_token: bool = False,
-    has_cachix_signing_key: bool = False,
+    cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
 ) -> util.BuilderConfig:
     """
@@ -454,19 +468,15 @@ def nix_build_config(
             haltOnFailure=True,
         )
     )
-    if has_cachix_auth_token or has_cachix_signing_key:
-        if has_cachix_signing_key:
-            env = dict(CACHIX_SIGNING_KEY=util.Secret("cachix-signing-key"))
-        else:
-            env = dict(CACHIX_AUTH_TOKEN=util.Secret("cachix-auth-token"))
+    if cachix:
         factory.addStep(
             steps.ShellCommand(
                 name="Upload cachix",
-                env=env,
+                env=cachix.cachix_env(),
                 command=[
                     "cachix",
                     "push",
-                    util.Secret("cachix-name"),
+                    cachix.name,
                     util.Interpolate("result-%(prop:attr)s"),
                 ],
             )
@@ -572,13 +582,13 @@ class GithubConfig:
 def config_for_project(
     config: dict[str, Any],
     project: GithubProject,
-    credentials: str,
     worker_names: list[str],
     github: GithubConfig,
     nix_supported_systems: list[str],
     nix_eval_worker_count: int,
     nix_eval_max_memory_size: int,
     eval_lock: util.WorkerLock,
+    cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
 ) -> Project:
     config["projects"].append(Project(project.name))
@@ -635,12 +645,6 @@ def config_for_project(
             ),
         ]
     )
-    has_cachix_auth_token = os.path.isfile(
-        os.path.join(credentials, "cachix-auth-token")
-    )
-    has_cachix_signing_key = os.path.isfile(
-        os.path.join(credentials, "cachix-signing-key")
-    )
     config["builders"].extend(
         [
             # Since all workers run on the same machine, we only assign one of them to do the evaluation.
@@ -657,8 +661,7 @@ def config_for_project(
             nix_build_config(
                 project,
                 worker_names,
-                has_cachix_auth_token,
-                has_cachix_signing_key,
+                cachix=cachix,
                 outputs_path=outputs_path,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
@@ -756,6 +759,7 @@ class NixConfigurator(ConfiguratorBase):
         nix_eval_worker_count: int | None,
         nix_eval_max_memory_size: int,
         nix_workers_secret_name: str = "buildbot-nix-workers",
+        cachix: CachixConfig | None = None,
         outputs_path: str | None = None,
     ) -> None:
         super().__init__()
@@ -765,7 +769,7 @@ class NixConfigurator(ConfiguratorBase):
         self.nix_supported_systems = nix_supported_systems
         self.github = github
         self.url = url
-        self.systemd_credentials_dir = os.environ["CREDENTIALS_DIRECTORY"]
+        self.cachix = cachix
         if outputs_path is None:
             self.outputs_path = None
         else:
@@ -803,13 +807,13 @@ class NixConfigurator(ConfiguratorBase):
             config_for_project(
                 config,
                 project,
-                self.systemd_credentials_dir,
                 worker_names,
                 self.github,
                 self.nix_supported_systems,
                 self.nix_eval_worker_count or multiprocessing.cpu_count(),
                 self.nix_eval_max_memory_size,
                 eval_lock,
+                self.cachix,
                 self.outputs_path,
             )
 
