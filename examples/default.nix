@@ -36,12 +36,20 @@ in
             user = "mic92-buildbot";
             admins = [ "Mic92" ];
           };
-          # optional
+          # optional expose latest store path as text file
           # outputsPath = "/var/www/buildbot/nix-outputs";
 
           # optional nix-eval-jobs settings
           # evalWorkerCount = 8; # limit number of concurrent evaluations
           # evalMaxMemorySize = "2048"; # limit memory usage per evaluation
+
+          # optional cachix
+          #cachix = {
+          #  name = "my-cachix";
+          #  # One of the following is required:
+          #  signingKey = "/var/lib/secrets/cachix-key";
+          #  authToken = "/var/lib/secrets/cachix-token";
+          #};
         };
       })
       buildbot-nix.nixosModules.buildbot-master

@@ -15,6 +15,25 @@ in
         default = "postgresql://@/buildbot";
         description = "Postgresql database url";
       };
+      cachix = {
+        name = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Cachix name";
+        };
+
+        signingKeyFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          description = "Cachix signing key";
+        };
+
+        authTokenFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Cachix auth token";
+        };
+      };
       github = {
         tokenFile = lib.mkOption {
           type = lib.types.path;
@@ -107,6 +126,13 @@ in
       isSystemUser = true;
     };
 
+    assertions = [
+      {
+        assertion = cfg.cachix.name != null -> cfg.cachix.signingKeyFile != null || cfg.cachix.authTokenFile != null;
+        message = "if cachix.name is provided, then cachix.signingKeyFile and cachix.authTokenFile must be set";
+      }
+    ];
+
     services.buildbot-master = {
       enable = true;
 
@@ -118,7 +144,7 @@ in
       home = "/var/lib/buildbot";
       extraImports = ''
         from datetime import timedelta
-        from buildbot_nix import GithubConfig, NixConfigurator
+        from buildbot_nix import GithubConfig, NixConfigurator, CachixConfig
       '';
       configurators = [
         ''
@@ -132,9 +158,14 @@ in
                   buildbot_user=${builtins.toJSON cfg.github.user},
                   topic=${builtins.toJSON cfg.github.topic},
               ),
+              cachix=${if cfg.cachix.name == null then "None" else "CachixConfig(
+                  name=${builtins.toJSON cfg.cachix.name},
+                  signing_key_secret_name=${if cfg.cachix.signingKeyFile != null then builtins.toJSON "cachix-signing-key" else "None"},
+                  auth_token_secret_name=${if cfg.cachix.authTokenFile != null then builtins.toJSON "cachix-auth-token" else "None"},
+              "}),
               url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
-              nix_eval_worker_count=${if cfg.evalWorkerCount == null then "None" else builtins.toJSON cfg.evalWorkerCount},
+              nix_eval_worker_count=${if cfg.evalWorkerCount == null then "None" else builtins.toString cfg.evalWorkerCount},
               nix_supported_systems=${builtins.toJSON cfg.buildSystems},
               outputs_path=${if cfg.outputsPath == null then "None" else builtins.toJSON cfg.outputsPath},
           )
@@ -166,7 +197,11 @@ in
           "github-webhook-secret:${cfg.github.webhookSecretFile}"
           "github-oauth-secret:${cfg.github.oauthSecretFile}"
           "buildbot-nix-workers:${cfg.workersFile}"
-        ];
+        ]
+        ++ lib.optional (cfg.cachix.signingKeyFile != null)
+          "cachix-signing-key:${builtins.toString cfg.cachix.signingKeyFile}"
+        ++ lib.optional (cfg.cachix.authTokenFile != null)
+          "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}";
       };
     };
 
