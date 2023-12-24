@@ -21,9 +21,13 @@ classifiers = [
     "Programming Language :: Python"
 ]
 version = "0.0.1"
+scripts = { buildbot-effects = "hercules_effects.cli:main" }
 
 [tool.setuptools]
-packages = ["buildbot_nix"]
+packages = [
+  "buildbot_nix",
+  "buildbot_effects"
+]
 
 [tool.ruff]
 target-version = "py311"
