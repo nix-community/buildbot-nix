@@ -35,6 +35,10 @@ in
             oauthId = "aaaaaaaaaaaaaaaaaaaa";
             user = "mic92-buildbot";
             admins = [ "Mic92" ];
+            # All github projects with this topic will be added to buildbot.
+            # One can trigger a project scan by visiting the Builds -> Builders page and looking for the "reload-github-project" builder.
+            # This builder has a "Update Github Projects" button that everyone in the github organization can use.
+            topic = "buildbot-mic92";
           };
           # optional expose latest store path as text file
           # outputsPath = "/var/www/buildbot/nix-outputs";
