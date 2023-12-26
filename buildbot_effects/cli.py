@@ -1,10 +1,10 @@
 import argparse
+import json
 from collections.abc import Callable
 from pathlib import Path
-import json
 
+from . import instantiate_effects, list_effects, parse_derivation, run_effects
 from .options import EffectsOptions
-from . import list_effects, instantiate_effects, parse_derivation, run_effects
 
 
 def list_command(options: EffectsOptions) -> None:
@@ -16,10 +16,7 @@ def run_command(options: EffectsOptions) -> None:
     drvs = parse_derivation(drv_path)
     drv = next(iter(drvs.values()))
 
-    if options.secrets:
-        secrets = json.loads(options.secrets.read_text())
-    else:
-        secrets = {}
+    secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
     run_effects(drv_path, drv, secrets=secrets)
 
 

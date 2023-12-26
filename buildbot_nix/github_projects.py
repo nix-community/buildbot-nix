@@ -1,12 +1,16 @@
+import contextlib
 import http.client
 import json
-import os
 import urllib.request
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
 from twisted.python import log
+
+
+class GithubError(Exception):
+    pass
 
 
 class HttpResponse:
@@ -23,26 +27,32 @@ class HttpResponse:
 def http_request(
     url: str,
     method: str = "GET",
-    headers: dict[str, str] = {},
+    headers: dict[str, str] | None = None,
     data: dict[str, Any] | None = None,
 ) -> HttpResponse:
     body = None
     if data:
         body = json.dumps(data).encode("ascii")
+    if headers is None:
+        headers = {}
     headers = headers.copy()
     headers["User-Agent"] = "buildbot-nix"
-    req = urllib.request.Request(url, headers=headers, method=method, data=body)
+
+    if not url.startswith("https:"):
+        msg = "url must be https: {url}"
+        raise GithubError(msg)
+
+    req = urllib.request.Request(  # noqa: S310
+        url, headers=headers, method=method, data=body
+    )
     try:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req)  # noqa: S310
     except urllib.request.HTTPError as e:
         resp_body = ""
-        try:
+        with contextlib.suppress(OSError, UnicodeDecodeError):
             resp_body = e.fp.read().decode("utf-8", "replace")
-        except Exception:
-            pass
-        raise Exception(
-            f"Request for {method} {url} failed with {e.code} {e.reason}: {resp_body}"
-        ) from e
+        msg = f"Request for {method} {url} failed with {e.code} {e.reason}: {resp_body}"
+        raise GithubError(msg) from e
     return HttpResponse(resp)
 
 
@@ -56,7 +66,8 @@ def paginated_github_request(url: str, token: str) -> list[dict[str, Any]]:
                 headers={"Authorization": f"Bearer {token}"},
             )
         except OSError as e:
-            raise Exception(f"failed to fetch {next_url}: {e}") from e
+            msg = f"failed to fetch {next_url}: {e}"
+            raise GithubError(msg) from e
         next_url = None
         link = res.headers()["Link"]
         if link is not None:
@@ -94,7 +105,7 @@ class GithubProject:
         return self.data["html_url"]
 
     @property
-    def id(self) -> str:
+    def project_id(self) -> str:
         return slugify_project_name(self.data["full_name"])
 
     @property
@@ -111,13 +122,21 @@ class GithubProject:
 
 
 def create_project_hook(
-    owner: str, repo: str, token: str, webhook_url: str, webhook_secret: str
+    owner: str,
+    repo: str,
+    token: str,
+    webhook_url: str,
+    webhook_secret: str,
 ) -> None:
     hooks = paginated_github_request(
-        f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100", token
+        f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100",
+        token,
     )
     config = dict(
-        url=webhook_url, content_type="json", insecure_ssl="0", secret=webhook_secret
+        url=webhook_url,
+        content_type="json",
+        insecure_ssl="0",
+        secret=webhook_secret,
     )
     data = dict(name="web", active=True, events=["push", "pull_request"], config=config)
     headers = {
@@ -149,18 +168,19 @@ def refresh_projects(github_token: str, repo_cache_file: Path) -> None:
         if not repo["permissions"]["admin"]:
             name = repo["full_name"]
             log.msg(
-                f"skipping {name} because we do not have admin privileges, needed for hook management"
+                f"skipping {name} because we do not have admin privileges, needed for hook management",
             )
         else:
             repos.append(repo)
 
     with NamedTemporaryFile("w", delete=False, dir=repo_cache_file.parent) as f:
+        path = Path(f.name)
         try:
             f.write(json.dumps(repos))
             f.flush()
-            os.rename(f.name, repo_cache_file)
+            path.rename(repo_cache_file)
         except OSError:
-            os.unlink(f.name)
+            path.unlink()
             raise
 
 

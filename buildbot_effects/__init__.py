@@ -13,6 +13,10 @@ from typing import IO, Any
 from .options import EffectsOptions
 
 
+class BuildbotEffectsError(Exception):
+    pass
+
+
 def run(
     cmd: list[str],
     stdin: int | IO[str] | None = None,
@@ -151,8 +155,12 @@ def pipe() -> Iterator[tuple[IO[str], IO[str]]]:
 
 
 def run_effects(
-    drv_path: str, drv: dict[str, Any], secrets: dict[str, Any] = {}
+    drv_path: str,
+    drv: dict[str, Any],
+    secrets: dict[str, Any] | None = None,
 ) -> None:
+    if secrets is None:
+        secrets = {}
     builder = drv["builder"]
     args = drv["args"]
     sandboxed_cmd = [
@@ -165,7 +173,8 @@ def run_effects(
     env["NIX_BUILD_TOP"] = "/build"
     bwrap = shutil.which("bwrap")
     if bwrap is None:
-        raise Exception("bwrap not found")
+        msg = "bwrap' executable not found"
+        raise BuildbotEffectsError(msg)
 
     bubblewrap_cmd = [
         "nix",
@@ -183,7 +192,7 @@ def run_effects(
         "--chdir",
         "/build",
         "--tmpfs",
-        "/tmp",
+        "/tmp",  # noqa: S108
         "--tmpfs",
         "/build",
         "--proc",
@@ -210,7 +219,7 @@ def run_effects(
                 "--ro-bind",
                 tmp.name,
                 "/run/secrets.json",
-            ]
+            ],
         )
         bubblewrap_cmd.extend(env_args(env))
         bubblewrap_cmd.append("--")
@@ -230,4 +239,5 @@ def run_effects(
                     print(line, end="")
                 proc.wait()
                 if proc.returncode != 0:
-                    raise Exception(f"command failed with exit code {proc.returncode}")
+                    msg = f"command failed with exit code {proc.returncode}"
+                    raise BuildbotEffectsError(msg)
