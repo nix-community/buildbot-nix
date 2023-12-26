@@ -39,7 +39,7 @@ def setup_worker(
     basedir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     hostname = socket.gethostname()
-    workername = f"{hostname}-{id:03}"
+    workername = f"{hostname}-{builder_id:03}"
     keepalive = 600
     umask = None
     maxdelay = 300
