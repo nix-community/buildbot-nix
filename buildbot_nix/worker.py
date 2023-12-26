@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
-
 import multiprocessing
 import os
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from buildbot_worker.bot import Worker
@@ -18,19 +16,27 @@ def require_env(key: str) -> str:
 
 @dataclass
 class WorkerConfig:
-    password: str = Path(require_env("WORKER_PASSWORD_FILE")).read_text().rstrip("\r\n")
-    worker_count: int = int(
-        os.environ.get("WORKER_COUNT", str(multiprocessing.cpu_count()))
+    password: str = field(
+        default_factory=lambda: Path(require_env("WORKER_PASSWORD_FILE"))
+        .read_text()
+        .rstrip("\r\n")
     )
-    buildbot_dir: str = require_env("BUILDBOT_DIR")
-    master_url: str = require_env("MASTER_URL")
+    worker_count: int = int(
+        os.environ.get("WORKER_COUNT", str(multiprocessing.cpu_count())),
+    )
+    buildbot_dir: Path = field(
+        default_factory=lambda: Path(require_env("BUILDBOT_DIR"))
+    )
+    master_url: str = field(default_factory=lambda: require_env("MASTER_URL"))
 
 
 def setup_worker(
-    application: service.Application, id: int, config: WorkerConfig
+    application: service.Application,
+    builder_id: int,
+    config: WorkerConfig,
 ) -> None:
-    basedir = f"{config.buildbot_dir}-{id:03}"
-    os.makedirs(basedir, mode=0o700, exist_ok=True)
+    basedir = config.buildbot_dir.parent / f"{config.buildbot_dir.name}-{builder_id:03}"
+    basedir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     hostname = socket.gethostname()
     workername = f"{hostname}-{id:03}"

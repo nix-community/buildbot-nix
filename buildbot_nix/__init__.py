@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import json
 import multiprocessing
 import os
@@ -10,25 +8,28 @@ from collections import defaultdict
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from buildbot.configurators import ConfiguratorBase
 from buildbot.plugins import reporters, schedulers, secrets, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
-from buildbot.process.log import Log
 from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
 from buildbot.util import asyncSleep
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
+
+if TYPE_CHECKING:
+    from buildbot.process.log import Log
+
 from twisted.internet import defer, threads
 from twisted.logger import Logger
 from twisted.python.failure import Failure
 
 from .github_projects import (
     GithubProject,
-    create_project_hook,  # noqa: E402
+    create_project_hook,
     load_projects,
     refresh_projects,
     slugify_project_name,
@@ -39,10 +40,12 @@ SKIPPED_BUILDER_NAME = "skipped-builds"
 log = Logger()
 
 
+class BuildbotNixError(Exception):
+    pass
+
+
 class BuildTrigger(Trigger):
-    """
-    Dynamic trigger that creates a build for every attribute.
-    """
+    """Dynamic trigger that creates a build for every attribute."""
 
     def __init__(
         self,
@@ -122,9 +125,7 @@ class BuildTrigger(Trigger):
         return triggered_schedulers
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
-        """
-        The original build trigger will the generic builder name `nix-build` in this case, which is not helpful
-        """
+        """The original build trigger will the generic builder name `nix-build` in this case, which is not helpful"""
         if not self.triggeredNames:
             return {"step": "running"}
         summary = []
@@ -133,14 +134,13 @@ class BuildTrigger(Trigger):
                 count = self._result_list.count(status)
                 if count:
                     summary.append(
-                        f"{self._result_list.count(status)} {statusToString(status, count)}"
+                        f"{self._result_list.count(status)} {statusToString(status, count)}",
                     )
         return {"step": f"({', '.join(summary)})"}
 
 
 class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
-    """
-    Parses the output of `nix-eval-jobs` and triggers a `nix-build` build for
+    """Parses the output of `nix-eval-jobs` and triggers a `nix-build` build for
     every attribute.
     """
 
@@ -168,7 +168,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                     try:
                         job = json.loads(line)
                     except json.JSONDecodeError as e:
-                        raise Exception(f"Failed to parse line: {line}") from e
+                        msg = f"Failed to parse line: {line}"
+                        raise BuildbotNixError(msg) from e
                     jobs.append(job)
             build_props = self.build.getProperties()
             repo_name = build_props.getProperty(
@@ -179,9 +180,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             filtered_jobs = []
             for job in jobs:
                 system = job.get("system")
-                if not system:  # report eval errors
-                    filtered_jobs.append(job)
-                elif system in self.supported_systems:
+                if not system or system in self.supported_systems:  # report eval errors
                     filtered_jobs.append(job)
 
             self.build.addStepsAfterCurrentStep(
@@ -191,8 +190,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
                         name="build flake",
                         jobs=filtered_jobs,
-                    )
-                ]
+                    ),
+                ],
             )
 
         return result
@@ -203,13 +202,12 @@ class RetryCounter:
     def __init__(self, retries: int) -> None:
         self.builds: dict[uuid.UUID, int] = defaultdict(lambda: retries)
 
-    def retry_build(self, id: uuid.UUID) -> int:
-        retries = self.builds[id]
+    def retry_build(self, build_id: uuid.UUID) -> int:
+        retries = self.builds[build_id]
         if retries > 1:
-            self.builds[id] = retries - 1
+            self.builds[build_id] = retries - 1
             return retries
-        else:
-            return 0
+        return 0
 
 
 # For now we limit this to two. Often this allows us to make the error log
@@ -218,9 +216,7 @@ RETRY_COUNTER = RetryCounter(retries=2)
 
 
 class EvalErrorStep(steps.BuildStep):
-    """
-    Shows the error message of a failed evaluation.
-    """
+    """Shows the error message of a failed evaluation."""
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
@@ -233,9 +229,7 @@ class EvalErrorStep(steps.BuildStep):
 
 
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
-    """
-    Builds a nix derivation.
-    """
+    """Builds a nix derivation."""
 
     def __init__(self, **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
@@ -256,8 +250,7 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
 
 
 class UpdateBuildOutput(steps.BuildStep):
-    """
-    Updates store paths in a public www directory.
+    """Updates store paths in a public www directory.
     This is useful to prefetch updates without having to evaluate
     on the target machine.
     """
@@ -269,11 +262,11 @@ class UpdateBuildOutput(steps.BuildStep):
     def run(self) -> Generator[Any, object, Any]:
         props = self.build.getProperties()
         if props.getProperty("branch") != props.getProperty(
-            "github.repository.default_branch"
+            "github.repository.default_branch",
         ):
             return util.SKIPPED
 
-        attr = os.path.basename(props.getProperty("attr"))
+        attr = Path(props.getProperty("attr")).name
         out_path = props.getProperty("out_path")
         # XXX don't hardcode this
         self.path.mkdir(parents=True, exist_ok=True)
@@ -319,12 +312,12 @@ def reload_github_projects(
     github_token_secret: str,
     project_cache_file: Path,
 ) -> util.BuilderConfig:
-    """
-    Updates the flake an opens a PR for it.
-    """
+    """Updates the flake an opens a PR for it."""
     factory = util.BuildFactory()
     factory.addStep(
-        ReloadGithubProjects(github_token_secret, project_cache_file=project_cache_file)
+        ReloadGithubProjects(
+            github_token_secret, project_cache_file=project_cache_file
+        ),
     )
     return util.BuilderConfig(
         name="reload-github-projects",
@@ -338,20 +331,25 @@ def reload_github_projects(
 class GitWithRetry(steps.Git):
     @defer.inlineCallbacks
     def run_vc(
-        self, branch: str, revision: str, patch: str
+        self,
+        branch: str,
+        revision: str,
+        patch: str,
     ) -> Generator[Any, object, Any]:
         retry_counter = 0
         while True:
             try:
                 res = yield super().run_vc(branch, revision, patch)
-                return res
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 retry_counter += 1
                 if retry_counter == 3:
-                    raise e
+                    msg = "Failed to clone"
+                    raise BuildbotNixError(msg) from e
                 log: Log = yield self.addLog("log")
                 yield log.addStderr(f"Retrying git clone (error: {e})\n")
                 yield asyncSleep(2 << retry_counter)  # 2, 4, 8
+            else:
+                return res
 
 
 def nix_eval_config(
@@ -363,14 +361,13 @@ def nix_eval_config(
     worker_count: int,
     max_memory_size: int,
 ) -> util.BuilderConfig:
-    """
-    Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
+    """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
     """
     factory = util.BuildFactory()
     # check out the source
     url_with_secret = util.Interpolate(
-        f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s"
+        f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s",
     )
     factory.addStep(
         GitWithRetry(
@@ -378,7 +375,7 @@ def nix_eval_config(
             method="clean",
             submodules=True,
             haltOnFailure=True,
-        )
+        ),
     )
 
     factory.addStep(
@@ -405,7 +402,7 @@ def nix_eval_config(
             ],
             haltOnFailure=True,
             locks=[eval_lock.access("exclusive")],
-        )
+        ),
     )
 
     return util.BuilderConfig(
@@ -438,9 +435,7 @@ def nix_build_config(
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
 ) -> util.BuilderConfig:
-    """
-    Builds one nix flake attribute.
-    """
+    """Builds one nix flake attribute."""
     factory = util.BuildFactory()
     factory.addStep(
         NixBuildCommand(
@@ -466,7 +461,7 @@ def nix_build_config(
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
             haltOnFailure=True,
-        )
+        ),
     )
     if cachix:
         factory.addStep(
@@ -479,7 +474,7 @@ def nix_build_config(
                     cachix.name,
                     util.Interpolate("result-%(prop:attr)s"),
                 ],
-            )
+            ),
         )
 
     factory.addStep(
@@ -490,27 +485,27 @@ def nix_build_config(
                 "--add-root",
                 # FIXME: cleanup old build attributes
                 util.Interpolate(
-                    "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
+                    "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s",
                 ),
                 "-r",
                 util.Property("out_path"),
             ],
             doStepIf=lambda s: s.getProperty("branch")
             == s.getProperty("github.repository.default_branch"),
-        )
+        ),
     )
     factory.addStep(
         steps.ShellCommand(
             name="Delete temporary gcroots",
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
-        )
+        ),
     )
     if outputs_path is not None:
         factory.addStep(
             UpdateBuildOutput(
                 name="Update build output",
                 path=outputs_path,
-            )
+            ),
         )
     return util.BuilderConfig(
         name=f"{project.name}/nix-build",
@@ -523,18 +518,17 @@ def nix_build_config(
 
 
 def nix_skipped_build_config(
-    project: GithubProject, worker_names: list[str]
+    project: GithubProject,
+    worker_names: list[str],
 ) -> util.BuilderConfig:
-    """
-    Dummy builder that is triggered when a build is skipped.
-    """
+    """Dummy builder that is triggered when a build is skipped."""
     factory = util.BuildFactory()
     factory.addStep(
         EvalErrorStep(
             name="Nix evaluation",
             doStepIf=lambda s: s.getProperty("error"),
             hideStepIf=lambda _, s: not s.getProperty("error"),
-        )
+        ),
     )
 
     # This is just a dummy step showing the cached build
@@ -543,7 +537,7 @@ def nix_skipped_build_config(
             name="Nix build (cached)",
             doStepIf=lambda _: False,
             hideStepIf=lambda _, s: s.getProperty("error"),
-        )
+        ),
     )
     return util.BuilderConfig(
         name=f"{project.name}/nix-skipped-build",
@@ -595,7 +589,7 @@ def config_for_project(
     config["schedulers"].extend(
         [
             schedulers.SingleBranchScheduler(
-                name=f"{project.id}-default-branch",
+                name=f"{project.project_id}-default-branch",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
                     filter_fn=lambda c: c.branch
@@ -606,7 +600,7 @@ def config_for_project(
             ),
             # this is compatible with bors or github's merge queue
             schedulers.SingleBranchScheduler(
-                name=f"{project.id}-merge-queue",
+                name=f"{project.project_id}-merge-queue",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
                     branch_re="(gh-readonly-queue/.*|staging|trying)",
@@ -615,35 +609,36 @@ def config_for_project(
             ),
             # build all pull requests
             schedulers.SingleBranchScheduler(
-                name=f"{project.id}-prs",
+                name=f"{project.project_id}-prs",
                 change_filter=util.ChangeFilter(
-                    repository=project.url, category="pull"
+                    repository=project.url,
+                    category="pull",
                 ),
                 builderNames=[f"{project.name}/nix-eval"],
             ),
             # this is triggered from `nix-eval`
             schedulers.Triggerable(
-                name=f"{project.id}-nix-build",
+                name=f"{project.project_id}-nix-build",
                 builderNames=[f"{project.name}/nix-build"],
             ),
             # this is triggered from `nix-eval` when the build is skipped
             schedulers.Triggerable(
-                name=f"{project.id}-nix-skipped-build",
+                name=f"{project.project_id}-nix-skipped-build",
                 builderNames=[f"{project.name}/nix-skipped-build"],
             ),
             # allow to manually trigger a nix-build
             schedulers.ForceScheduler(
-                name=f"{project.id}-force",
+                name=f"{project.project_id}-force",
                 builderNames=[f"{project.name}/nix-eval"],
                 properties=[
                     util.StringParameter(
                         name="project",
                         label="Name of the GitHub repository.",
                         default=project.name,
-                    )
+                    ),
                 ],
             ),
-        ]
+        ],
     )
     config["builders"].extend(
         [
@@ -665,18 +660,23 @@ def config_for_project(
                 outputs_path=outputs_path,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
-        ]
+        ],
     )
 
 
 class AnyProjectEndpointMatcher(EndpointMatcherBase):
-    def __init__(self, builders: set[str] = set(), **kwargs: Any) -> None:
+    def __init__(self, builders: set[str] | None = None, **kwargs: Any) -> None:
+        if builders is None:
+            builders = set()
         self.builders = builders
         super().__init__(**kwargs)
 
     @defer.inlineCallbacks
     def check_builder(
-        self, endpoint_object: Any, endpoint_dict: dict[str, Any], object_type: str
+        self,
+        endpoint_object: Any,
+        endpoint_dict: dict[str, Any],
+        object_type: str,
     ) -> Generator[Any, Any, Any]:
         res = yield endpoint_object.get({}, endpoint_dict)
         if res is None:
@@ -684,7 +684,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
 
         builder = yield self.master.data.get(("builders", res["builderid"]))
         if builder["name"] in self.builders:
-            log.warn(
+            log.warning(
                 "Builder {builder} allowed by {role}: {builders}",
                 builder=builder["name"],
                 role=self.role,
@@ -692,7 +692,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
             )
             return Match(self.master, **{object_type: res})
         else:
-            log.warn(
+            log.warning(
                 "Builder {builder} not allowed by {role}: {builders}",
                 builder=builder["name"],
                 role=self.role,
@@ -700,17 +700,26 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
             )
 
     def match_BuildEndpoint_rebuild(  # noqa: N802
-        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+        self,
+        epobject: Any,
+        epdict: dict[str, Any],
+        options: dict[str, Any],
     ) -> Generator[Any, Any, Any]:
         return self.check_builder(epobject, epdict, "build")
 
     def match_BuildEndpoint_stop(  # noqa: N802
-        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+        self,
+        epobject: Any,
+        epdict: dict[str, Any],
+        options: dict[str, Any],
     ) -> Generator[Any, Any, Any]:
         return self.check_builder(epobject, epdict, "build")
 
     def match_BuildRequestEndpoint_stop(  # noqa: N802
-        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+        self,
+        epobject: Any,
+        epdict: dict[str, Any],
+        options: dict[str, Any],
     ) -> Generator[Any, Any, Any]:
         return self.check_builder(epobject, epdict, "buildrequest")
 
@@ -718,7 +727,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
 def setup_authz(projects: list[GithubProject], admins: list[str]) -> util.Authz:
     allow_rules = []
     allowed_builders_by_org: defaultdict[str, set[str]] = defaultdict(
-        lambda: {"reload-github-projects"}
+        lambda: {"reload-github-projects"},
     )
 
     for project in projects:
@@ -751,14 +760,13 @@ class NixConfigurator(ConfiguratorBase):
 
     def __init__(
         self,
-        # Shape of this file:
-        # [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
+        # Shape of this file: [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
         github: GithubConfig,
         url: str,
         nix_supported_systems: list[str],
         nix_eval_worker_count: int | None,
         nix_eval_max_memory_size: int,
-        nix_workers_secret_name: str = "buildbot-nix-workers",
+        nix_workers_secret_name: str = "buildbot-nix-workers",  # noqa: S107
         cachix: CachixConfig | None = None,
         outputs_path: str | None = None,
     ) -> None:
@@ -823,7 +831,7 @@ class NixConfigurator(ConfiguratorBase):
                 [worker_names[0]],
                 self.github.token(),
                 self.github.project_cache_file,
-            )
+            ),
         )
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
         config["schedulers"].extend(
@@ -839,7 +847,7 @@ class NixConfigurator(ConfiguratorBase):
                     builderNames=["reload-github-projects"],
                     periodicBuildTimer=12 * 60 * 60,
                 ),
-            ]
+            ],
         )
         config["services"].append(
             reporters.GitHubStatusPush(
@@ -848,11 +856,11 @@ class NixConfigurator(ConfiguratorBase):
                 # we use `virtual_builder_name` in the webinterface
                 # so that we distinguish what has beeing build
                 context=Interpolate("buildbot/%(prop:status_name)s"),
-            )
+            ),
         )
 
         systemd_secrets = secrets.SecretInAFile(
-            dirname=os.environ["CREDENTIALS_DIRECTORY"]
+            dirname=os.environ["CREDENTIALS_DIRECTORY"],
         )
         config["secretsProviders"].append(systemd_secrets)
 
@@ -870,7 +878,7 @@ class NixConfigurator(ConfiguratorBase):
         if "auth" not in config["www"]:
             config["www"].setdefault("avatar_methods", [])
             config["www"]["avatar_methods"].append(
-                util.AvatarGitHub(token=self.github.token())
+                util.AvatarGitHub(token=self.github.token()),
             )
             config["www"]["auth"] = util.GitHubAuth(
                 self.github.oauth_id,
@@ -879,5 +887,6 @@ class NixConfigurator(ConfiguratorBase):
             )
 
             config["www"]["authz"] = setup_authz(
-                admins=self.github.admins, projects=projects
+                admins=self.github.admins,
+                projects=projects,
             )
