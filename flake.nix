@@ -37,6 +37,8 @@
           packages.default = pkgs.mkShell {
             packages = [
               pkgs.bashInteractive
+              pkgs.mypy
+              pkgs.ruff
             ];
           };
           packages.buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
