@@ -44,6 +44,9 @@ ignore = [
   # fixmes
   "FIX",
 
+  # commented out code
+  "ERA001",
+
   # Unused function argument
   "ARG001",
   "ARG002",
