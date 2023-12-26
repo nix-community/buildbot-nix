@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from twisted.internet import defer, threads
+from twisted.logger import Logger
+from twisted.python.failure import Failure
+
 from buildbot.configurators import ConfiguratorBase
 from buildbot.plugins import reporters, schedulers, secrets, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
@@ -22,9 +26,6 @@ from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
 from buildbot.util import asyncSleep
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
-from twisted.internet import defer, threads
-from twisted.logger import Logger
-from twisted.python.failure import Failure
 
 from .github_projects import (
     GithubProject,
