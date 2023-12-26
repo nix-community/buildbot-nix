@@ -162,7 +162,7 @@ in
                   name=${builtins.toJSON cfg.cachix.name},
                   signing_key_secret_name=${if cfg.cachix.signingKeyFile != null then builtins.toJSON "cachix-signing-key" else "None"},
                   auth_token_secret_name=${if cfg.cachix.authTokenFile != null then builtins.toJSON "cachix-auth-token" else "None"},
-              "}),
+              )"},
               url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
               nix_eval_worker_count=${if cfg.evalWorkerCount == null then "None" else builtins.toString cfg.evalWorkerCount},
