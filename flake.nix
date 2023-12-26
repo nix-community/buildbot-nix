@@ -80,6 +80,7 @@
               ];
             };
             packages.buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
+            packages.buildbot-effects = pkgs.python3.pkgs.callPackage ./nix/buildbot-effects.nix { };
             checks =
               let
                 nixosMachines = lib.mapAttrs' (

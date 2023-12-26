@@ -78,6 +78,7 @@ in
         pkgs.openssh
         pkgs.nix
         cfg.nixEvalJobs.package
+        (pkgs.python3.pkgs.callPackage ./buildbot-effects.nix { })
       ];
       environment.PYTHONPATH = "${python.withPackages (_: [ cfg.package ])}/${python.sitePackages}";
       environment.MASTER_URL = cfg.masterUrl;
