@@ -51,7 +51,7 @@ def setup_worker(
         None,
         workername,
         config.password,
-        basedir,
+        str(basedir),
         keepalive,
         connection_string=config.master_url,
         umask=umask,
