@@ -287,7 +287,7 @@ class ReloadGithubProjects(steps.BuildStep):
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
-        d = threads.deferToThread(self.reload_projects)
+        d = threads.deferToThread(self.reload_projects)  # type: ignore[no-untyped-call]
 
         self.error_msg = ""
 
@@ -677,7 +677,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         endpoint_object: Any,
         endpoint_dict: dict[str, Any],
         object_type: str,
-    ) -> Generator[Any, Any, Any]:
+    ) -> Generator[defer.Deferred[Match], Any, Any]:
         res = yield endpoint_object.get({}, endpoint_dict)
         if res is None:
             return None
@@ -704,7 +704,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> Generator[Any, Any, Any]:
+    ) -> defer.Deferred[Match]:
         return self.check_builder(epobject, epdict, "build")
 
     def match_BuildEndpoint_stop(  # noqa: N802
@@ -712,7 +712,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> Generator[Any, Any, Any]:
+    ) -> defer.Deferred[Match]:
         return self.check_builder(epobject, epdict, "build")
 
     def match_BuildRequestEndpoint_stop(  # noqa: N802
@@ -720,7 +720,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> Generator[Any, Any, Any]:
+    ) -> defer.Deferred[Match]:
         return self.check_builder(epobject, epdict, "buildrequest")
 
 
