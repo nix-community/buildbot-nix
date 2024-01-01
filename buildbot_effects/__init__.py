@@ -96,7 +96,7 @@ def effect_function(opts: EffectsOptions) -> str:
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
     url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
-    return f"""(((builtins.getFlake {url}).outputs.herculesCI (builtins.fromJSON {escaped_args})).onPush.default.outputs.hci-effects)"""
+    return f"""(((builtins.getFlake {url}).outputs.herculesCI (builtins.fromJSON {escaped_args})).onPush.default.outputs.effects)"""
 
 
 def list_effects(opts: EffectsOptions) -> list[str]:
@@ -110,11 +110,11 @@ def list_effects(opts: EffectsOptions) -> list[str]:
     return json.loads(proc.stdout)
 
 
-def instantiate_effects(opts: EffectsOptions) -> str:
+def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
     cmd = [
         "nix-instantiate",
         "--expr",
-        f"{effect_function(opts)}.deploy.run",
+        f"({effect_function(opts)}.{effect}).run or []",
     ]
     proc = run(cmd, stdout=subprocess.PIPE)
     return proc.stdout.rstrip()
