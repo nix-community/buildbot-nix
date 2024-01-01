@@ -684,7 +684,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
 
         builder = yield self.master.data.get(("builders", res["builderid"]))
         if builder["name"] in self.builders:
-            log.warning(
+            log.warn(
                 "Builder {builder} allowed by {role}: {builders}",
                 builder=builder["name"],
                 role=self.role,
@@ -692,7 +692,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
             )
             return Match(self.master, **{object_type: res})
         else:
-            log.warning(
+            log.warn(
                 "Builder {builder} not allowed by {role}: {builders}",
                 builder=builder["name"],
                 role=self.role,
