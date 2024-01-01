@@ -100,7 +100,3 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "buildbot_worker.*"
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "twisted.*"
-ignore_missing_imports = true

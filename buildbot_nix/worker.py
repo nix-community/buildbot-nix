@@ -6,6 +6,7 @@ from pathlib import Path
 
 from buildbot_worker.bot import Worker
 from twisted.application import service
+from twisted.python import components
 
 
 def require_env(key: str) -> str:
@@ -31,7 +32,7 @@ class WorkerConfig:
 
 
 def setup_worker(
-    application: service.Application,
+    application: components.Componentized,
     builder_id: int,
     config: WorkerConfig,
 ) -> None:
@@ -64,12 +65,12 @@ def setup_worker(
     s.setServiceParent(application)
 
 
-def setup_workers(application: service.Application, config: WorkerConfig) -> None:
+def setup_workers(application: components.Componentized, config: WorkerConfig) -> None:
     for i in range(config.worker_count):
         setup_worker(application, i, config)
 
 
 # note: this line is matched against to check that this is a worker
 # directory; do not edit it.
-application = service.Application("buildbot-worker")
+application = service.Application("buildbot-worker")  # type: ignore[no-untyped-call]
 setup_workers(application, WorkerConfig())

@@ -10,8 +10,12 @@
       programs.deno.enable = true;
       settings.formatter.shellcheck.options = [ "-s" "bash" ];
 
-      programs.mypy.enable = true;
-      programs.mypy.directories."." = { };
+      programs.mypy = {
+        enable = true;
+        directories.".".extraPythonPackages = [
+          pkgs.python3.pkgs.twisted
+        ];
+      };
       settings.formatter.python = {
         command = "sh";
         options = [
