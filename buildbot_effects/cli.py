@@ -1,18 +1,22 @@
 import argparse
 import json
-from collections.abc import Callable
+import sys
 from pathlib import Path
 
 from . import instantiate_effects, list_effects, parse_derivation, run_effects
 from .options import EffectsOptions
 
 
-def list_command(options: EffectsOptions) -> None:
-    print(list_effects(options))
+def list_command(args: argparse.Namespace, options: EffectsOptions) -> None:
+    json.dump(list_effects(options), fp=sys.stdout, indent=2)
 
 
-def run_command(options: EffectsOptions) -> None:
-    drv_path = instantiate_effects(options)
+def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
+    effect = args.effect
+    drv_path = instantiate_effects(effect, options)
+    if drv_path == "":
+        print(f"Effect {effect} not found or not runnable for {options}")
+        return
     drvs = parse_derivation(drv_path)
     drv = next(iter(drvs.values()))
 
@@ -20,11 +24,11 @@ def run_command(options: EffectsOptions) -> None:
     run_effects(drv_path, drv, secrets=secrets)
 
 
-def run_all_command(options: EffectsOptions) -> None:
+def run_all_command(args: argparse.Namespace, options: EffectsOptions) -> None:
     print("TODO")
 
 
-def parse_args() -> tuple[Callable[[EffectsOptions], None], EffectsOptions]:
+def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
     parser = argparse.ArgumentParser(description="Run effects from a hercules-ci flake")
     parser.add_argument(
         "--secrets",
@@ -48,7 +52,8 @@ def parse_args() -> tuple[Callable[[EffectsOptions], None], EffectsOptions]:
     )
     parser.add_argument(
         "--path",
-        type=str,
+        type=Path,
+        default=Path(),
         help="Path to the repository",
     )
     subparser = parser.add_subparsers(
@@ -77,9 +82,16 @@ def parse_args() -> tuple[Callable[[EffectsOptions], None], EffectsOptions]:
     run_all_parser.set_defaults(command=run_all_command)
 
     args = parser.parse_args()
-    return args.command, EffectsOptions(secrets=args.secrets)
+    opts = EffectsOptions(
+        secrets=args.secrets,
+        branch=args.branch,
+        rev=args.rev,
+        repo=args.repo,
+        path=args.path.resolve(),
+    )
+    return args, opts
 
 
 def main() -> None:
-    command, options = parse_args()
-    command(options)
+    args, options = parse_args()
+    args.command(args, options)
