@@ -357,7 +357,7 @@ def nix_eval_config(
     worker_names: list[str],
     github_token_secret: str,
     supported_systems: list[str],
-    eval_lock: util.WorkerLock,
+    eval_lock: util.MasterLock,
     worker_count: int,
     max_memory_size: int,
 ) -> util.BuilderConfig:
@@ -581,7 +581,7 @@ def config_for_project(
     nix_supported_systems: list[str],
     nix_eval_worker_count: int,
     nix_eval_max_memory_size: int,
-    eval_lock: util.WorkerLock,
+    eval_lock: util.MasterLock,
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
 ) -> Project:
@@ -646,7 +646,7 @@ def config_for_project(
             # This should prevent exessive memory usage.
             nix_eval_config(
                 project,
-                [worker_names[0]],
+                worker_names,
                 github_token_secret=github.token_secret_name,
                 supported_systems=nix_supported_systems,
                 worker_count=nix_eval_worker_count,
@@ -802,7 +802,7 @@ class NixConfigurator(ConfiguratorBase):
                 worker_names.append(worker_name)
 
         webhook_secret = read_secret_file(self.github.webhook_secret_name)
-        eval_lock = util.WorkerLock("nix-eval")
+        eval_lock = util.MasterLock("nix-eval")
 
         for project in projects:
             create_project_hook(
