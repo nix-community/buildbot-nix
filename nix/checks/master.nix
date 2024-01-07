@@ -1,5 +1,5 @@
 (import ./lib.nix) {
-  name = "from-nixos";
+  name = "master";
   nodes = {
     # `self` here is set by using specialArgs in `lib.nix`
     node1 =
