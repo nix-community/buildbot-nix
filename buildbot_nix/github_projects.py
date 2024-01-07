@@ -188,5 +188,5 @@ def load_projects(github_token: str, repo_cache_file: Path) -> list[GithubProjec
     if not repo_cache_file.exists():
         log.msg("fetching github repositories")
         refresh_projects(github_token, repo_cache_file)
-    repos: list[dict[str, Any]] = json.loads(repo_cache_file.read_text())
+    repos: list[dict[str, Any]] = sorted(json.loads(repo_cache_file.read_text()), key=lambda x: x["full_name"])
     return [GithubProject(repo) for repo in repos]
