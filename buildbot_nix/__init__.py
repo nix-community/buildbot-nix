@@ -755,6 +755,18 @@ def setup_authz(projects: list[GithubProject], admins: list[str]) -> util.Authz:
     )
 
 
+class PeriodicWithStartup(schedulers.Periodic):
+    def __init__(self, *args: Any, run_on_startup: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.run_on_startup = run_on_startup
+
+    @defer.inlineCallbacks
+    def activate(self) -> Generator[Any, object, Any]:
+        if self.run_on_startup:
+            yield self.setState("last_build", None)
+        yield super().activate()
+
+
 class NixConfigurator(ConfiguratorBase):
     """Janitor is a configurator which create a Janitor Builder with all needed Janitor steps"""
 
@@ -841,11 +853,12 @@ class NixConfigurator(ConfiguratorBase):
                     builderNames=["reload-github-projects"],
                     buttonName="Update projects",
                 ),
-                # project list twice a day
-                schedulers.Periodic(
+                # project list twice a day and on startup
+                PeriodicWithStartup(
                     name="reload-github-projects-bidaily",
                     builderNames=["reload-github-projects"],
                     periodicBuildTimer=12 * 60 * 60,
+                    run_on_startup=not self.github.project_cache_file.exists(),
                 ),
             ],
         )
