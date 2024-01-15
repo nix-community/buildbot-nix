@@ -377,6 +377,9 @@ def nix_eval_config(
             haltOnFailure=True,
         ),
     )
+    drv_gcroots_dir = util.Interpolate(
+        "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/drvs/",
+    )
 
     factory.addStep(
         NixEvalCommand(
@@ -393,8 +396,7 @@ def nix_eval_config(
                 "accept-flake-config",
                 "true",
                 "--gc-roots-dir",
-                # FIXME: don't hardcode this
-                "/var/lib/buildbot-worker/gcroot",
+                drv_gcroots_dir,
                 "--force-recurse",
                 "--check-cache-status",
                 "--flake",
@@ -402,6 +404,17 @@ def nix_eval_config(
             ],
             haltOnFailure=True,
             locks=[eval_lock.access("exclusive")],
+        ),
+    )
+
+    factory.addStep(
+        steps.ShellCommand(
+            name="Cleanup drv paths",
+            command=[
+                "rm",
+                "-rf",
+                drv_gcroots_dir,
+            ],
         ),
     )
 
