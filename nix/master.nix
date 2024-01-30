@@ -183,9 +183,17 @@ in
         ps.treq
         ps.psycopg2
         (ps.toPythonModule pkgs.buildbot-worker)
+        pkgs.buildbot-plugins.badges
         pkgs.buildbot-plugins.www-react
         (pkgs.python3.pkgs.callPackage ../default.nix { })
       ];
+
+      extraConfig = ''
+        c.setdefault("www", {})
+        c['www'].setdefault("plugins", {})
+        # https://docs.buildbot.net/current/manual/configuration/www.html#badges
+        c['www']['plugins'].setdefault("badges", {})
+      '';
     };
 
     systemd.services.buildbot-master = {
