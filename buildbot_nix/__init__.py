@@ -1,6 +1,7 @@
 import json
 import multiprocessing
 import os
+import re
 import signal
 import sys
 import uuid
@@ -677,6 +678,16 @@ def config_for_project(
     )
 
 
+def normalize_virtual_builder_name(name: str) -> str:
+    if name.startswith("github:"):
+        # rewrites github:nix-community/srvos#checks.aarch64-linux.nixos-stable-example-hardware-hetzner-online-intel -> nix-community/srvos/nix-build
+        match = re.match(r"github:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
+        if match:
+            return f"{match['owner']}/{match['repo']}/nix-build"
+
+    return name
+
+
 class AnyProjectEndpointMatcher(EndpointMatcherBase):
     def __init__(self, builders: set[str] | None = None, **kwargs: Any) -> None:
         if builders is None:
@@ -696,10 +707,11 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
             return None
 
         builder = yield self.master.data.get(("builders", res["builderid"]))
-        if builder["name"] in self.builders:
+        builder_name = normalize_virtual_builder_name(builder["name"])
+        if builder_name in self.builders:
             log.warn(
                 "Builder {builder} allowed by {role}: {builders}",
-                builder=builder["name"],
+                builder=builder_name,
                 role=self.role,
                 builders=self.builders,
             )
@@ -707,7 +719,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         else:
             log.warn(
                 "Builder {builder} not allowed by {role}: {builders}",
-                builder=builder["name"],
+                builder=builder_name,
                 role=self.role,
                 builders=self.builders,
             )
