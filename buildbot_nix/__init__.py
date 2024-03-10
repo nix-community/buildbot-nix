@@ -24,6 +24,7 @@ from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
+    from buildbot.process.log import Log
     from buildbot.www.auth import AuthBase
 
 from twisted.internet import defer
@@ -62,6 +63,7 @@ class BuildTrigger(Trigger):
         skipped_builds_scheduler: str,
         jobs: list[dict[str, Any]],
         report_status: bool,
+        drv_info: dict[str, Any],
         **kwargs: Any,
     ) -> None:
         if "name" not in kwargs:
@@ -69,6 +71,7 @@ class BuildTrigger(Trigger):
         self.project = project
         self.jobs = jobs
         self.report_status = report_status
+        self.drv_info = drv_info
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
@@ -92,6 +95,20 @@ class BuildTrigger(Trigger):
         repo_name = self.project.name
         project_id = slugify_project_name(repo_name)
         source = f"nix-eval-{project_id}"
+
+        all_deps: dict[str, set[str]] = dict()
+        for drv, info in self.drv_info.items():
+            all_deps[drv] = set(info.get("inputDrvs").keys())
+        def closure_of(key: str, deps: dict[str, set[str]]) -> set[str]:
+            r, size = set([key]), 0
+            while len(r) != size:
+                size = len(r)
+                r.update(*[ deps[k] for k in r ])
+            return r.difference([key])
+        job_set = set(( drv for drv in ( job.get("drvPath") for job in self.jobs ) if drv ))
+        all_deps = { k: closure_of(k, all_deps).intersection(job_set) for k in job_set }
+
+        build_props.setProperty("sched_state", {k: list(v) for k, v in all_deps.items()}, source, True)
 
         triggered_schedulers = []
         for job in self.jobs:
@@ -211,6 +228,24 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
             self.number_of_jobs = len(filtered_jobs)
 
+            drv_show_log: Log = yield self.getLog("stdio")
+            drv_show_log.addStdout(f"getting derivation infos\n")
+            cmd = yield self.makeRemoteShellCommand(
+                stdioLogName=None,
+                collectStdout=True,
+                command=(
+                    ["nix", "derivation", "show", "--recursive"]
+                    + [ drv for drv in (job.get("drvPath") for job in filtered_jobs) if drv ]
+                ),
+            )
+            yield self.runCommand(cmd)
+            drv_show_log.addStdout(f"done\n")
+            try:
+                drv_info = json.loads(cmd.stdout)
+            except json.JSONDecodeError as e:
+                msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
+                raise BuildbotNixError(msg) from e
+
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
@@ -223,6 +258,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                             self.job_report_limit is None
                             or self.number_of_jobs <= self.job_report_limit
                         ),
+                        drv_info=drv_info,
                     ),
                 ]
                 + (
