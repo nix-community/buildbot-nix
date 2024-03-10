@@ -3,10 +3,12 @@ import multiprocessing
 import os
 import re
 import uuid
+import sys
+import graphlib
 from collections import defaultdict
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast, Tuple
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
@@ -14,15 +16,26 @@ from buildbot.interfaces import WorkerSetupError
 from buildbot.locks import MasterLock
 from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
+from buildbot.process.build import Build
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.secrets.providers.file import SecretInAFile
+from buildbot.schedulers.base import BaseScheduler
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
+from buildbot.www.oauth2 import OAuth2Auth
+from buildbot.changes.gerritchangesource import GerritChangeSource
+from buildbot.reporters.utils import getURLForBuild
+from buildbot.reporters.utils import getURLForBuildrequest
+from buildbot.process.buildstep import CANCELLED
+from buildbot.process.buildstep import EXCEPTION
+from buildbot.process.buildstep import SUCCESS
+from buildbot.process.results import worst_status
 
 if TYPE_CHECKING:
+    from buildbot.master.db.builds import BuildModel
     from buildbot.process.log import StreamLog
     from buildbot.process.log import Log
     from buildbot.www.auth import AuthBase
@@ -51,7 +64,7 @@ class BuildbotNixError(Exception):
     pass
 
 
-class BuildTrigger(Trigger):
+class BuildTrigger(steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
 
     project: GitProject
@@ -66,31 +79,97 @@ class BuildTrigger(Trigger):
         drv_info: dict[str, Any],
         **kwargs: Any,
     ) -> None:
-        if "name" not in kwargs:
-            kwargs["name"] = "trigger"
         self.project = project
         self.jobs = jobs
         self.report_status = report_status
         self.drv_info = drv_info
         self.config = None
         self.builds_scheduler = builds_scheduler
-        self.skipped_builds_scheduler = skipped_builds_scheduler
-        Trigger.__init__(
-            self,
-            waitForFinish=True,
-            schedulerNames=[builds_scheduler, skipped_builds_scheduler],
-            haltOnFailure=True,
-            flunkOnFailure=True,
-            sourceStamps=[],
-            alwaysUseLatest=False,
-            updateSourceStamp=False,
-            **kwargs,
-        )
+        self._result_list = []
+        self.ended = False
+        self.waitForFinishDeferred = None
+        super().__init__(**kwargs)
 
-    def createTriggerProperties(self, props: Any) -> Any:  # noqa: N802
-        return props
+    def interrupt(self, reason):
+        # We cancel the buildrequests, as the data api handles
+        # both cases:
+        # - build started: stop is sent,
+        # - build not created yet: related buildrequests are set to CANCELLED.
+        # Note that there is an identified race condition though (more details
+        # are available at buildbot.data.buildrequests).
+        for brid in self.brids:
+            self.master.data.control(
+                "cancel", {'reason': 'parent build was interrupted'}, ("buildrequests", brid)
+            )
+        if self.running and not self.ended:
+            self.ended = True
+            # if we are interrupted because of a connection lost, we interrupt synchronously
+            if self.build.conn is None and self.waitForFinishDeferred is not None:
+                self.waitForFinishDeferred.cancel()
 
-    def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:  # noqa: N802
+    def getSchedulerByName(self, name: str) -> BaseScheduler:
+        schedulers = self.master.scheduler_manager.namedServices
+        if name not in schedulers:
+            raise ValueError(f"unknown triggered scheduler: {repr(name)}")
+        sch = schedulers[name]
+        # todo: check ITriggerableScheduler
+        return sch
+
+    def schedule_one(self, build_props: Properties, job: dict[str, Any]) -> Tuple[BaseScheduler, Properties]:
+        source = f"nix-eval-lix"
+        attr = job.get("attr", "eval-error")
+        name = attr
+        name = f"hydraJobs.{name}"
+        error = job.get("error")
+        props = Properties()
+        props.setProperty("virtual_builder_name", name, source)
+        props.setProperty("status_name", f"nix-build .#hydraJobs.{attr}", source)
+        props.setProperty("virtual_builder_tags", "", source)
+
+        if error is not None:
+            props.setProperty("error", error, source)
+            return (self.builds_scheduler, props)
+
+        drv_path = job.get("drvPath")
+        system = job.get("system")
+        out_path = job.get("outputs", {}).get("out")
+
+        build_props.setProperty(f"{attr}-out_path", out_path, source)
+        build_props.setProperty(f"{attr}-drv_path", drv_path, source)
+
+        props.setProperty("attr", attr, source)
+        props.setProperty("system", system, source)
+        props.setProperty("drv_path", drv_path, source)
+        props.setProperty("out_path", out_path, source)
+        props.setProperty("isCached", job.get("isCached"), source)
+
+        return (self.builds_scheduler, props)
+
+    @defer.inlineCallbacks
+    def _add_results(self, brid: Any) -> Generator[Any, object, None]:
+        @defer.inlineCallbacks
+        def _is_buildrequest_complete(brid: Any) -> Generator[Any, object, bool]:
+            buildrequest: dict[str, Any] = yield self.master.db.buildrequests.getBuildRequest(brid)
+            return buildrequest['complete']
+
+        event = ('buildrequests', str(brid), 'complete')
+        yield self.master.mq.waitUntilEvent(event, lambda: _is_buildrequest_complete(brid))
+        builds: list[BuildModel] = yield self.master.db.builds.getBuilds(buildrequestid=brid)
+        for build in builds:
+            self._result_list.append(build["results"])
+        self.updateSummary()
+
+    def prepareSourcestampListForTrigger(self):
+        ss_for_trigger = {}
+        objs_from_build = self.build.getAllSourceStamps()
+        for ss in objs_from_build:
+            ss_for_trigger[ss.codebase] = ss.asDict()
+
+        trigger_values = [ss_for_trigger[k] for k in sorted(ss_for_trigger.keys())]
+        return trigger_values
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, object, None]:
         build_props = self.build.getProperties()
         repo_name = self.project.name
         project_id = slugify_project_name(repo_name)
@@ -106,56 +185,102 @@ class BuildTrigger(Trigger):
                 r.update(*[ deps[k] for k in r ])
             return r.difference([key])
         job_set = set(( drv for drv in ( job.get("drvPath") for job in self.jobs ) if drv ))
+
         all_deps = { k: closure_of(k, all_deps).intersection(job_set) for k in job_set }
+        builds_to_schedule = list(self.jobs)
+        build_schedule_order = []
+        sorter = graphlib.TopologicalSorter(all_deps)
+        for item in sorter.static_order():
+            i = 0
+            while i < len(builds_to_schedule):
+                if item == builds_to_schedule[i].get("drvPath"):
+                    build_schedule_order.append(builds_to_schedule[i])
+                    del builds_to_schedule[i]
+                else:
+                    i += 1
 
-        build_props.setProperty("sched_state", {k: list(v) for k, v in all_deps.items()}, source, True)
+        done = []
+        scheduled: list[Tuple[dict[str, Any], dict[int, int], defer.Deferred[list[int]]]] = []
+        failed = []
+        all_results = SUCCESS
+        ss_for_trigger = self.prepareSourcestampListForTrigger()
+        while len(build_schedule_order) > 0 or len(scheduled) > 0:
+            print('Scheduling..')
+            schedule_now = []
+            for build in list(build_schedule_order):
+                drv_path = build.get("drvPath")
+                if drv_path is None:
+                    log.warn("skipping build due to missing drvPath: {build}", build=build)
+                    continue
+                if not all_deps.get(drv_path, []):
+                    build_schedule_order.remove(build)
+                    schedule_now.append(build)
+            if len(schedule_now) == 0:
+                print('    No builds to schedule found.')
+            for job in schedule_now:
+                print(f"    - {job.get('attr')}")
+                (scheduler, props) = self.schedule_one(build_props, job)
+                scheduler = self.getSchedulerByName(scheduler)
 
-        triggered_schedulers = []
-        for job in self.jobs:
-            attr = job.get("attr", "eval-error")
-            name = attr
-            if repo_name is not None:
-                name = f"github:{repo_name}#checks.{name}"
-            else:
-                name = f"checks.{name}"
-            error = job.get("error")
-            props = Properties()
-            props.setProperty("virtual_builder_name", name, source)
-            props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
-            props.setProperty("virtual_builder_tags", "", source)
-            props.setProperty("report_status", self.report_status, source)
+                idsDeferred, resultsDeferred = scheduler.trigger(
+                    waited_for = True,
+                    sourcestamps = ss_for_trigger,
+                    set_props = props,
+                    parent_buildid = self.build.buildid,
+                    parent_relationship = "Triggered from",
+                )
 
-            drv_path = job.get("drvPath")
-            system = job.get("system")
-            out_path = job.get("outputs", {}).get("out")
+                brids: dict[int, int]
+                try:
+                    _, brids = yield idsDeferred
+                except Exception as e:
+                    yield self.addLogWithException(e)
+                    results = EXCEPTION
+                scheduled.append((job, brids, resultsDeferred))
 
-            props.setProperty("attr", attr, source)
-            props.setProperty("system", system, source)
-            props.setProperty("drv_path", drv_path, source)
-            props.setProperty("out_path", out_path, source)
-            props.setProperty("default_branch", self.project.default_branch, source)
-            # we use this to identify builds when running a retry
-            props.setProperty("build_uuid", str(uuid.uuid4()), source)
 
-            if error is not None:
-                props.setProperty("error", error, source)
-                triggered_schedulers.append((self.skipped_builds_scheduler, props))
-                continue
+                for brid in brids.values():
+                    url = getURLForBuildrequest(self.master, brid)
+                    yield self.addURL(f"{scheduler.name} #{brid}", url)
+                    self._add_results(brid)
+            print('Waiting..')
+            wait_for_next = defer.DeferredList([results for _, _, results in scheduled], fireOnOneCallback = True, fireOnOneErrback=True)
+            self.waitForFinishDeferred = wait_for_next
+            results, index = yield wait_for_next
+            job, brids, _ = scheduled[index]
+            done.append((job, brids, results))
+            del scheduled[index]
+            result = results[0]
+            print(f'    Found finished build {job.get("attr")}, result {util.Results[result].upper()}')
+            if result != SUCCESS:
+                failed_checks = []
+                failed_paths = []
+                removed = []
+                while True:
+                    old_paths = list(failed_paths)
+                    print(failed_checks, old_paths)
+                    for build in list(build_schedule_order):
+                        deps = all_deps.get(build.get("drvPath"), [])
+                        for path in old_paths:
+                            if path in deps:
+                                failed_checks.append(build)
+                                failed_paths.append(build.get("drvPath"))
+                                build_schedule_order.remove(build)
+                                removed.append(build.get("attr"))
 
-            if job.get("isCached"):
-                triggered_schedulers.append((self.skipped_builds_scheduler, props))
-                continue
-
-            build_props.setProperty(f"{attr}-out_path", out_path, source)
-            build_props.setProperty(f"{attr}-drv_path", drv_path, source)
-
-            triggered_schedulers.append((self.builds_scheduler, props))
-        return triggered_schedulers
+                                break
+                    if old_paths == failed_paths:
+                        break
+                print('    Removed jobs: ' + ', '.join(removed))
+            all_results = worst_status(result, all_results)
+            print(f'    New result: {util.Results[all_results].upper()}')
+            for dep in all_deps:
+                if job.get("drvPath") in all_deps[dep]:
+                    all_deps[dep].remove(job.get("drvPath"))
+        print('Done!')
+        return all_results
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
-        """The original build trigger will the generic builder name `nix-build` in this case, which is not helpful"""
-        if not self.triggeredNames:
-            return {"step": "running"}
         summary = []
         if self._result_list:
             for status in ALL_RESULTS:
