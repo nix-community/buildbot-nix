@@ -178,6 +178,9 @@ in
         in
         "${if hasSSL then "https" else "http"}://${cfg.domain}/";
       dbUrl = config.services.buildbot-nix.master.dbUrl;
+      package = (pkgs.buildbot.overrideAttrs (old: {
+        patches = old.patches ++ [ ./0001-allow-secrets-to-be-group-readable.patch ];
+      }));
       pythonPackages = ps: [
         ps.requests
         ps.treq
