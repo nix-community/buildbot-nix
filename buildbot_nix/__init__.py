@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from buildbot.configurators import ConfiguratorBase
+from buildbot.interfaces import WorkerSetupError
 from buildbot.plugins import reporters, schedulers, secrets, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
-from buildbot.util import asyncSleep
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
@@ -327,9 +327,9 @@ def reload_github_projects(
     )
 
 
-# The builtin retry mechanism doesn't seem to work for github,
-# since github is sometimes not delivering the pull request ref fast enough.
-class GitWithRetry(steps.Git):
+# GitHub somtimes fires the PR webhook before it has computed the merge commit
+# This is a workaround to fetch the merge commit and checkout the PR branch in CI
+class GitLocalPrMerge(steps.Git):
     @defer.inlineCallbacks
     def run_vc(
         self,
@@ -337,20 +337,51 @@ class GitWithRetry(steps.Git):
         revision: str,
         patch: str,
     ) -> Generator[Any, object, Any]:
-        retry_counter = 0
-        while True:
-            try:
-                res = yield super().run_vc(branch, revision, patch)
-            except Exception as e:  # noqa: BLE001
-                retry_counter += 1
-                if retry_counter == 3:
-                    msg = "Failed to clone"
-                    raise BuildbotNixError(msg) from e
-                log: Log = yield self.addLog("log")
-                yield log.addStderr(f"Retrying git clone (error: {e})\n")
-                yield asyncSleep(2 << retry_counter)  # 2, 4, 8
-            else:
-                return res
+        build_props = self.build.getProperties()
+        merge_base = build_props.getProperty("github.base.sha")
+        pr_head = build_props.getProperty("github.head.sha")
+
+        # Not a PR, fallback to default behavior
+        if merge_base is None or pr_head is None:
+            res = yield super().run_vc(branch, revision, patch)
+            return res
+
+        # The code below is a modified version of Git.run_vc
+        self.stdio_log: Log = yield self.addLogForRemoteCommands("stdio")
+
+        self.stdio_log.addStdout(f"Merging {merge_base} into {pr_head}\n")
+
+        git_installed = yield self.checkFeatureSupport()
+
+        if not git_installed:
+            msg = "git is not installed on worker"
+            raise WorkerSetupError(msg)
+
+        patched = yield self.sourcedirIsPatched()
+
+        if patched:
+            yield self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
+
+        yield self._dovccmd(["fetch", "-f", "-t", self.repourl, merge_base, pr_head])
+
+        yield self._dovccmd(["checkout", "--detach", "-f", pr_head])
+
+        yield self._dovccmd(
+            [
+                "-c",
+                "user.email=buildbot@example.com",
+                "-c",
+                "user.name=buildbot",
+                "merge",
+                "--no-ff",
+                "-m",
+                f"Merge {merge_base} into {pr_head}",
+                merge_base,
+            ]
+        )
+        self.updateSourceProperty("got_revision", pr_head)
+        res = yield self.parseCommitDescription()
+        return res
 
 
 def nix_eval_config(
@@ -371,7 +402,7 @@ def nix_eval_config(
         f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s",
     )
     factory.addStep(
-        GitWithRetry(
+        GitLocalPrMerge(
             repourl=url_with_secret,
             method="clean",
             submodules=True,
