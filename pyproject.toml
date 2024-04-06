@@ -81,7 +81,6 @@ ignore = [
   "PLR2004", # Magic value used in comparison
 
   # not compatible with twisted logger: https://docs.twisted.org/en/twisted-18.7.0/core/howto/logger.html
-  "PGH002", # `warn` is deprecated in favor of `warning`
   "G010",  # Logging statement uses `warn` instead of `warning`
 ]
 
