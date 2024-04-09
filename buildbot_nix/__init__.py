@@ -357,6 +357,13 @@ class GitLocalPrMerge(steps.Git):
             msg = "git is not installed on worker"
             raise WorkerSetupError(msg)
 
+        has_git = yield self.pathExists(
+            self.build.path_module.join(self.workdir, ".git")
+        )
+
+        if not has_git:
+            yield self._dovccmd(["clone", "--recurse-submodules", self.repourl, "."])
+
         patched = yield self.sourcedirIsPatched()
 
         if patched:
