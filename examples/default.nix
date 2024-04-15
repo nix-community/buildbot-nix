@@ -15,61 +15,47 @@ let
   inherit (lib) nixosSystem;
 in
 {
+  # This runs both master and worker on the same machine.
+  # As the actual build is offloaded with remote builder,
+  # this also works well for production setups.
+  "example-master-worker-combined-${system}" = nixosSystem {
+    inherit system;
+    modules = [
+      dummy
+      buildbot-nix.nixosModules.buildbot-master
+      buildbot-nix.nixosModules.buildbot-worker
+      ./master.nix
+      ./worker.nix
+    ];
+  };
   "example-master-${system}" = nixosSystem {
     inherit system;
     modules = [
       dummy
-      ({ pkgs, ... }: {
-        services.buildbot-nix.master = {
-          enable = true;
-          domain = "buildbot2.thalheim.io";
-          workersFile = pkgs.writeText "workers.json" ''
-            [
-              { "name": "eve", "pass": "XXXXXXXXXXXXXXXXXXXX", "cores": 16 }
-            ]
-          '';
-          github = {
-            tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000";
-            webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000";
-            oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
-            oauthId = "aaaaaaaaaaaaaaaaaaaa";
-            user = "mic92-buildbot";
-            admins = [ "Mic92" ];
-            # All github projects with this topic will be added to buildbot.
-            # One can trigger a project scan by visiting the Builds -> Builders page and looking for the "reload-github-project" builder.
-            # This builder has a "Update Github Projects" button that everyone in the github organization can use.
-            topic = "buildbot-mic92";
-          };
-          # optional expose latest store path as text file
-          # outputsPath = "/var/www/buildbot/nix-outputs";
-
-          # optional nix-eval-jobs settings
-          # evalWorkerCount = 8; # limit number of concurrent evaluations
-          # evalMaxMemorySize = "2048"; # limit memory usage per evaluation
-
-          # optional cachix
-          #cachix = {
-          #  name = "my-cachix";
-          #  # One of the following is required:
-          #  signingKey = "/var/lib/secrets/cachix-key";
-          #  authToken = "/var/lib/secrets/cachix-token";
-          #};
-        };
-      })
       buildbot-nix.nixosModules.buildbot-master
+      ./master.nix
+      # When master and worker run on different machines,
+      # we need to configure the master to listen on a public address.
+      # Also check out the buildbot upstream documentation on the master-worker protocol,
+      # including tls encryption
+      {
+        # exposes the master build protocol on port 9989
+        services.buildbot-master.extraConfig = ''
+          c["protocols"] = {"pb": {"port": "tcp:9989:interface=\\:\\:"}}
+        '';
+        networking.firewall.allowedTCPPorts = [ 9989 ];
+      }
     ];
   };
+
   "example-worker-${system}" = nixosSystem {
     inherit system;
     modules = [
       dummy
-      ({ pkgs, ... }: {
-        services.buildbot-nix.worker = {
-          enable = true;
-          workerPasswordFile = pkgs.writeText "worker-password-file" "";
-        };
-      })
       buildbot-nix.nixosModules.buildbot-worker
+      ./worker.nix
+      # Connects to a master on the ipv6 address 2a09:80c0:102::1
+      { services.buildbot-nix.worker.masterUrl = ''tcp:host=2a09\:80c0\:102\:\:1:port=9989''; }
     ];
   };
 }

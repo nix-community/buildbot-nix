@@ -57,7 +57,8 @@ To integrate with GitHub:
 1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
    authentication on the Buildbot dashboard.
 2. **OAuth Credentials**: After installing the app, generate OAuth credentials
-   and configure them in the buildbot-nix NixOS module.
+   and configure them in the buildbot-nix NixOS module. Set the callback url to
+   `https://<your-domain>/auth/login`.
 3. **GitHub Token**: Obtain a GitHub token with `admin:repo_hook` and `repo`
    permissions. For GitHub organizations, it's advisable to create a separate
    GitHub user for managing repository webhooks.
