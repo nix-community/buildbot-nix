@@ -11,7 +11,7 @@ from twisted.python import components
 
 def require_env(key: str) -> str:
     val = os.environ.get(key)
-    assert val is not None, "val is not set"
+    assert val is not None, f"{key} environment variable is not set"
     return val
 
 
@@ -21,6 +21,9 @@ class WorkerConfig:
         default_factory=lambda: Path(require_env("WORKER_PASSWORD_FILE"))
         .read_text()
         .rstrip("\r\n")
+    )
+    worker_name: str = field(
+        default_factory=lambda: os.environ.get("WORKER_NAME", socket.gethostname())
     )
     worker_count: int = int(
         os.environ.get("WORKER_COUNT", str(multiprocessing.cpu_count())),
@@ -39,8 +42,7 @@ def setup_worker(
     basedir = config.buildbot_dir.parent / f"{config.buildbot_dir.name}-{builder_id:03}"
     basedir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
-    hostname = socket.gethostname()
-    workername = f"{hostname}-{builder_id:03}"
+    workername = f"{config.worker_name}-{builder_id:03}"
     keepalive = 600
     umask = None
     maxdelay = 300

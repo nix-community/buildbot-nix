@@ -13,6 +13,11 @@ in
   options = {
     services.buildbot-nix.worker = {
       enable = lib.mkEnableOption "buildbot-worker";
+      name = lib.mkOption {
+        type = lib.types.str;
+        default = config.networking.hostName;
+        description = "The buildbot worker name.";
+      };
       package = lib.mkOption {
         type = lib.types.package;
         default = pkgs.buildbot-worker;
@@ -70,7 +75,10 @@ in
         OOMPolicy = "continue";
 
         LoadCredential = [ "worker-password-file:${cfg.workerPasswordFile}" ];
-        Environment = [ "WORKER_PASSWORD_FILE=%d/worker-password-file" ];
+        Environment = [
+          "WORKER_PASSWORD_FILE=%d/worker-password-file"
+          "WORKER_NAME=${cfg.name}"
+        ];
         Type = "simple";
         User = "buildbot-worker";
         Group = "buildbot-worker";
