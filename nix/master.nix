@@ -158,6 +158,7 @@ in
                   buildbot_user=${builtins.toJSON cfg.github.user},
                   topic=${builtins.toJSON cfg.github.topic},
               ),
+              gitea=None,
               cachix=${if cfg.cachix.name == null then "None" else "CachixConfig(
                   name=${builtins.toJSON cfg.cachix.name},
                   signing_key_secret_name=${if cfg.cachix.signingKeyFile != null then builtins.toJSON "cachix-signing-key" else "None"},

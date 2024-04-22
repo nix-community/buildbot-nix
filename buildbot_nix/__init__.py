@@ -9,17 +9,23 @@ from collections import defaultdict
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
+import typing
 
+from buildbot.process.log import StreamLog
 from buildbot.configurators import ConfiguratorBase
 from buildbot.interfaces import WorkerSetupError
-from buildbot.plugins import reporters, schedulers, secrets, steps, util, worker
+from buildbot.plugins import reporters, schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.project import Project
 from buildbot.process.properties import Interpolate, Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
+from buildbot.www.authz import Authz
+from buildbot.secrets.providers.file import SecretInAFile
+from buildbot.locks import MasterLock
+from buildbot.config.builder import BuilderConfig
 
 if TYPE_CHECKING:
     from buildbot.process.log import Log
@@ -28,12 +34,23 @@ from twisted.internet import defer, threads
 from twisted.logger import Logger
 from twisted.python.failure import Failure
 
+from .gitea_projects import (
+    GiteaConfig
+)
+
 from .github_projects import (
-    GithubProject,
-    create_project_hook,
-    load_projects,
-    refresh_projects,
+    GithubBackend,
+    GithubConfig,
     slugify_project_name,
+)
+
+from .projects import (
+    GitProject,
+    GitBackend
+)
+
+from .secrets import (
+    read_secret_file
 )
 
 SKIPPED_BUILDER_NAME = "skipped-builds"
@@ -48,8 +65,11 @@ class BuildbotNixError(Exception):
 class BuildTrigger(Trigger):
     """Dynamic trigger that creates a build for every attribute."""
 
+    project: GitProject
+
     def __init__(
         self,
+        project: GitProject,
         builds_scheduler: str,
         skipped_builds_scheduler: str,
         jobs: list[dict[str, Any]],
@@ -57,6 +77,7 @@ class BuildTrigger(Trigger):
     ) -> None:
         if "name" not in kwargs:
             kwargs["name"] = "trigger"
+        self.project = project
         self.jobs = jobs
         self.config = None
         self.builds_scheduler = builds_scheduler
@@ -77,11 +98,9 @@ class BuildTrigger(Trigger):
         return props
 
     def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:  # noqa: N802
-        build_props = self.build.getProperties()
-        repo_name = build_props.getProperty(
-            "github.base.repo.full_name",
-            build_props.getProperty("github.repository.full_name"),
-        )
+        # TODO when is this None?
+        build_props = self.build.getProperties() if self.build is not None else Properties()
+        repo_name = self.project.name
         project_id = slugify_project_name(repo_name)
         source = f"nix-eval-{project_id}"
 
@@ -145,9 +164,12 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     every attribute.
     """
 
-    def __init__(self, supported_systems: list[str], **kwargs: Any) -> None:
+    project: GitProject
+
+    def __init__(self, project: GitProject, supported_systems: list[str], **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
+        self.project = project
         self.observer = logobserver.BufferLogObserver()
         self.addLogObserver("stdio", self.observer)
         self.supported_systems = supported_systems
@@ -155,7 +177,9 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
-        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
+        cmd_: object = yield self.makeRemoteShellCommand()
+        # TODO why doesn't type information pass through yield again?
+        cmd: remotecommand.RemoteCommand = typing.cast(remotecommand.RemoteCommand, cmd_)
         yield self.runCommand(cmd)
 
         # if the command passes extract the list of stages
@@ -172,11 +196,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         msg = f"Failed to parse line: {line}"
                         raise BuildbotNixError(msg) from e
                     jobs.append(job)
-            build_props = self.build.getProperties()
-            repo_name = build_props.getProperty(
-                "github.base.repo.full_name",
-                build_props.getProperty("github.repository.full_name"),
-            )
+            repo_name = self.project.name
             project_id = slugify_project_name(repo_name)
             filtered_jobs = []
             for job in jobs:
@@ -187,6 +207,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
+                        self.project,
                         builds_scheduler=f"{project_id}-nix-build",
                         skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
                         name="build flake",
@@ -224,7 +245,9 @@ class EvalErrorStep(steps.BuildStep):
         error = self.getProperty("error")
         attr = self.getProperty("attr")
         # show eval error
-        error_log: Log = yield self.addLog("nix_error")
+        # TODO why doesn't type information pass through yield again?
+        error_log_: object  = yield self.addLog("nix_error")
+        error_log: StreamLog = typing.cast(StreamLog, error_log_);
         error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
         return util.FAILURE
 
@@ -239,7 +262,9 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
         # run `nix build`
-        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
+        # TODO why doesn't type information pass through yield again?
+        cmd_: object = yield self.makeRemoteShellCommand()
+        cmd: remotecommand.RemoteCommand = typing.cast(remotecommand.RemoteCommand, cmd_)
         yield self.runCommand(cmd)
 
         res = cmd.results()
@@ -256,15 +281,16 @@ class UpdateBuildOutput(steps.BuildStep):
     on the target machine.
     """
 
-    def __init__(self, path: Path, **kwargs: Any) -> None:
+    project: GitProject
+
+    def __init__(self, project: GitProject, path: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self.project = project
         self.path = path
 
     def run(self) -> Generator[Any, object, Any]:
         props = self.build.getProperties()
-        if props.getProperty("branch") != props.getProperty(
-            "github.repository.default_branch",
-        ):
+        if props.getProperty("branch") != self.project.default_branch:
             return util.SKIPPED
 
         attr = Path(props.getProperty("attr")).name
@@ -274,62 +300,11 @@ class UpdateBuildOutput(steps.BuildStep):
         (self.path / attr).write_text(out_path)
         return util.SUCCESS
 
-
-class ReloadGithubProjects(steps.BuildStep):
-    name = "reload_github_projects"
-
-    def __init__(self, token: str, project_cache_file: Path, **kwargs: Any) -> None:
-        self.token = token
-        self.project_cache_file = project_cache_file
-        super().__init__(**kwargs)
-
-    def reload_projects(self) -> None:
-        refresh_projects(self.token, self.project_cache_file)
-
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
-        d = threads.deferToThread(self.reload_projects)  # type: ignore[no-untyped-call]
-
-        self.error_msg = ""
-
-        def error_cb(failure: Failure) -> int:
-            self.error_msg += failure.getTraceback()
-            return util.FAILURE
-
-        d.addCallbacks(lambda _: util.SUCCESS, error_cb)
-        res = yield d
-        if res == util.SUCCESS:
-            # reload the buildbot config
-            os.kill(os.getpid(), signal.SIGHUP)
-            return util.SUCCESS
-        else:
-            log: Log = yield self.addLog("log")
-            log.addStderr(f"Failed to reload project list: {self.error_msg}")
-            return util.FAILURE
-
-
-def reload_github_projects(
-    worker_names: list[str],
-    github_token_secret: str,
-    project_cache_file: Path,
-) -> util.BuilderConfig:
-    """Updates the flake an opens a PR for it."""
-    factory = util.BuildFactory()
-    factory.addStep(
-        ReloadGithubProjects(
-            github_token_secret, project_cache_file=project_cache_file
-        ),
-    )
-    return util.BuilderConfig(
-        name="reload-github-projects",
-        workernames=worker_names,
-        factory=factory,
-    )
-
-
 # GitHub somtimes fires the PR webhook before it has computed the merge commit
 # This is a workaround to fetch the merge commit and checkout the PR branch in CI
 class GitLocalPrMerge(steps.Git):
+    stdio_log: StreamLog
+
     @defer.inlineCallbacks
     def run_vc(
         self,
@@ -347,8 +322,9 @@ class GitLocalPrMerge(steps.Git):
             return res
 
         # The code below is a modified version of Git.run_vc
-        self.stdio_log: Log = yield self.addLogForRemoteCommands("stdio")
-
+        # TODO why doesn't type information pass through yield again?
+        stdio_log_: object = yield self.addLogForRemoteCommands("stdio")
+        self.stdio_log = typing.cast(StreamLog, stdio_log_)
         self.stdio_log.addStdout(f"Merging {merge_base} into {pr_head}\n")
 
         git_installed = yield self.checkFeatureSupport()
@@ -392,22 +368,20 @@ class GitLocalPrMerge(steps.Git):
 
 
 def nix_eval_config(
-    project: GithubProject,
+    project: GitProject,
     worker_names: list[str],
-    github_token_secret: str,
+    git_url: str,
     supported_systems: list[str],
-    eval_lock: util.MasterLock,
+    eval_lock: MasterLock,
     worker_count: int,
     max_memory_size: int,
-) -> util.BuilderConfig:
+) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
     """
     factory = util.BuildFactory()
     # check out the source
-    url_with_secret = util.Interpolate(
-        f"https://git:%(secret:{github_token_secret})s@github.com/%(prop:project)s",
-    )
+    url_with_secret = util.Interpolate(git_url)
     factory.addStep(
         GitLocalPrMerge(
             repourl=url_with_secret,
@@ -422,6 +396,7 @@ def nix_eval_config(
 
     factory.addStep(
         NixEvalCommand(
+            project=project,
             env={},
             name="evaluate flake",
             supported_systems=supported_systems,
@@ -482,11 +457,11 @@ class CachixConfig:
 
 
 def nix_build_config(
-    project: GithubProject,
+    project: GitProject,
     worker_names: list[str],
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
-) -> util.BuilderConfig:
+) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
     factory.addStep(
@@ -543,7 +518,7 @@ def nix_build_config(
                 util.Property("out_path"),
             ],
             doStepIf=lambda s: s.getProperty("branch")
-            == s.getProperty("github.repository.default_branch"),
+            == project.default_branch,
         ),
     )
     factory.addStep(
@@ -555,6 +530,7 @@ def nix_build_config(
     if outputs_path is not None:
         factory.addStep(
             UpdateBuildOutput(
+                project=project,
                 name="Update build output",
                 path=outputs_path,
             ),
@@ -570,9 +546,9 @@ def nix_build_config(
 
 
 def nix_skipped_build_config(
-    project: GithubProject,
+    project: GitProject,
     worker_names: list[str],
-) -> util.BuilderConfig:
+) -> BuilderConfig:
     """Dummy builder that is triggered when a build is skipped."""
     factory = util.BuildFactory()
     factory.addStep(
@@ -600,43 +576,17 @@ def nix_skipped_build_config(
         factory=factory,
     )
 
-
-def read_secret_file(secret_name: str) -> str:
-    directory = os.environ.get("CREDENTIALS_DIRECTORY")
-    if directory is None:
-        print("directory not set", file=sys.stderr)
-        sys.exit(1)
-    return Path(directory).joinpath(secret_name).read_text().rstrip()
-
-
-@dataclass
-class GithubConfig:
-    oauth_id: str
-    admins: list[str]
-
-    buildbot_user: str
-    oauth_secret_name: str = "github-oauth-secret"
-    webhook_secret_name: str = "github-webhook-secret"
-    token_secret_name: str = "github-token"
-    project_cache_file: Path = Path("github-project-cache.json")
-    topic: str | None = "build-with-buildbot"
-
-    def token(self) -> str:
-        return read_secret_file(self.token_secret_name)
-
-
 def config_for_project(
     config: dict[str, Any],
-    project: GithubProject,
+    project: GitProject,
     worker_names: list[str],
-    github: GithubConfig,
     nix_supported_systems: list[str],
     nix_eval_worker_count: int,
     nix_eval_max_memory_size: int,
-    eval_lock: util.MasterLock,
+    eval_lock: MasterLock,
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
-) -> Project:
+) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
         [
@@ -644,8 +594,7 @@ def config_for_project(
                 name=f"{project.project_id}-default-branch",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
-                    filter_fn=lambda c: c.branch
-                    == c.properties.getProperty("github.repository.default_branch"),
+                    filter_fn=lambda c: c.branch == project.default_branch,
                 ),
                 builderNames=[f"{project.name}/nix-eval"],
                 treeStableTimer=5,
@@ -685,7 +634,7 @@ def config_for_project(
                 properties=[
                     util.StringParameter(
                         name="project",
-                        label="Name of the GitHub repository.",
+                        label=f"Name of the {project.pretty_type} repository.",
                         default=project.name,
                     ),
                 ],
@@ -699,7 +648,7 @@ def config_for_project(
             nix_eval_config(
                 project,
                 worker_names,
-                github_token_secret=github.token_secret_name,
+                git_url=project.get_project_url(),
                 supported_systems=nix_supported_systems,
                 worker_count=nix_eval_worker_count,
                 max_memory_size=nix_eval_max_memory_size,
@@ -715,11 +664,11 @@ def config_for_project(
         ],
     )
 
-
 def normalize_virtual_builder_name(name: str) -> str:
-    if name.startswith("github:"):
+    # TODO this code is a mystery to me
+    if re.match(r"^[^:]+:", name) is not None:
         # rewrites github:nix-community/srvos#checks.aarch64-linux.nixos-stable-example-hardware-hetzner-online-intel -> nix-community/srvos/nix-build
-        match = re.match(r"github:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
+        match = re.match(r"[^:]:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
         if match:
             return f"{match['owner']}/{match['repo']}/nix-build"
 
@@ -787,10 +736,10 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         return self.check_builder(epobject, epdict, "buildrequest")
 
 
-def setup_authz(projects: list[GithubProject], admins: list[str]) -> util.Authz:
+def setup_authz(backends: list[GitBackend], projects: list[GitProject], admins: list[str]) -> Authz:
     allow_rules = []
     allowed_builders_by_org: defaultdict[str, set[str]] = defaultdict(
-        lambda: {"reload-github-projects"},
+        lambda: {backend.reload_builder_name for backend in backends},
     )
 
     for project in projects:
@@ -837,6 +786,7 @@ class NixConfigurator(ConfiguratorBase):
         self,
         # Shape of this file: [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
         github: GithubConfig,
+        gitea: GiteaConfig | None,
         url: str,
         nix_supported_systems: list[str],
         nix_eval_worker_count: int | None,
@@ -859,9 +809,17 @@ class NixConfigurator(ConfiguratorBase):
             self.outputs_path = Path(outputs_path)
 
     def configure(self, config: dict[str, Any]) -> None:
-        projects = load_projects(self.github.token(), self.github.project_cache_file)
-        if self.github.topic is not None:
-            projects = [p for p in projects if self.github.topic in p.topics]
+        backends: list[GitBackend] = []
+
+        github_backend: GitBackend = GithubBackend(self.github)
+        if self.github is not None:
+            backends.append(github_backend)
+
+        projects: list[GitProject] = []
+
+        for backend in backends:
+            projects += backend.load_projects()
+
         worker_config = json.loads(read_secret_file(self.nix_workers_secret_name))
         worker_names = []
 
@@ -876,22 +834,21 @@ class NixConfigurator(ConfiguratorBase):
                 config["workers"].append(worker.Worker(worker_name, item["pass"]))
                 worker_names.append(worker_name)
 
+        # TODO pull out into global config
         webhook_secret = read_secret_file(self.github.webhook_secret_name)
         eval_lock = util.MasterLock("nix-eval")
 
         for project in projects:
-            create_project_hook(
+            project.create_project_hook(
                 project.owner,
                 project.repo,
-                self.github.token(),
-                self.url + "change_hook/github",
+                self.url,
                 webhook_secret,
             )
             config_for_project(
                 config,
                 project,
                 worker_names,
-                self.github,
                 self.nix_supported_systems,
                 self.nix_eval_worker_count or multiprocessing.cpu_count(),
                 self.nix_eval_max_memory_size,
@@ -900,42 +857,32 @@ class NixConfigurator(ConfiguratorBase):
                 self.outputs_path,
             )
 
-        # Reload github projects
-        config["builders"].append(
-            reload_github_projects(
-                [worker_names[0]],
-                self.github.token(),
-                self.github.project_cache_file,
-            ),
-        )
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
-        config["schedulers"].extend(
-            [
-                schedulers.ForceScheduler(
-                    name="reload-github-projects",
-                    builderNames=["reload-github-projects"],
-                    buttonName="Update projects",
-                ),
-                # project list twice a day and on startup
-                PeriodicWithStartup(
-                    name="reload-github-projects-bidaily",
-                    builderNames=["reload-github-projects"],
-                    periodicBuildTimer=12 * 60 * 60,
-                    run_on_startup=not self.github.project_cache_file.exists(),
-                ),
-            ],
-        )
-        config["services"].append(
-            reporters.GitHubStatusPush(
-                token=self.github.token(),
-                # Since we dynamically create build steps,
-                # we use `virtual_builder_name` in the webinterface
-                # so that we distinguish what has beeing build
-                context=Interpolate("buildbot/%(prop:status_name)s"),
-            ),
-        )
 
-        systemd_secrets = secrets.SecretInAFile(
+        for backend in backends:
+            # Reload backend projects
+            config["builders"].append(
+              backend.create_reload_builder([worker_names[0]])
+            )
+            config["schedulers"].extend(
+                [
+                    schedulers.ForceScheduler(
+                        name=f"reload-{backend.type}-projects",
+                        builderNames=[backend.reload_builder_name],
+                        buttonName="Update projects",
+                    ),
+                    # project list twice a day and on startup
+                    PeriodicWithStartup(
+                        name=f"reload-{backend.type}-projects-bidaily",
+                        builderNames=[backend.reload_builder_name],
+                        periodicBuildTimer=12 * 60 * 60,
+                        run_on_startup=not backend.are_projects_cached(),
+                    ),
+                ],
+            )
+            config["services"].append(backend.create_reporter())
+
+        systemd_secrets = SecretInAFile(
             dirname=os.environ["CREDENTIALS_DIRECTORY"],
         )
         config["secretsProviders"].append(systemd_secrets)
@@ -944,25 +891,21 @@ class NixConfigurator(ConfiguratorBase):
         config["www"]["plugins"].update(dict(base_react={}))
 
         config["www"].setdefault("change_hook_dialects", {})
-        config["www"]["change_hook_dialects"]["github"] = {
-            "secret": webhook_secret,
-            "strict": True,
-            "token": self.github.token(),
-            "github_property_whitelist": "*",
-        }
+        for backend in backends:
+            config["www"]["change_hook_dialects"][backend.change_hook_name] = \
+                backend.create_change_hook(webhook_secret)
 
         if "auth" not in config["www"]:
             config["www"].setdefault("avatar_methods", [])
-            config["www"]["avatar_methods"].append(
-                util.AvatarGitHub(token=self.github.token()),
-            )
-            config["www"]["auth"] = util.GitHubAuth(
-                self.github.oauth_id,
-                read_secret_file(self.github.oauth_secret_name),
-                apiVersion=4,
-            )
+
+            for backend in backends:
+                config["www"]["avatar_methods"].append(backend.create_avatar_method())
+            # TODO one cannot have multiple auth backends...
+            config["www"]["auth"] = backends[0].create_auth()
 
             config["www"]["authz"] = setup_authz(
+                # TODO pull out into global config
                 admins=self.github.admins,
+                backends=backends,
                 projects=projects,
             )
