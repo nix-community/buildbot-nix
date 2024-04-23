@@ -63,6 +63,21 @@ To integrate with GitHub:
    permissions. For GitHub organizations, it's advisable to create a separate
    GitHub user for managing repository webhooks.
 
+### Binary caches
+
+To access the build results on other machines there are two options at the moment
+
+#### Local binary cache (harmonia)
+
+You can set up a binary cache on your buildbot-worker machine to make its nix store
+accessible from other machines. Check out the README of the [project](https://github.com/nix-community/harmonia/?tab=readme-ov-file#configuration-for-public-binary-cache-on-nixos),
+for an example configuration
+
+#### Cachix
+
+Buildbot-nix also supports pushing packages to cachix. Check out the comment out [example configuration](https://github.com/Mic92/buildbot-nix/blob/main/examples/master.nix)
+in our repository.
+
 ### Real-World Deployments
 
 See Buildbot-nix in action in these deployments:
