@@ -1,5 +1,7 @@
-import os, sys
+import os
+import sys
 from pathlib import Path
+
 
 def read_secret_file(secret_name: str) -> str:
     directory = os.environ.get("CREDENTIALS_DIRECTORY")

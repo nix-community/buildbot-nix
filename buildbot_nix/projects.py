@@ -3,15 +3,13 @@ from typing import Any
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.reporters.base import ReporterBase
-from buildbot.www.avatar import AvatarBase
 from buildbot.www.auth import AuthBase
+from buildbot.www.avatar import AvatarBase
+
 
 class GitBackend(ABC):
     @abstractmethod
-    def create_reload_builder(
-            self,
-            worker_names: list[str]
-    ) -> BuilderConfig:
+    def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig:
         pass
 
     @abstractmethod
@@ -19,11 +17,11 @@ class GitBackend(ABC):
         pass
 
     @abstractmethod
-    def create_change_hook(self, webhook_secret: str) -> dict[str, Any]:
+    def create_change_hook(self) -> dict[str, Any]:
         pass
 
     @abstractmethod
-    def create_avatar_method(self) -> AvatarBase:
+    def create_avatar_method(self) -> AvatarBase | None:
         pass
 
     @abstractmethod
@@ -58,6 +56,7 @@ class GitBackend(ABC):
     def change_hook_name(self) -> str:
         pass
 
+
 class GitProject(ABC):
     @abstractmethod
     def create_project_hook(
@@ -65,12 +64,11 @@ class GitProject(ABC):
         owner: str,
         repo: str,
         webhook_url: str,
-        webhook_secret: str,
     ) -> None:
         pass
 
     @abstractmethod
-    def get_project_url() -> str:
+    def get_project_url(self) -> str:
         pass
 
     @property
@@ -112,7 +110,6 @@ class GitProject(ABC):
     @abstractmethod
     def default_branch(self) -> str:
         pass
-
 
     @property
     @abstractmethod

@@ -2,56 +2,44 @@ import json
 import multiprocessing
 import os
 import re
-import signal
-import sys
 import uuid
 from collections import defaultdict
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
-import typing
+from typing import TYPE_CHECKING, Any
 
-from buildbot.process.log import StreamLog
+from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
 from buildbot.interfaces import WorkerSetupError
-from buildbot.plugins import reporters, schedulers, steps, util, worker
+from buildbot.locks import MasterLock
+from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.project import Project
-from buildbot.process.properties import Interpolate, Properties
+from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, statusToString
-from buildbot.steps.trigger import Trigger
-from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
-from buildbot.www.authz import Authz
 from buildbot.secrets.providers.file import SecretInAFile
-from buildbot.locks import MasterLock
-from buildbot.config.builder import BuilderConfig
+from buildbot.steps.trigger import Trigger
+from buildbot.www.authz import Authz
+from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
-    from buildbot.process.log import Log
+    from buildbot.process.log import StreamLog
+    from buildbot.www.auth import AuthBase
 
-from twisted.internet import defer, threads
+from twisted.internet import defer
 from twisted.logger import Logger
-from twisted.python.failure import Failure
 
-from .gitea_projects import (
-    GiteaConfig
+from .common import (
+    slugify_project_name,
 )
-
+from .gitea_projects import GiteaBackend, GiteaConfig
 from .github_projects import (
     GithubBackend,
     GithubConfig,
-    slugify_project_name,
 )
-
-from .projects import (
-    GitProject,
-    GitBackend
-)
-
-from .secrets import (
-    read_secret_file
-)
+from .projects import GitBackend, GitProject
+from .secrets import read_secret_file
 
 SKIPPED_BUILDER_NAME = "skipped-builds"
 
@@ -98,8 +86,7 @@ class BuildTrigger(Trigger):
         return props
 
     def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:  # noqa: N802
-        # TODO when is this None?
-        build_props = self.build.getProperties() if self.build is not None else Properties()
+        build_props = self.build.getProperties()
         repo_name = self.project.name
         project_id = slugify_project_name(repo_name)
         source = f"nix-eval-{project_id}"
@@ -166,7 +153,9 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
     project: GitProject
 
-    def __init__(self, project: GitProject, supported_systems: list[str], **kwargs: Any) -> None:
+    def __init__(
+        self, project: GitProject, supported_systems: list[str], **kwargs: Any
+    ) -> None:
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
         self.project = project
@@ -177,9 +166,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
-        cmd_: object = yield self.makeRemoteShellCommand()
-        # TODO why doesn't type information pass through yield again?
-        cmd: remotecommand.RemoteCommand = typing.cast(remotecommand.RemoteCommand, cmd_)
+        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
         yield self.runCommand(cmd)
 
         # if the command passes extract the list of stages
@@ -245,9 +232,7 @@ class EvalErrorStep(steps.BuildStep):
         error = self.getProperty("error")
         attr = self.getProperty("attr")
         # show eval error
-        # TODO why doesn't type information pass through yield again?
-        error_log_: object  = yield self.addLog("nix_error")
-        error_log: StreamLog = typing.cast(StreamLog, error_log_);
+        error_log: StreamLog = yield self.addLog("nix_error")
         error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
         return util.FAILURE
 
@@ -262,9 +247,7 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
         # run `nix build`
-        # TODO why doesn't type information pass through yield again?
-        cmd_: object = yield self.makeRemoteShellCommand()
-        cmd: remotecommand.RemoteCommand = typing.cast(remotecommand.RemoteCommand, cmd_)
+        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
         yield self.runCommand(cmd)
 
         res = cmd.results()
@@ -300,11 +283,10 @@ class UpdateBuildOutput(steps.BuildStep):
         (self.path / attr).write_text(out_path)
         return util.SUCCESS
 
+
 # GitHub somtimes fires the PR webhook before it has computed the merge commit
 # This is a workaround to fetch the merge commit and checkout the PR branch in CI
 class GitLocalPrMerge(steps.Git):
-    stdio_log: StreamLog
-
     @defer.inlineCallbacks
     def run_vc(
         self,
@@ -322,9 +304,7 @@ class GitLocalPrMerge(steps.Git):
             return res
 
         # The code below is a modified version of Git.run_vc
-        # TODO why doesn't type information pass through yield again?
-        stdio_log_: object = yield self.addLogForRemoteCommands("stdio")
-        self.stdio_log = typing.cast(StreamLog, stdio_log_)
+        self.stdio_log: StreamLog = yield self.addLogForRemoteCommands("stdio")
         self.stdio_log.addStdout(f"Merging {merge_base} into {pr_head}\n")
 
         git_installed = yield self.checkFeatureSupport()
@@ -517,8 +497,7 @@ def nix_build_config(
                 "-r",
                 util.Property("out_path"),
             ],
-            doStepIf=lambda s: s.getProperty("branch")
-            == project.default_branch,
+            doStepIf=lambda s: s.getProperty("branch") == project.default_branch,
         ),
     )
     factory.addStep(
@@ -575,6 +554,7 @@ def nix_skipped_build_config(
         env={},
         factory=factory,
     )
+
 
 def config_for_project(
     config: dict[str, Any],
@@ -664,8 +644,8 @@ def config_for_project(
         ],
     )
 
+
 def normalize_virtual_builder_name(name: str) -> str:
-    # TODO this code is a mystery to me
     if re.match(r"^[^:]+:", name) is not None:
         # rewrites github:nix-community/srvos#checks.aarch64-linux.nixos-stable-example-hardware-hetzner-online-intel -> nix-community/srvos/nix-build
         match = re.match(r"[^:]:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
@@ -736,7 +716,9 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         return self.check_builder(epobject, epdict, "buildrequest")
 
 
-def setup_authz(backends: list[GitBackend], projects: list[GitProject], admins: list[str]) -> Authz:
+def setup_authz(
+    backends: list[GitBackend], projects: list[GitProject], admins: list[str]
+) -> Authz:
     allow_rules = []
     allowed_builders_by_org: defaultdict[str, set[str]] = defaultdict(
         lambda: {backend.reload_builder_name for backend in backends},
@@ -785,7 +767,9 @@ class NixConfigurator(ConfiguratorBase):
     def __init__(
         self,
         # Shape of this file: [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
-        github: GithubConfig,
+        admins: list[str],
+        auth_backend: str,
+        github: GithubConfig | None,
         gitea: GiteaConfig | None,
         url: str,
         nix_supported_systems: list[str],
@@ -800,7 +784,10 @@ class NixConfigurator(ConfiguratorBase):
         self.nix_eval_max_memory_size = nix_eval_max_memory_size
         self.nix_eval_worker_count = nix_eval_worker_count
         self.nix_supported_systems = nix_supported_systems
+        self.auth_backend = auth_backend
+        self.admins = admins
         self.github = github
+        self.gitea = gitea
         self.url = url
         self.cachix = cachix
         if outputs_path is None:
@@ -809,15 +796,23 @@ class NixConfigurator(ConfiguratorBase):
             self.outputs_path = Path(outputs_path)
 
     def configure(self, config: dict[str, Any]) -> None:
-        backends: list[GitBackend] = []
+        backends: dict[str, GitBackend] = {}
 
-        github_backend: GitBackend = GithubBackend(self.github)
         if self.github is not None:
-            backends.append(github_backend)
+            backends["github"] = GithubBackend(self.github)
+
+        if self.gitea is not None:
+            backends["gitea"] = GiteaBackend(self.gitea)
+
+        auth: AuthBase | None = (
+            backends[self.auth_backend].create_auth()
+            if self.auth_backend != "none"
+            else None
+        )
 
         projects: list[GitProject] = []
 
-        for backend in backends:
+        for backend in backends.values():
             projects += backend.load_projects()
 
         worker_config = json.loads(read_secret_file(self.nix_workers_secret_name))
@@ -834,17 +829,10 @@ class NixConfigurator(ConfiguratorBase):
                 config["workers"].append(worker.Worker(worker_name, item["pass"]))
                 worker_names.append(worker_name)
 
-        # TODO pull out into global config
-        webhook_secret = read_secret_file(self.github.webhook_secret_name)
         eval_lock = util.MasterLock("nix-eval")
 
         for project in projects:
-            project.create_project_hook(
-                project.owner,
-                project.repo,
-                self.url,
-                webhook_secret,
-            )
+            project.create_project_hook(project.owner, project.repo, self.url)
             config_for_project(
                 config,
                 project,
@@ -859,11 +847,9 @@ class NixConfigurator(ConfiguratorBase):
 
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
 
-        for backend in backends:
+        for backend in backends.values():
             # Reload backend projects
-            config["builders"].append(
-              backend.create_reload_builder([worker_names[0]])
-            )
+            config["builders"].append(backend.create_reload_builder([worker_names[0]]))
             config["schedulers"].extend(
                 [
                     schedulers.ForceScheduler(
@@ -891,21 +877,24 @@ class NixConfigurator(ConfiguratorBase):
         config["www"]["plugins"].update(dict(base_react={}))
 
         config["www"].setdefault("change_hook_dialects", {})
-        for backend in backends:
-            config["www"]["change_hook_dialects"][backend.change_hook_name] = \
-                backend.create_change_hook(webhook_secret)
+        for backend in backends.values():
+            config["www"]["change_hook_dialects"][backend.change_hook_name] = (
+                backend.create_change_hook()
+            )
 
         if "auth" not in config["www"]:
             config["www"].setdefault("avatar_methods", [])
 
-            for backend in backends:
-                config["www"]["avatar_methods"].append(backend.create_avatar_method())
+            for backend in backends.values():
+                avatar_method = backend.create_avatar_method()
+                if avatar_method is not None:
+                    config["www"]["avatar_methods"].append(avatar_method)
             # TODO one cannot have multiple auth backends...
-            config["www"]["auth"] = backends[0].create_auth()
+            if auth is not None:
+                config["www"]["auth"] = auth
 
             config["www"]["authz"] = setup_authz(
-                # TODO pull out into global config
-                admins=self.github.admins,
-                backends=backends,
+                admins=self.admins,
+                backends=list(backends.values()),
                 projects=projects,
             )

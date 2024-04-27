@@ -5,8 +5,18 @@
 }:
 let
   cfg = config.services.buildbot-nix.master;
+  inherit
+    (lib)
+    mkRenamedOptionModule
+    ;
 in
 {
+  imports = [
+    (mkRenamedOptionModule
+      [ "services" "buildbot-nix" "master" "github" "admins" ]
+      [ "services" "buildbot-nix" "master" "admins" ])
+  ];
+
   options = {
     services.buildbot-nix.master = {
       enable = lib.mkEnableOption "buildbot-master";
@@ -14,6 +24,13 @@ in
         type = lib.types.str;
         default = "postgresql://@/buildbot";
         description = "Postgresql database url";
+      };
+      authBackend = lib.mkOption {
+        type = lib.types.enum [ "github" "gitea" "none" ];
+        default = "github";
+        description = ''
+          Which OAuth2 backend to use.
+        '';
       };
       cachix = {
         name = lib.mkOption {
@@ -34,7 +51,42 @@ in
           description = "Cachix auth token";
         };
       };
+      gitea = {
+        enable = lib.mkEnableOption "Enable Gitea integration";
+
+        tokenFile = lib.mkOption {
+          type = lib.types.path;
+          description = "Gitea token file";
+        };
+        webhookSecretFile = lib.mkOption {
+          type = lib.types.path;
+          description = "Github webhook secret file";
+        };
+        oauthSecretFile = lib.mkOption {
+          type = lib.types.path;
+          description = "Gitea oauth secret file";
+        };
+
+        instanceURL = lib.mkOption {
+          type = lib.types.str;
+          description = "Gitea instance URL";
+        };
+        oauthId = lib.mkOption {
+          type = lib.types.str;
+          description = "Gitea oauth id. Used for the login button";
+        };
+        topic = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = "build-with-buildbot";
+          description = ''
+            Projects that have this topic will be built by buildbot.
+            If null, all projects that the buildbot Gitea user has access to, are built.
+          '';
+        };
+      };
       github = {
+        disable = lib.mkEnableOption "Disable GitHub integration";
+
         tokenFile = lib.mkOption {
           type = lib.types.path;
           description = "Github token file";
@@ -62,11 +114,6 @@ in
           type = lib.types.str;
           description = "Github user that is used for the buildbot";
         };
-        admins = lib.mkOption {
-          type = lib.types.listOf lib.types.str;
-          default = [ ];
-          description = "Users that are allowed to login to buildbot, trigger builds and change settings";
-        };
         topic = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
           default = "build-with-buildbot";
@@ -75,6 +122,11 @@ in
             If null, all projects that the buildbot github user has access to, are built.
           '';
         };
+      };
+      admins = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = "Users that are allowed to login to buildbot, trigger builds and change settings";
       };
       workersFile = lib.mkOption {
         type = lib.types.path;
@@ -144,7 +196,7 @@ in
       home = "/var/lib/buildbot";
       extraImports = ''
         from datetime import timedelta
-        from buildbot_nix import GithubConfig, NixConfigurator, CachixConfig
+        from buildbot_nix import GithubConfig, NixConfigurator, CachixConfig, GiteaConfig
       '';
       configurators = [
         ''
@@ -152,18 +204,23 @@ in
         ''
         ''
           NixConfigurator(
-              github=GithubConfig(
+              auth_backend=${builtins.toJSON cfg.authBackend},
+              github=${if cfg.github.disable then "None" else "GithubConfig(
                   oauth_id=${builtins.toJSON cfg.github.oauthId},
-                  admins=${builtins.toJSON cfg.github.admins},
                   buildbot_user=${builtins.toJSON cfg.github.user},
                   topic=${builtins.toJSON cfg.github.topic},
-              ),
-              gitea=None,
+              )"},
+              gitea=${if !cfg.gitea.enable then "None" else "GiteaConfig(
+                  instance_url=${builtins.toJSON cfg.gitea.instanceURL},
+                  oauth_id=${builtins.toJSON cfg.gitea.oauthId},
+                  topic=${builtins.toJSON cfg.gitea.topic},
+              )"},
               cachix=${if cfg.cachix.name == null then "None" else "CachixConfig(
                   name=${builtins.toJSON cfg.cachix.name},
                   signing_key_secret_name=${if cfg.cachix.signingKeyFile != null then builtins.toJSON "cachix-signing-key" else "None"},
                   auth_token_secret_name=${if cfg.cachix.authTokenFile != null then builtins.toJSON "cachix-auth-token" else "None"},
               )"},
+              admins=${builtins.toJSON cfg.admins},
               url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
               nix_eval_worker_count=${if cfg.evalWorkerCount == null then "None" else builtins.toString cfg.evalWorkerCount},
@@ -190,6 +247,7 @@ in
         (ps.toPythonModule pkgs.buildbot-worker)
         pkgs.buildbot-plugins.www-react
         (pkgs.python3.pkgs.callPackage ../default.nix { })
+        (pkgs.python3.pkgs.callPackage ./buildbot-gitea.nix { buildbot = pkgs.buildbot; })
       ];
     };
 
@@ -206,7 +264,12 @@ in
         ++ lib.optional (cfg.cachix.signingKeyFile != null)
           "cachix-signing-key:${builtins.toString cfg.cachix.signingKeyFile}"
         ++ lib.optional (cfg.cachix.authTokenFile != null)
-          "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}";
+          "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}"
+        ++ lib.optionals cfg.gitea.enable [
+          "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
+          "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
+          "gitea-token:${cfg.gitea.tokenFile}"
+        ];
 
         # Needed because it tries to reach out to github on boot.
         # FIXME: if github is not available, we shouldn't fail buildbot, instead it should just try later again in the background
