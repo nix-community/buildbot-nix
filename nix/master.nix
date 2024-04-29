@@ -206,6 +206,11 @@ in
           "cachix-signing-key:${builtins.toString cfg.cachix.signingKeyFile}"
         ++ lib.optional (cfg.cachix.authTokenFile != null)
           "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}";
+
+        # Needed because it tries to reach out to github on boot.
+        # FIXME: if github is not available, we shouldn't fail buildbot, instead it should just try later again in the background
+        Restart = "on-failure";
+        RestartSec = "30s";
       };
     };
 
