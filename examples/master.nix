@@ -15,6 +15,9 @@
         { "name": "eve", "pass": "XXXXXXXXXXXXXXXXXXXX", "cores": 16 }
       ]
     '';
+    # Users in this list will be able to reload the project list.
+    # All other user in the organization will be able to restart builds or evaluations.
+    admins = [ "Mic92" ];
     github = {
       # Github user used as a CI identity
       user = "mic92-buildbot";
@@ -27,9 +30,6 @@
       # After creating the app, press "Generate a new client secret" and fill in the client ID and secret below
       oauthId = "aaaaaaaaaaaaaaaaaaaa";
       oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
-      # Users in this list will be able to reload the project list.
-      # All other user in the organization will be able to restart builds or evaluations.
-      admins = [ "Mic92" ];
       # All github projects with this topic will be added to buildbot.
       # One can trigger a project scan by visiting the Builds -> Builders page and looking for the "reload-github-project" builder.
       # This builder has a "Update Github Projects" button that everyone in the github organization can use.
