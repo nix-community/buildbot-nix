@@ -5,7 +5,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
@@ -19,6 +19,9 @@ from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from twisted.internet import defer, threads
 from twisted.python import log
 from twisted.python.failure import Failure
+
+if TYPE_CHECKING:
+    from buildbot.process.log import StreamLog
 
 from .common import (
     http_request,
@@ -259,9 +262,8 @@ class ReloadGiteaProjects(BuildStep):
             os.kill(os.getpid(), signal.SIGHUP)
             return util.SUCCESS
         else:
-            yield self.addLog("log").addStderr(
-                f"Failed to reload project list: {self.error_msg}"
-            )
+            log: StreamLog = yield self.addLog("log")
+            log.addStderr(f"Failed to reload project list: {self.error_msg}")
             return util.FAILURE
 
 

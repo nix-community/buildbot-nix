@@ -5,7 +5,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
@@ -19,6 +19,9 @@ from buildbot.www.oauth2 import GitHubAuth
 from twisted.internet import defer, threads
 from twisted.python import log
 from twisted.python.failure import Failure
+
+if TYPE_CHECKING:
+    from buildbot.process.log import StreamLog
 
 from .common import (
     http_request,
@@ -57,9 +60,8 @@ class ReloadGithubProjects(BuildStep):
             os.kill(os.getpid(), signal.SIGHUP)
             return util.SUCCESS
         else:
-            yield self.addLog("log").addStderr(
-                f"Failed to reload project list: {self.error_msg}"
-            )
+            log: StreamLog = yield self.addLog("log")
+            log.addStderr(f"Failed to reload project list: {self.error_msg}")
             return util.FAILURE
 
 
