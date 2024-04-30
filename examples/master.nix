@@ -14,7 +14,7 @@
       [
         { "name": "eve", "pass": "XXXXXXXXXXXXXXXXXXXX", "cores": 16 }
       ]
-    '';
+    ''; # FIXME: replace this with a secret not stored in the nix store
     # Users in this list will be able to reload the project list.
     # All other user in the organization will be able to restart builds or evaluations.
     admins = [ "Mic92" ];
@@ -22,14 +22,14 @@
       # Github user used as a CI identity
       user = "mic92-buildbot";
       # Github token of the same user
-      tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000";
+      tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
       # A random secret used to verify incoming webhooks from GitHub
       # buildbot-nix will set up a webhook for each project in the organization
-      webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000";
+      webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
       # Either create a GitHub app or an OAuth app
       # After creating the app, press "Generate a new client secret" and fill in the client ID and secret below
       oauthId = "aaaaaaaaaaaaaaaaaaaa";
-      oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
+      oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff"; # FIXME: replace this with a secret not stored in the nix store
       # All github projects with this topic will be added to buildbot.
       # One can trigger a project scan by visiting the Builds -> Builders page and looking for the "reload-github-project" builder.
       # This builder has a "Update Github Projects" button that everyone in the github organization can use.
