@@ -32,8 +32,7 @@ from .secrets import read_secret_file
 @dataclass
 class GiteaConfig:
     instance_url: str
-    oauth_id: str
-    admins: list[str]
+    oauth_id: str | None
 
     oauth_secret_name: str = "gitea-oauth-secret"
     token_secret_name: str = "gitea-token"
@@ -183,6 +182,7 @@ class GiteaBackend(GitBackend):
         return None
 
     def create_auth(self) -> AuthBase:
+        assert self.config.oauth_id is not None, "Gitea requires an OAuth ID to be set"
         return GiteaAuth(
             "https://" + self.config.instance_url,
             self.config.oauth_id,

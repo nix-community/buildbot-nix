@@ -65,7 +65,7 @@ class ReloadGithubProjects(BuildStep):
 
 @dataclass
 class GithubConfig:
-    oauth_id: str
+    oauth_id: str | None
 
     # TODO unused
     buildbot_user: str
@@ -121,6 +121,7 @@ class GithubBackend(GitBackend):
         return AvatarGitHub(token=self.config.token())
 
     def create_auth(self) -> AuthBase:
+        assert self.config.oauth_id is not None, "GitHub OAuth ID is required"
         return GitHubAuth(
             self.config.oauth_id,
             read_secret_file(self.config.oauth_secret_name),
