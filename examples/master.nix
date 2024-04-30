@@ -54,6 +54,6 @@
   # Optional: Enable acme/TLS in nginx (recommended)
   #services.nginx.virtualHosts.${config.services.buildbot-nix.master.domain} = {
   #  forceSSL = true;
-  #  useACME = true;
+  #  enableACME = true;
   #};
 }
