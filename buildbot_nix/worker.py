@@ -49,6 +49,7 @@ def setup_worker(
     numcpus = None
     allow_shutdown = None
 
+    print(f"Starting worker {workername}")
     s = Worker(
         None,
         None,
