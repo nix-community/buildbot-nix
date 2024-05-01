@@ -5,7 +5,8 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
@@ -19,6 +20,9 @@ from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from twisted.internet import defer, threads
 from twisted.python import log
 from twisted.python.failure import Failure
+
+if TYPE_CHECKING:
+    from buildbot.process.log import StreamLog
 
 from .common import (
     http_request,
@@ -66,7 +70,7 @@ class GiteaProject(GitProject):
         webhook_url: str,
     ) -> None:
         hooks = paginated_github_request(
-            f"https://{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
+            f"{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
             self.config.token(),
         )
         config = dict(
@@ -93,14 +97,15 @@ class GiteaProject(GitProject):
                 return
 
         http_request(
-            f"https://{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks",
+            f"{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks",
             method="POST",
             headers=headers,
             data=data,
         )
 
     def get_project_url(self) -> str:
-        return f"https://git:%(secret:{self.config.token_secret_name})s@{self.config.instance_url}/{self.name}"
+        url = urlparse(self.config.instance_url)
+        return f"{url.scheme}://git:%(secret:{self.config.token_secret_name})s@{url.hostname}/{self.name}"
 
     @property
     def pretty_type(self) -> str:
@@ -167,7 +172,7 @@ class GiteaBackend(GitBackend):
 
     def create_reporter(self) -> ReporterBase:
         return GiteaStatusPush(
-            "https://" + self.config.instance_url,
+            self.config.instance_url,
             Interpolate(self.config.token()),
             context=Interpolate("buildbot/%(prop:status_name)s"),
             context_pr=Interpolate("buildbot/%(prop:status_name)s"),
@@ -184,7 +189,7 @@ class GiteaBackend(GitBackend):
     def create_auth(self) -> AuthBase:
         assert self.config.oauth_id is not None, "Gitea requires an OAuth ID to be set"
         return GiteaAuth(
-            "https://" + self.config.instance_url,
+            self.config.instance_url,
             self.config.oauth_id,
             self.config.oauth_secret(),
         )
@@ -259,9 +264,8 @@ class ReloadGiteaProjects(BuildStep):
             os.kill(os.getpid(), signal.SIGHUP)
             return util.SUCCESS
         else:
-            yield self.addLog("log").addStderr(
-                f"Failed to reload project list: {self.error_msg}"
-            )
+            log: StreamLog = yield self.addLog("log")
+            log.addStderr(f"Failed to reload project list: {self.error_msg}")
             return util.FAILURE
 
 
@@ -269,7 +273,7 @@ def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> None:
     repos = []
 
     for repo in paginated_github_request(
-        f"https://{config.instance_url}/api/v1/user/repos?limit=100",
+        f"{config.instance_url}/api/v1/user/repos?limit=100",
         config.token(),
     ):
         if not repo["permissions"]["admin"]:
@@ -281,7 +285,7 @@ def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> None:
             try:
                 # Gitea doesn't include topics in the default repo listing, unlike GitHub
                 topics: list[str] = http_request(
-                    f"https://{config.instance_url}/api/v1/repos/{repo['owner']['login']}/{repo['name']}/topics",
+                    f"{config.instance_url}/api/v1/repos/{repo['owner']['login']}/{repo['name']}/topics",
                     headers={"Authorization": f"token {config.token}"},
                 ).json()["topics"]
                 repo["topics"] = topics
