@@ -35,6 +35,19 @@
       # This builder has a "Update Github Projects" button that everyone in the github organization can use.
       topic = "buildbot-mic92";
     };
+
+    # Gitea example
+    # authBackend = "gitea"; # login with gitea
+    #gitea = {
+    #  enable = true;
+    #  instanceUrl = "https://git.clan.lol";
+    #  # Create a Gitea App with for redirect uris: https://buildbot.clan.lol/auth/login
+    #  oauthId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    #  oauthSecretFile = pkgs.writeText "gitea-oauth-secret" "ffffffffffffffffffffffffffffffffffffffff"; # FIXME: replace this with a secret not stored in the nix store;
+    #  webhookSecretFile = pkgs.writeText "gitea-webhook-secret" "00000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
+    #  tokenFile = pkgs.writeText "gitea-token" "0000000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
+    #  topic = "buildbot-clan";
+    #};
     # optional expose latest store path as text file
     # outputsPath = "/var/www/buildbot/nix-outputs";
 
