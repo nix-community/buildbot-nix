@@ -116,7 +116,7 @@ class GithubBackend(GitBackend):
             "secret": self.webhook_secret,
             "strict": True,
             "token": self.config.token(),
-            "github_property_whitelist": "*",
+            "github_property_whitelist": ["github.base.sha", "github.head.sha"],
         }
 
     def create_avatar_method(self) -> AvatarBase | None:
