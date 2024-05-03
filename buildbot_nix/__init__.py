@@ -295,8 +295,13 @@ class GitLocalPrMerge(steps.Git):
         patch: str,
     ) -> Generator[Any, object, Any]:
         build_props = self.build.getProperties()
-        merge_base = build_props.getProperty("github.base.sha")
-        pr_head = build_props.getProperty("github.head.sha")
+        # TODO: abstract this into an interface as well
+        merge_base = build_props.getProperty(
+            "github.base.sha"
+        ) or build_props.getProperty("base_sha")
+        pr_head = build_props.getProperty("github.head.sha") or build_props.getProperty(
+            "head_sha"
+        )
 
         # Not a PR, fallback to default behavior
         if merge_base is None or pr_head is None:
