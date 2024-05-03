@@ -181,6 +181,9 @@ class GiteaBackend(GitBackend):
     def create_change_hook(self) -> dict[str, Any]:
         return {
             "secret": self.webhook_secret,
+            # The "mergable" field is a bit buggy,
+            # we already do the merge locally anyway.
+            "onlyMergeablePullRequest": False,
         }
 
     def create_avatar_method(self) -> AvatarBase | None:
