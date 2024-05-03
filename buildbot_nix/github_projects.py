@@ -17,17 +17,14 @@ from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
 from twisted.internet import defer, threads
+from twisted.internet.defer import ensureDeferred
 from twisted.python import log
 from twisted.python.failure import Failure
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
 
-from .common import (
-    http_request,
-    paginated_github_request,
-    slugify_project_name,
-)
+from .common import http_request, paginated_github_request, slugify_project_name
 from .projects import GitBackend, GitProject
 from .secrets import read_secret_file
 
@@ -81,6 +78,15 @@ class GithubConfig:
         return read_secret_file(self.token_secret_name)
 
 
+class AsyncGitHubStatusPush(GitHubStatusPush):
+    @defer.inlineCallbacks
+    def sendMessage(  # noqa: N802
+        self, reports: list[dict[str, Any]]
+    ) -> Generator[Any, object, Any]:
+        # Don't block the CI on the GitHub status updates
+        yield ensureDeferred(super().sendMessage(reports))
+
+
 @dataclass
 class GithubBackend(GitBackend):
     config: GithubConfig
@@ -103,7 +109,7 @@ class GithubBackend(GitBackend):
         )
 
     def create_reporter(self) -> ReporterBase:
-        return GitHubStatusPush(
+        return AsyncGitHubStatusPush(
             token=self.config.token(),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
