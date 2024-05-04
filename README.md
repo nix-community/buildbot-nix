@@ -88,18 +88,23 @@ this repository because it needs to install a webhook.
 
 To integrate with Gitea
 
-1. **Gitea Token** Obtain a Gitea token with the following permissions `write:repository` and `write:user` permission.
-   For Gitea organizations, it's advisable to create a separate Gitea user.
-2. **Gitea App**: (optional). This is optional, when using GitHub as the authentication backend for buildbot.
-  Set up a OAuth2 app for Buildbot in the Applications section. This can be done in the global "Site adminstration"
-  settings (only available for admins) or in a Gitea organisation or in your personal settings.
-  As redirect url set `https://buildbot.your-buildbot-domain.com/auth/login`, where `buildbot.your-buildbot-domain.com`
-  should be replaced with the actual domain that your buildbot is running on.
+1. **Gitea Token** Obtain a Gitea token with the following permissions
+   `write:repository` and `write:user` permission. For Gitea organizations, it's
+   advisable to create a separate Gitea user. Buildbot-nix will use this token
+   to automatically setup a webhook in the repository.
+2. **Gitea App**: (optional). This is optional, when using GitHub as the
+   authentication backend for buildbot. Set up a OAuth2 app for Buildbot in the
+   Applications section. This can be done in the global "Site adminstration"
+   settings (only available for admins) or in a Gitea organisation or in your
+   personal settings. As redirect url set
+   `https://buildbot.your-buildbot-domain.com/auth/login`, where
+   `buildbot.your-buildbot-domain.com` should be replaced with the actual domain
+   that your buildbot is running on.
 
-Afterwards add the configured gitea topic to every project that should build with buildbot-nix.
-Notice that the buildbot user needs to have repository write access to this repository because it needs to install a webhook
-in the repository.
-
+Afterwards add the configured gitea topic to every project that should build
+with buildbot-nix. Notice that the buildbot user needs to have repository write
+access to this repository because it needs to install a webhook in the
+repository.
 
 ### Binary caches
 
