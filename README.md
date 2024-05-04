@@ -47,21 +47,59 @@ examples to guide you:
 - A
   [plain flake example](https://github.com/nix-community/nixos-images/blob/56b52791312edeade1e6bd853ce56c778f363d50/flake.nix#L53).
 
+### Authentication backend
+
+At the moment all projects are visible without authentication.
+
+For some actions a login is required. This login can either be based on GitHub
+or on Gitea (more logins may follow). The backend is set by the
+`services.buildbot-nix.master.authBackend` NixOS option.
+
+We have the following two roles:
+
+- Admins:
+  - The list of admin usernames is hard-coded in the NixOS configuration.
+  - admins can reload the project list
+- Organisation member:
+  - All member of the organisation where this repository is located
+  - They can restart builds
+
 ### Integration with GitHub
 
-Buildbot-nix primarily supports GitHub, with plans to extend support to other
-platforms like Gitea.
-
 To integrate with GitHub:
+
+1. **GitHub Token**: Obtain a GitHub token with `admin:repo_hook` and `repo`
+   permissions. For GitHub organizations, it's advisable to create a separate
+   GitHub user for managing repository webhooks.
+
+#### Optional when using GitHub login
 
 1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
    authentication on the Buildbot dashboard.
 2. **OAuth Credentials**: After installing the app, generate OAuth credentials
    and configure them in the buildbot-nix NixOS module. Set the callback url to
    `https://<your-domain>/auth/login`.
-3. **GitHub Token**: Obtain a GitHub token with `admin:repo_hook` and `repo`
-   permissions. For GitHub organizations, it's advisable to create a separate
-   GitHub user for managing repository webhooks.
+
+Afterwards add the configured github topic to every project that should build
+with buildbot-nix. Notice that the buildbot user needs to have admin access to
+this repository because it needs to install a webhook.
+
+### Integration with Gitea
+
+To integrate with Gitea
+
+1. **Gitea Token** Obtain a Gitea token with the following permissions `write:repository` and `write:user` permission.
+   For Gitea organizations, it's advisable to create a separate Gitea user.
+2. **Gitea App**: (optional). This is optional, when using GitHub as the authentication backend for buildbot.
+  Set up a OAuth2 app for Buildbot in the Applications section. This can be done in the global "Site adminstration"
+  settings (only available for admins) or in a Gitea organisation or in your personal settings.
+  As redirect url set `https://buildbot.your-buildbot-domain.com/auth/login`, where `buildbot.your-buildbot-domain.com`
+  should be replaced with the actual domain that your buildbot is running on.
+
+Afterwards add the configured gitea topic to every project that should build with buildbot-nix.
+Notice that the buildbot user needs to have repository write access to this repository because it needs to install a webhook
+in the repository.
+
 
 ### Binary caches
 
