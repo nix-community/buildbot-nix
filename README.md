@@ -123,6 +123,8 @@ in our repository.
 
 See Buildbot-nix in action in these deployments:
 
+The following instances run on GitHub:
+
 - **Nix-community infra**:
   [Configuration](https://github.com/nix-community/infra/tree/master/modules/nixos)
   | [Instance](https://buildbot.nix-community.org/)
@@ -133,3 +135,9 @@ See Buildbot-nix in action in these deployments:
   [Configuration](https://github.com/TUM-DSE/doctor-cluster-config/tree/master/modules/buildbot)
   | [Instance](https://buildbot.dse.in.tum.de/)
 - **Numtide**: [Instance](https://buildbot.numtide.com)
+
+The following instances integrated with Gitea:
+
+- **Clan infra**:
+  [Configuration](https://git.clan.lol/clan/clan-infra/src/branch/main/modules/buildbot.nix)
+  | [Instance](https://buildbot.clan.lol/)
