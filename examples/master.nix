@@ -9,7 +9,7 @@
     # (defaults to the hostname of the machine)
     # "pass" is the password for the worker configured in `services.buildbot-nix.worker.workerPasswordFile`
     # "cores" is the number of cpu cores the worker has.
-    # The number must match as otherwise potentially not enought buildbot-workers are created.
+    # The number must match the actual core count of the machine as otherwise not enough buildbot-workers are created.
     workersFile = pkgs.writeText "workers.json" ''
       [
         { "name": "eve", "pass": "XXXXXXXXXXXXXXXXXXXX", "cores": 16 }
