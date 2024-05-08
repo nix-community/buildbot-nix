@@ -185,7 +185,7 @@ in
         type = lib.types.str;
         description = "URL base for the webhook endpoint that will be registered for github or gitea repos.";
         example = "https://buildbot-webhooks.numtide.com/";
-        default = "${config.services.buildbot-master.buildbotUrl}";
+        default = config.services.buildbot-master.buildbotUrl;
       };
 
       outputsPath = lib.mkOption {
