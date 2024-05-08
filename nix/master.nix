@@ -181,6 +181,13 @@ in
         example = "buildbot.numtide.com";
       };
 
+      webhookBaseUrl = lib.mkOption {
+        type = lib.types.str;
+        description = "URL base for the webhook endpoint that will be registered for github or gitea repos.";
+        example = "https://buildbot-webhooks.numtide.com/";
+        default = "${config.services.buildbot-master.buildbotUrl}";
+      };
+
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
@@ -272,7 +279,7 @@ in
               )"
               },
               admins=${builtins.toJSON cfg.admins},
-              url=${builtins.toJSON config.services.buildbot-master.buildbotUrl},
+              url=${builtins.toJSON config.services.buildbot-nix.master.webhookBaseUrl},
               nix_eval_max_memory_size=${builtins.toJSON cfg.evalMaxMemorySize},
               nix_eval_worker_count=${
                 if cfg.evalWorkerCount == null then "None" else builtins.toString cfg.evalWorkerCount
