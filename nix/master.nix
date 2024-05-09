@@ -348,7 +348,7 @@ in
 
         # Needed because it tries to reach out to github on boot.
         # FIXME: if github is not available, we shouldn't fail buildbot, instead it should just try later again in the background
-        Restart = "on-failure";
+        Restart = "always";
         RestartSec = "30s";
       };
     };
