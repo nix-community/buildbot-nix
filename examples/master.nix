@@ -69,4 +69,8 @@
   #  forceSSL = true;
   #  enableACME = true;
   #};
+
+  # Optional: If buildbot is setup to run behind another proxy that does TLS
+  # termination set this to true to have buildbot use https:// for its endpoint
+  #useHTTPS = true;
 }

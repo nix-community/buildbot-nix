@@ -187,6 +187,14 @@ in
         example = "https://buildbot-webhooks.numtide.com/";
         default = config.services.buildbot-master.buildbotUrl;
       };
+      useHTTPS = lib.mkOption {
+        type = lib.types.nullOr lib.types.bool;
+        default = false;
+        description = ''
+          If buildbot is setup behind a reverse proxy other than the configured nginx set this to true
+          to force the endpoint to use https:// instead of http://.
+        '';
+      };
 
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
@@ -292,7 +300,7 @@ in
       buildbotUrl =
         let
           host = config.services.nginx.virtualHosts.${cfg.domain};
-          hasSSL = host.forceSSL || host.addSSL;
+          hasSSL = host.forceSSL || host.addSSL || cfg.useHTTPS;
         in
         "${if hasSSL then "https" else "http"}://${cfg.domain}/";
       dbUrl = config.services.buildbot-nix.master.dbUrl;
