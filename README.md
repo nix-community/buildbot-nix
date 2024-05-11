@@ -106,7 +106,7 @@ with buildbot-nix. Notice that the buildbot user needs to have repository write
 access to this repository because it needs to install a webhook in the
 repository.
 
-### Binary caches
+## Binary caches
 
 To access the build results on other machines there are two options at the
 moment
@@ -124,7 +124,7 @@ Buildbot-nix also supports pushing packages to cachix. Check out the comment out
 [example configuration](https://github.com/Mic92/buildbot-nix/blob/main/examples/master.nix)
 in our repository.
 
-### Real-World Deployments
+## Real-World Deployments
 
 See Buildbot-nix in action in these deployments:
 
@@ -146,3 +146,7 @@ The following instances integrated with Gitea:
 - **Clan infra**:
   [Configuration](https://git.clan.lol/clan/clan-infra/src/branch/main/modules/buildbot.nix)
   | [Instance](https://buildbot.clan.lol/)
+
+## Get in touch
+
+We have a matrix channel at [buildbot-nix](https://matrix.to/#/#buildbot-nix:thalheim.io).
