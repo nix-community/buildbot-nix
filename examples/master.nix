@@ -59,8 +59,8 @@
     #cachix = {
     #  name = "my-cachix";
     #  # One of the following is required:
-    #  signingKey = "/var/lib/secrets/cachix-key";
-    #  authToken = "/var/lib/secrets/cachix-token";
+    #  signingKeyFile = "/var/lib/secrets/cachix-key";
+    #  authTokenFile = "/var/lib/secrets/cachix-token";
     #};
   };
 
