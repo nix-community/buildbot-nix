@@ -149,4 +149,5 @@ The following instances integrated with Gitea:
 
 ## Get in touch
 
-We have a matrix channel at [buildbot-nix](https://matrix.to/#/#buildbot-nix:thalheim.io).
+We have a matrix channel at
+[buildbot-nix](https://matrix.to/#/#buildbot-nix:thalheim.io).
