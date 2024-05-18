@@ -2,6 +2,8 @@ import contextlib
 import http.client
 import json
 import urllib.request
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 
@@ -9,7 +11,9 @@ def slugify_project_name(name: str) -> str:
     return name.replace(".", "-").replace("/", "-")
 
 
-def paginated_github_request(url: str, token: str) -> list[dict[str, Any]]:
+def paginated_github_request(
+    url: str, token: str, subkey: None | str = None
+) -> list[dict[str, Any]]:
     next_url: str | None = url
     items = []
     while next_url:
@@ -29,7 +33,10 @@ def paginated_github_request(url: str, token: str) -> list[dict[str, Any]]:
                 link_parts = link.split(";")
                 if link_parts[1].strip() == 'rel="next"':
                     next_url = link_parts[0][1:-1]
-        items += res.json()
+        if subkey is not None:
+            items += res.json()[subkey]
+        else:
+            items += res.json()
     return items
 
 
@@ -78,3 +85,15 @@ def http_request(
         msg = f"Request for {method} {url} failed with {e.code} {e.reason}: {resp_body}"
         raise HttpError(msg) from e
     return HttpResponse(resp)
+
+
+def atomic_write_file(file: Path, data: str) -> None:
+    with NamedTemporaryFile("w", delete=False, dir=file.parent) as f:
+        path = Path(f.name)
+        try:
+            f.write(data)
+            f.flush()
+            path.rename(file)
+        except OSError:
+            path.unlink()
+            raise

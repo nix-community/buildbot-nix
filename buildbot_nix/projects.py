@@ -3,6 +3,7 @@ from typing import Any
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.reporters.base import ReporterBase
+from buildbot.secrets.providers.base import SecretProviderBase
 from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase
 
@@ -27,6 +28,9 @@ class GitBackend(ABC):
     @abstractmethod
     def create_auth(self) -> AuthBase:
         pass
+
+    def create_secret_providers(self) -> list[SecretProviderBase]:
+        return []
 
     @abstractmethod
     def load_projects(self) -> list["GitProject"]:

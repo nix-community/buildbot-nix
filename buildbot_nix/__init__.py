@@ -872,6 +872,8 @@ class NixConfigurator(ConfiguratorBase):
                 ],
             )
             config["services"].append(backend.create_reporter())
+            config.setdefault("secretProviders", [])
+            config["secretsProviders"].extend(backend.create_secret_providers())
 
         systemd_secrets = SecretInAFile(
             dirname=os.environ["CREDENTIALS_DIRECTORY"],
