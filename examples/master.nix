@@ -21,8 +21,11 @@
     github = {
       # Github user used as a CI identity
       user = "mic92-buildbot";
-      # Github token of the same user
-      tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
+      authType.legacy = {
+        enable = true;
+        # Github token of the same user
+        tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
+      };
       # A random secret used to verify incoming webhooks from GitHub
       # buildbot-nix will set up a webhook for each project in the organization
       webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000"; # FIXME: replace this with a secret not stored in the nix store

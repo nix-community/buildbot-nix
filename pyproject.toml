@@ -26,6 +26,8 @@ scripts = { buildbot-effects = "hercules_effects.cli:main" }
 [tool.setuptools]
 packages = [
   "buildbot_nix",
+  "buildbot_nix.github",
+  "buildbot_nix.github.auth",
   "buildbot_effects"
 ]
 
@@ -82,6 +84,17 @@ ignore = [
 
   # not compatible with twisted logger: https://docs.twisted.org/en/twisted-18.7.0/core/howto/logger.html
   "G010",  # Logging statement uses `warn` instead of `warning`
+
+  # gives falls positives and isn't hard to check munually
+  "ERA001"
+]
+
+[tool.ruff.lint.pep8-naming]
+ignore-names = [
+  "checkConfig",
+  "baseURL",
+  "reconfigService",
+  "sendMessage",
 ]
 
 [tool.mypy]

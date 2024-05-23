@@ -16,7 +16,10 @@
         '';
         admins = [ "Mic92" ];
         github = {
-          tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000";
+          authType.legacy = {
+            enable = true;
+            tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000";
+          };
           webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000";
           oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
           oauthId = "aaaaaaaaaaaaaaaaaaaa";

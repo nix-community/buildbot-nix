@@ -320,7 +320,7 @@ in
                               )
                             ''
                           else
-                            throw "Universe broke"
+                            throw "One of AuthTypeApp or AuthTypeLegacy must be enabled"
                         }
               )"
               },
