@@ -10,15 +10,13 @@ buildPythonPackage (lib.fix (self: {
   pname = "buildbot-gitea";
   version = "1.8.0";
 
-  nativeBuildInputs = [
-
-  ];
-
   propagatedBuildInputs = [
     pip
     buildbot
     requests
   ];
+
+  patches = [ ./0001-reporter-create-status-in-the-base-repository-of-a-p.patch ];
 
   src = fetchPypi {
     inherit (self) pname version;
