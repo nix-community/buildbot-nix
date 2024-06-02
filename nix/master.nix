@@ -124,29 +124,35 @@ in
           default = cfg.authBackend == "github";
         };
 
-        authType = {
-          legacy = {
-            enable = lib.mkEnableOption "";
-            tokenFile = lib.mkOption {
-              type = lib.types.path;
-              description = "Github token file";
-            };
-          };
-
-          app = {
-            enable = lib.mkEnableOption "";
-            id = lib.mkOption {
-              type = lib.types.int;
-              description = ''
-                GitHub app ID.
-              '';
+        authType = lib.mkOption {
+          type = lib.types.attrTag {
+            legacy = lib.mkOption {
+              description = "GitHub legacy auth backend";
+              type = lib.types.submodule {
+                options.tokenFile = lib.mkOption {
+                  type = lib.types.path;
+                  description = "Github token file";
+                };
+              };
             };
 
-            secretKeyFile = lib.mkOption {
-              type = lib.types.str;
-              description = ''
-                GitHub app secret key file location.
-              '';
+            app = lib.mkOption {
+              description = "GitHub legacy auth backend";
+              type = lib.types.submodule {
+                options.id = lib.mkOption {
+                  type = lib.types.int;
+                  description = ''
+                    GitHub app ID.
+                  '';
+                };
+
+                options.secretKeyFile = lib.mkOption {
+                  type = lib.types.str;
+                  description = ''
+                    GitHub app secret key file location.
+                  '';
+                };
+              };
             };
           };
         };
@@ -311,9 +317,9 @@ in
                   buildbot_user=${builtins.toJSON cfg.github.user},
                   topic=${builtins.toJSON cfg.github.topic},
                   auth_type=${
-                          if cfg.github.authType.legacy.enable then
+                          if cfg.github.authType ? "legacy" then
                             ''AuthTypeLegacy()''
-                          else if cfg.github.authType.app.enable then
+                          else if cfg.github.authType ? "app" then
                             ''
                               AuthTypeApp(
                                 app_id=${toString cfg.github.authType.app.id},
@@ -405,10 +411,10 @@ in
           ++ lib.optionals (cfg.github.enable) ([
             "github-webhook-secret:${cfg.github.webhookSecretFile}"
           ]
-          ++ lib.optionals (cfg.github.authType.legacy.enable) [
+          ++ lib.optionals (cfg.github.authType ? "legacy") [
             "github-token:${cfg.github.authType.legacy.tokenFile}"
           ]
-          ++ lib.optionals (cfg.github.authType.app.enable) [
+          ++ lib.optionals (cfg.github.authType ? "app") [
             "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
           ])
           ++ lib.optionals cfg.gitea.enable [

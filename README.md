@@ -66,16 +66,32 @@ We have the following two roles:
 
 ### Integration with GitHub
 
-To integrate with GitHub:
+#### GitHub App
+
+To integrate with GitHub using app authentication:
+
+1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
+   authentication on the Buildbot dashboard.
+2. **GitHub App private key**: Get the app private key and app ID from GitHub,
+   configure using the buildbot-nix NixOS module.
+3. **Install App**: Install the for an organization or specific user.
+4. **Refresh GitHub Projects**: Currently buildbot-nix doesn't respond to
+   changes (new repositories or installations) automatically, it is therefore
+   necessary to manually trigger a reload or wait for the next periodic reload.
+
+#### Legacy Token Auth
+
+To integrate with GitHub using legacy token authentication:
 
 1. **GitHub Token**: Obtain a GitHub token with `admin:repo_hook` and `repo`
    permissions. For GitHub organizations, it's advisable to create a separate
    GitHub user for managing repository webhooks.
 
-#### Optional when using GitHub login
+### Optional when using GitHub login
 
 1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
-   authentication on the Buildbot dashboard.
+   authentication on the Buildbot dashboard. (can be the same as for GitHub App
+   auth)
 2. **OAuth Credentials**: After installing the app, generate OAuth credentials
    and configure them in the buildbot-nix NixOS module. Set the callback url to
    `https://<your-domain>/auth/login`.
