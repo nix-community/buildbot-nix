@@ -86,7 +86,7 @@ class InstallationToken(RepoToken):
         #     token: "token"
         #   }
         # }
-        installations_token_map: dict[int, Any]
+        installations_token_map: dict[str, Any]
         if self.installations_token_map_name.exists():
             installations_token_map = json.loads(
                 self.installations_token_map_name.read_text()
@@ -94,10 +94,14 @@ class InstallationToken(RepoToken):
         else:
             installations_token_map = {}
 
-        installations_token_map[self.installation_id] = {
-            "expiration": self.expiration.isoformat(),
-            "token": self.token,
-        }
+        installations_token_map.update(
+            {
+                str(self.installation_id): {
+                    "expiration": self.expiration.isoformat(),
+                    "token": self.token,
+                }
+            }
+        )
 
         atomic_write_file(
             self.installations_token_map_name, json.dumps(installations_token_map)
