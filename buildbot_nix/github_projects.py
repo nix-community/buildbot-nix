@@ -533,7 +533,22 @@ class GithubBackend(GitBackend):
         }
 
     def create_avatar_method(self) -> AvatarBase | None:
-        return AvatarGitHub(token=self.auth_backend.get_general_token().get())
+        avatar = AvatarGitHub(token=self.auth_backend.get_general_token().get())
+
+        # TODO: not a proper fix, the /users/{username} endpoint is per installation, but I'm not sure
+        # how to tell which installation token to use, unless there is a way to build a huge map of
+        # username -> token, or we just try each one in order
+        def _get_avatar_by_username(self: Any, username: Any) -> Any:
+            return f"https://github.com/{username}.png"
+
+        import types
+
+        avatar._get_avatar_by_username = types.MethodType(  # noqa: SLF001
+            _get_avatar_by_username,
+            avatar,
+        )
+
+        return avatar
 
     def create_auth(self) -> AuthBase:
         assert self.config.oauth_id is not None, "GitHub OAuth ID is required"
