@@ -330,7 +330,7 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
         return self.token
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
-        return [GitHubLagacySecretService(self.token)]
+        return [GitHubLegacySecretService(self.token)]
 
     def create_reporter(self) -> ReporterBase:
         return GitHubStatusPush(
@@ -347,7 +347,7 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
         )
 
 
-class GitHubLagacySecretService(SecretProviderBase):
+class GitHubLegacySecretService(SecretProviderBase):
     name = "GitHubLegacySecretService"
     token: LegacyToken
 
