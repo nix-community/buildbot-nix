@@ -390,7 +390,7 @@ class GithubAppAuthBackend(GithubAuthBackend):
         return self.jwt_token
 
     def get_repo_token(self, repo: dict[str, Any]) -> RepoToken:
-        assert "installation_id" in repo
+        assert "installation_id" in repo, f"Missing installation_id in {repo}"
         return self.installation_tokens[repo["installation_id"]]
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
