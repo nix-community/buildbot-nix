@@ -74,7 +74,7 @@ To integrate with GitHub using app authentication:
    authentication on the Buildbot dashboard.
 2. **GitHub App private key**: Get the app private key and app ID from GitHub,
    configure using the buildbot-nix NixOS module.
-3. **Install App**: Install the for an organization or specific user.
+3. **Install App**: Install the app for an organization or specific user.
 4. **Refresh GitHub Projects**: Currently buildbot-nix doesn't respond to
    changes (new repositories or installations) automatically, it is therefore
    necessary to manually trigger a reload or wait for the next periodic reload.
