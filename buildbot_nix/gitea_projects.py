@@ -289,7 +289,7 @@ def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> None:
                 # Gitea doesn't include topics in the default repo listing, unlike GitHub
                 topics: list[str] = http_request(
                     f"{config.instance_url}/api/v1/repos/{repo['owner']['login']}/{repo['name']}/topics",
-                    headers={"Authorization": f"token {config.token}"},
+                    headers={"Authorization": f"token {config.token()}"},
                 ).json()["topics"]
                 repo["topics"] = topics
                 repos.append(repo)
