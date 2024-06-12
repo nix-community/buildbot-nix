@@ -41,7 +41,9 @@ class InstallationToken(RepoToken):
         token = InstallationToken._create_installation_access_token(
             jwt_token, installation_id
         ).json()["token"]
-        expiration = datetime.now(tz=UTC) + InstallationToken.GITHUB_TOKEN_LIFETIME
+        expiration = (
+            datetime.now(tz=UTC) + InstallationToken.GITHUB_TOKEN_LIFETIME * 0.8
+        )
 
         return token, expiration
 
@@ -72,7 +74,7 @@ class InstallationToken(RepoToken):
         return f"%(secret:github-token-{self.installation_id})"
 
     def verify(self) -> None:
-        if datetime.now(tz=UTC) - self.expiration > self.GITHUB_TOKEN_LIFETIME * 0.8:
+        if datetime.now(tz=UTC) > self.expiration:
             self.token, self.expiration = InstallationToken._generate_token(
                 self.jwt_token, self.installation_id
             )
