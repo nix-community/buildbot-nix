@@ -153,12 +153,9 @@ class ReloadGithubProjects(BuildStep):
         super().__init__(**kwargs)
 
     def reload_projects(self) -> None:
-        repos: list[Any] = []
+        repos: list[Any] = refresh_projects(self.token.get(), self.project_cache_file)
 
-        if self.project_cache_file.exists():
-            repos = json.loads(self.project_cache_file.read_text())
-
-        refresh_projects(self.token.get(), self.project_cache_file)
+        log.msg(repos)
 
         atomic_write_file(self.project_cache_file, json.dumps(repos))
 
@@ -569,6 +566,19 @@ class GithubBackend(GitBackend):
             json.loads(self.config.project_cache_file.read_text()),
             key=lambda x: x["full_name"],
         )
+
+        if isinstance(self.auth_backend, GithubAppAuthBackend):
+            dropped_repos = list(
+                filter(lambda repo: not "installation_id" in repo, repos)
+            )
+            if dropped_repos:
+                tlog.info(
+                    "Dropped projects follow, refresh will follow after initialisation:"
+                )
+                for dropped_repo in dropped_repos:
+                    tlog.info(f"\tDropping repo {dropped_repo['full_name']}")
+            repos = list(filter(lambda repo: "installation_id" in repo, repos))
+
         tlog.info(f"Loading {len(repos)} cached repositories.")
         return list(
             filter(
@@ -587,7 +597,16 @@ class GithubBackend(GitBackend):
         )
 
     def are_projects_cached(self) -> bool:
-        return self.config.project_cache_file.exists()
+        if not self.config.project_cache_file.exists():
+            return False
+
+        all_have_installation_id = True
+        for project in json.loads(self.config.project_cache_file.read_text()):
+            if not "installation_id" in project:
+                all_have_installation_id = False
+                break
+
+        return all_have_installation_id
 
     @property
     def type(self) -> str:
