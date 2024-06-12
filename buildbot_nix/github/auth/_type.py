@@ -19,5 +19,5 @@ class AuthTypeApp(AuthType):
     app_installation_token_map_name: Path = Path(
         "github-app-installation-token-map.json"
     )
-    app_project_id_map_name: Path = Path("github-app-project-id-map-name")
+    app_project_id_map_name: Path = Path("github-app-project-id-map-name.json")
     app_jwt_token_name: Path = Path("github-app-jwt-token")
