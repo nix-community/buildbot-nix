@@ -140,6 +140,7 @@ The following instances run on GitHub:
   [Configuration](https://github.com/TUM-DSE/doctor-cluster-config/tree/master/modules/buildbot)
   | [Instance](https://buildbot.dse.in.tum.de/)
 - **Numtide**: [Instance](https://buildbot.numtide.com)
+- [**Ngi0**](https://www.ngi.eu/ngi-projects/ngi-zero/): [Instance](https://buildbot.ngi.nixos.org/#/projects)
 
 The following instances integrated with Gitea:
 
