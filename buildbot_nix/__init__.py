@@ -837,7 +837,6 @@ class NixConfigurator(ConfiguratorBase):
         eval_lock = util.MasterLock("nix-eval")
 
         for project in projects:
-            project.create_project_hook(project.owner, project.repo, self.url)
             config_for_project(
                 config,
                 project,
@@ -854,7 +853,9 @@ class NixConfigurator(ConfiguratorBase):
 
         for backend in backends.values():
             # Reload backend projects
-            config["builders"].append(backend.create_reload_builder([worker_names[0]]))
+            config["builders"].append(
+                backend.create_reload_builder([worker_names[0]], self.url)
+            )
             config["schedulers"].extend(
                 [
                     schedulers.ForceScheduler(

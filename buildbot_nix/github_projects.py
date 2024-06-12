@@ -57,6 +57,39 @@ def get_installations(jwt_token: JWTToken) -> list[int]:
     return [installation["id"] for installation in installations]
 
 
+def create_repo_hook(
+    repo_name: str, token: RepoToken, webhook_url: str, webhook_secret: str
+) -> None:
+    hooks = paginated_github_request(
+        f"https://api.github.com/repos/{repo_name}/hooks?per_page=100",
+        token.get(),
+    )
+    config = dict(
+        url=webhook_url + "change_hook/github",
+        content_type="json",
+        insecure_ssl="0",
+        secret=webhook_secret,
+    )
+    data = dict(name="web", active=True, events=["push", "pull_request"], config=config)
+    headers = {
+        "Authorization": f"Bearer {token.get()}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    for hook in hooks:
+        if hook["config"]["url"] == webhook_url + "change_hook/github":
+            log.msg(f"hook for {repo_name} already exists")
+            return
+
+    http_request(
+        f"https://api.github.com/repos/{repo_name}/hooks",
+        method="POST",
+        headers=headers,
+        data=data,
+    )
+
+
 class ReloadGithubInstallations(BuildStep):
     name = "reload_github_projects"
 
@@ -64,6 +97,9 @@ class ReloadGithubInstallations(BuildStep):
     project_cache_file: Path
     installation_token_map_name: Path
     project_id_map_name: Path
+    webhook_url: str
+    webhook_secret: str
+    topic: str | None
 
     def __init__(
         self,
@@ -71,12 +107,18 @@ class ReloadGithubInstallations(BuildStep):
         project_cache_file: Path,
         installation_token_map_name: Path,
         project_id_map_name: Path,
+        webhook_url: str,
+        webhook_secret: str,
+        topic: str | None,
         **kwargs: Any,
     ) -> None:
         self.jwt_token = jwt_token
         self.installation_token_map_name = installation_token_map_name
         self.project_id_map_name = project_id_map_name
         self.project_cache_file = project_cache_file
+        self.webhook_url = webhook_url
+        self.webhook_secret = webhook_secret
+        self.topic = topic
         super().__init__(**kwargs)
 
     def reload_projects(self) -> None:
@@ -99,10 +141,10 @@ class ReloadGithubInstallations(BuildStep):
             new_repos = refresh_projects(
                 v.get(),
                 self.project_cache_file,
-                clear=True,
                 api_endpoint="/installation/repositories",
-                subkey="repositories",
                 require_admin=False,
+                subkey="repositories",
+                topic=self.topic,
             )
 
             for repo in new_repos:
@@ -112,6 +154,12 @@ class ReloadGithubInstallations(BuildStep):
 
             for repo in new_repos:
                 project_id_map[repo["full_name"]] = k
+                create_repo_hook(
+                    repo["full_name"],
+                    installation_token_map[k],
+                    self.webhook_url,
+                    self.webhook_secret,
+                )
 
         atomic_write_file(self.project_cache_file, json.dumps(repos))
         atomic_write_file(self.project_id_map_name, json.dumps(project_id_map))
@@ -145,17 +193,37 @@ class ReloadGithubInstallations(BuildStep):
 class ReloadGithubProjects(BuildStep):
     name = "reload_github_projects"
 
+    token: RepoToken
+    project_cache_file: Path
+    webhook_url: str
+    webhook_secret: str
+    topic: str | None
+
     def __init__(
-        self, token: RepoToken, project_cache_file: Path, **kwargs: Any
+        self,
+        token: RepoToken,
+        project_cache_file: Path,
+        webhook_url: str,
+        webhook_secret: str,
+        topic: str | None,
+        **kwargs: Any,
     ) -> None:
         self.token = token
         self.project_cache_file = project_cache_file
+        self.webhook_url = webhook_url
+        self.webhook_secret = webhook_url
+        self.topic = topic
         super().__init__(**kwargs)
 
     def reload_projects(self) -> None:
-        repos: list[Any] = refresh_projects(self.token.get(), self.project_cache_file)
+        repos: list[Any] = refresh_projects(
+            self.token.get(), self.project_cache_file, topic=self.topic
+        )
 
-        log.msg(repos)
+        for repo in repos:
+            create_repo_hook(
+                repo["full_name"], self.token, self.webhook_url, self.webhook_secret
+            )
 
         atomic_write_file(self.project_cache_file, json.dumps(repos))
 
@@ -307,7 +375,13 @@ class GithubAuthBackend(ABC):
         pass
 
     @abstractmethod
-    def create_reload_builder_step(self, project_cache_file: Path) -> BuildStep:
+    def create_reload_builder_step(
+        self,
+        project_cache_file: Path,
+        webhook_url: str,
+        webhook_secret: str,
+        topic: str | None,
+    ) -> BuildStep:
         pass
 
 
@@ -338,9 +412,19 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
             context=Interpolate("buildbot/%(prop:status_name)s"),
         )
 
-    def create_reload_builder_step(self, project_cache_file: Path) -> BuildStep:
+    def create_reload_builder_step(
+        self,
+        project_cache_file: Path,
+        webhook_url: str,
+        webhook_secret: str,
+        topic: str | None,
+    ) -> BuildStep:
         return ReloadGithubProjects(
-            token=self.token, project_cache_file=project_cache_file
+            token=self.token,
+            project_cache_file=project_cache_file,
+            webhook_url=webhook_url,
+            webhook_secret=webhook_secret,
+            topic=topic,
         )
 
 
@@ -406,12 +490,21 @@ class GithubAppAuthBackend(GithubAuthBackend):
             context=Interpolate("buildbot/%(prop:status_name)s"),
         )
 
-    def create_reload_builder_step(self, project_cache_file: Path) -> BuildStep:
+    def create_reload_builder_step(
+        self,
+        project_cache_file: Path,
+        webhook_url: str,
+        webhook_secret: str,
+        topic: str | None,
+    ) -> BuildStep:
         return ReloadGithubInstallations(
-            self.jwt_token,
-            project_cache_file,
-            self.auth_type.app_installation_token_map_name,
-            self.auth_type.app_project_id_map_name,
+            jwt_token=self.jwt_token,
+            project_cache_file=project_cache_file,
+            installation_token_map_name=self.auth_type.app_installation_token_map_name,
+            project_id_map_name=self.auth_type.app_project_id_map_name,
+            webhook_secret=webhook_secret,
+            webhook_url=webhook_url,
+            topic=topic,
         )
 
 
@@ -509,11 +602,18 @@ class GithubBackend(GitBackend):
 
         return installations_map
 
-    def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig:
+    def create_reload_builder(
+        self, worker_names: list[str], base_url: str
+    ) -> BuilderConfig:
         """Updates the flake an opens a PR for it."""
         factory = util.BuildFactory()
         factory.addStep(
-            self.auth_backend.create_reload_builder_step(self.config.project_cache_file)
+            self.auth_backend.create_reload_builder_step(
+                self.config.project_cache_file,
+                base_url,
+                self.webhook_secret,
+                self.config.topic,
+            )
         )
         return util.BuilderConfig(
             name=self.reload_builder_name,
@@ -584,19 +684,14 @@ class GithubBackend(GitBackend):
 
         tlog.info(f"Loading {len(repos)} cached repositories.")
         return list(
-            filter(
-                lambda project: self.config.topic is not None
-                and self.config.topic in project.topics,
-                [
-                    GithubProject(
-                        self.auth_backend.get_repo_token(repo),
-                        self.config,
-                        self.webhook_secret,
-                        repo,
-                    )
-                    for repo in repos
-                ],
-            )
+            [
+                GithubProject(
+                    self.auth_backend.get_repo_token(repo),
+                    self.config,
+                    repo,
+                )
+                for repo in repos
+            ],
         )
 
     def are_projects_cached(self) -> bool:
@@ -636,7 +731,6 @@ class GithubBackend(GitBackend):
 
 class GithubProject(GitProject):
     config: GithubConfig
-    webhook_secret: str
     data: dict[str, Any]
     token: RepoToken
 
@@ -644,50 +738,11 @@ class GithubProject(GitProject):
         self,
         token: RepoToken,
         config: GithubConfig,
-        webhook_secret: str,
         data: dict[str, Any],
     ) -> None:
         self.token = token
         self.config = config
-        self.webhook_secret = webhook_secret
         self.data = data
-
-    def create_project_hook(
-        self,
-        owner: str,
-        repo: str,
-        webhook_url: str,
-    ) -> None:
-        hooks = paginated_github_request(
-            f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100",
-            self.token.get(),
-        )
-        config = dict(
-            url=webhook_url + "change_hook/github",
-            content_type="json",
-            insecure_ssl="0",
-            secret=self.webhook_secret,
-        )
-        data = dict(
-            name="web", active=True, events=["push", "pull_request"], config=config
-        )
-        headers = {
-            "Authorization": f"Bearer {self.token.get()}",
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        for hook in hooks:
-            if hook["config"]["url"] == webhook_url + "change_hook/github":
-                log.msg(f"hook for {owner}/{repo} already exists")
-                return
-
-        http_request(
-            f"https://api.github.com/repos/{owner}/{repo}/hooks",
-            method="POST",
-            headers=headers,
-            data=data,
-        )
 
     def get_project_url(self) -> str:
         return f"https://git:{self.token.get_as_secret()}s@github.com/{self.name}"
@@ -736,14 +791,12 @@ class GithubProject(GitProject):
 def refresh_projects(
     github_token: str,
     repo_cache_file: Path,
-    repos: list[Any] | None = None,
-    clear: bool = True,
+    topic: str | None,
     api_endpoint: str = "/user/repos",
-    subkey: None | str = None,
     require_admin: bool = True,
+    subkey: None | str = None,
 ) -> list[Any]:
-    if repos is None:
-        repos = []
+    repos = []
 
     for repo in paginated_github_request(
         f"https://api.github.com{api_endpoint}?per_page=100",
@@ -759,4 +812,10 @@ def refresh_projects(
         else:
             repos.append(repo)
 
-    return repos
+    return list(
+        filter(
+            lambda project: not topic
+            or ("topics" in project and topic in project["topics"]),
+            repos,
+        )
+    )

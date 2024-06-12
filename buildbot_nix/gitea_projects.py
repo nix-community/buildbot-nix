@@ -28,6 +28,7 @@ from .common import (
     http_request,
     paginated_github_request,
     slugify_project_name,
+    atomic_write_file,
 )
 from .projects import GitBackend, GitProject
 from .secrets import read_secret_file
@@ -53,55 +54,11 @@ class GiteaConfig:
 
 class GiteaProject(GitProject):
     config: GiteaConfig
-    webhook_secret: str
     data: dict[str, Any]
 
-    def __init__(
-        self, config: GiteaConfig, webhook_secret: str, data: dict[str, Any]
-    ) -> None:
+    def __init__(self, config: GiteaConfig, data: dict[str, Any]) -> None:
         self.config = config
-        self.webhook_secret = webhook_secret
         self.data = data
-
-    def create_project_hook(
-        self,
-        owner: str,
-        repo: str,
-        webhook_url: str,
-    ) -> None:
-        hooks = paginated_github_request(
-            f"{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
-            self.config.token(),
-        )
-        config = dict(
-            url=webhook_url + "change_hook/gitea",
-            content_type="json",
-            insecure_ssl="0",
-            secret=self.webhook_secret,
-        )
-        data = dict(
-            name="web",
-            active=True,
-            events=["push", "pull_request"],
-            config=config,
-            type="gitea",
-        )
-        headers = {
-            "Authorization": f"token {self.config.token()}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
-        for hook in hooks:
-            if hook["config"]["url"] == webhook_url + "change_hook/gitea":
-                log.msg(f"hook for {owner}/{repo} already exists")
-                return
-
-        http_request(
-            f"{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks",
-            method="POST",
-            headers=headers,
-            data=data,
-        )
 
     def get_project_url(self) -> str:
         url = urlparse(self.config.instance_url)
@@ -158,11 +115,18 @@ class GiteaBackend(GitBackend):
         self.config = config
         self.webhook_secret = read_secret_file(self.config.webhook_secret_name)
 
-    def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig:
+    def create_reload_builder(
+        self, worker_names: list[str], base_url: str
+    ) -> BuilderConfig:
         """Updates the flake an opens a PR for it."""
         factory = util.BuildFactory()
         factory.addStep(
-            ReloadGiteaProjects(self.config, self.config.project_cache_file),
+            ReloadGiteaProjects(
+                self.config,
+                self.config.project_cache_file,
+                base_url,
+                self.webhook_secret,
+            ),
         )
         return util.BuilderConfig(
             name=self.reload_builder_name,
@@ -209,10 +173,7 @@ class GiteaBackend(GitBackend):
             filter(
                 lambda project: self.config.topic is not None
                 and self.config.topic in project.topics,
-                [
-                    GiteaProject(self.config, self.webhook_secret, repo)
-                    for repo in repos
-                ],
+                [GiteaProject(self.config, repo) for repo in repos],
             )
         )
 
@@ -239,16 +200,37 @@ class GiteaBackend(GitBackend):
 class ReloadGiteaProjects(BuildStep):
     name = "reload_gitea_projects"
     config: GiteaConfig
+    project_cache_file: Path
+    webhook_url: str
+    webhook_secret: str
 
     def __init__(
-        self, config: GiteaConfig, project_cache_file: Path, **kwargs: Any
+        self,
+        config: GiteaConfig,
+        project_cache_file: Path,
+        webhook_url: str,
+        webhook_secret: str,
+        **kwargs: Any,
     ) -> None:
         self.config = config
         self.project_cache_file = project_cache_file
+        self.webhook_url = webhook_url
+        self.webhook_secret = webhook_secret
         super().__init__(**kwargs)
 
     def reload_projects(self) -> None:
-        refresh_projects(self.config, self.project_cache_file)
+        repos = refresh_projects(self.config)
+
+        for repo in repos:
+            create_project_hook(
+                self.config.instance_url,
+                repo["full_name"],
+                self.config.token(),
+                self.webhook_url,
+                self.webhook_secret,
+            )
+
+        atomic_write_file(self.project_cache_file, json.dumps(repos))
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
@@ -272,7 +254,49 @@ class ReloadGiteaProjects(BuildStep):
             return util.FAILURE
 
 
-def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> None:
+def create_project_hook(
+    instance_url: str,
+    repo_name: str,
+    token: str,
+    webhook_url: str,
+    webhook_secret: str,
+) -> None:
+    hooks = paginated_github_request(
+        f"{instance_url}/api/v1/repos/{repo_name}/hooks?limit=100",
+        token,
+    )
+    config = dict(
+        url=webhook_url + "change_hook/gitea",
+        content_type="json",
+        insecure_ssl="0",
+        secret=webhook_secret,
+    )
+    data = dict(
+        name="web",
+        active=True,
+        events=["push", "pull_request"],
+        config=config,
+        type="gitea",
+    )
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    for hook in hooks:
+        if hook["config"]["url"] == webhook_url + "change_hook/gitea":
+            log.msg(f"hook for {repo_name} already exists")
+            return
+
+    http_request(
+        f"{instance_url}/api/v1/repos/{repo_name}/hooks",
+        method="POST",
+        headers=headers,
+        data=data,
+    )
+
+
+def refresh_projects(config: GiteaConfig) -> list[dict[str, Any]]:
     repos = []
 
     for repo in paginated_github_request(
@@ -296,12 +320,4 @@ def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> None:
             except OSError:
                 pass
 
-    with NamedTemporaryFile("w", delete=False, dir=repo_cache_file.parent) as f:
-        path = Path(f.name)
-        try:
-            f.write(json.dumps(repos))
-            f.flush()
-            path.rename(repo_cache_file)
-        except OSError:
-            path.unlink()
-            raise
+    return repos

@@ -10,7 +10,9 @@ from buildbot.www.avatar import AvatarBase
 
 class GitBackend(ABC):
     @abstractmethod
-    def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig:
+    def create_reload_builder(
+        self, worker_names: list[str], base_url: str
+    ) -> BuilderConfig:
         pass
 
     @abstractmethod
@@ -62,15 +64,6 @@ class GitBackend(ABC):
 
 
 class GitProject(ABC):
-    @abstractmethod
-    def create_project_hook(
-        self,
-        owner: str,
-        repo: str,
-        webhook_url: str,
-    ) -> None:
-        pass
-
     @abstractmethod
     def get_project_url(self) -> str:
         pass
