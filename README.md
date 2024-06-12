@@ -71,7 +71,11 @@ We have the following two roles:
 To integrate with GitHub using app authentication:
 
 1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
-   authentication on the Buildbot dashboard.
+   authentication on the Buildbot dashboard. Enable the following permissions:
+   - Contents: Read-only
+   - Metadata: Read-only
+   - Commit statuses: Read and write
+   - Webhooks: Read and write
 2. **GitHub App private key**: Get the app private key and app ID from GitHub,
    configure using the buildbot-nix NixOS module.
 3. **Install App**: Install the app for an organization or specific user.
