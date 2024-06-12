@@ -447,7 +447,7 @@ class GithubConfig:
     buildbot_user: str
     oauth_secret_name: str = "github-oauth-secret"
     webhook_secret_name: str = "github-webhook-secret"
-    project_cache_file: Path = Path("github-project-cache.json")
+    project_cache_file: Path = Path("github-project-cache-v1.json")
     topic: str | None = "build-with-buildbot"
 
 
