@@ -159,7 +159,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
         self.project = project
-        self.observer = logobserver.BufferLogObserver()
+        self.observer = logobserver.BufferLogObserver(wantStderr=True)
         self.addLogObserver("stdio", self.observer)
         self.supported_systems = supported_systems
 
@@ -172,6 +172,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         # if the command passes extract the list of stages
         result = cmd.results()
         if result == util.SUCCESS:
+            log.info(self.observer.getStderr())
+            self.addHTMLLog(
+                "Evaluation Warnings", f"<pre>{self.observer.getStderr()}</pre>"
+            )
+
             # create a ShellCommand for each stage and add them to the build
             jobs = []
 
