@@ -130,16 +130,18 @@ See Buildbot-nix in action in these deployments:
 
 The following instances run on GitHub:
 
-- **Nix-community infra**:
+- [**Nix-community infra**](https://nix-community.org/):
   [Configuration](https://github.com/nix-community/infra/tree/master/modules/nixos)
   | [Instance](https://buildbot.nix-community.org/)
-- **Mic92's dotfiles**:
+- [**Mic92's dotfiles**](https://github.com/Mic92/dotfiles):
   [Configuration](https://github.com/Mic92/dotfiles/blob/main/nixos/eve/modules/buildbot.nix)
   | [Instance](https://buildbot.thalheim.io/)
-- **Technical University Munich**:
+- [**Technical University Munich**](https://dse.in.tum.de/):
   [Configuration](https://github.com/TUM-DSE/doctor-cluster-config/tree/master/modules/buildbot)
   | [Instance](https://buildbot.dse.in.tum.de/)
-- **Numtide**: [Instance](https://buildbot.numtide.com)
+- [**Numtide**](https://numtide.com/): [Instance](https://buildbot.numtide.com)
+- [**Ngi0**](https://www.ngi.eu/ngi-projects/ngi-zero/):
+  [Instance](https://buildbot.ngi.nixos.org/#/projects)
 
 The following instances integrated with Gitea:
 
