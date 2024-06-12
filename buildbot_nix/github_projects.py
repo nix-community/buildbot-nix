@@ -381,6 +381,9 @@ class GithubAppAuthBackend(GithubAuthBackend):
                 self.auth_type.app_project_id_map_name.read_text()
             )
         else:
+            tlog.info(
+                "~project-id-map~ is not present, GitHub project reload will follow."
+            )
             self.project_id_map = {}
 
     def get_general_token(self) -> RepoToken:
@@ -598,6 +601,12 @@ class GithubBackend(GitBackend):
 
     def are_projects_cached(self) -> bool:
         if not self.config.project_cache_file.exists():
+            return False
+
+        if (
+            isinstance(self.config.auth_type, AuthTypeApp)
+            and not self.config.auth_type.app_project_id_map_name.exists()
+        ):
             return False
 
         all_have_installation_id = True
