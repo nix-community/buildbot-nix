@@ -24,6 +24,24 @@ in
         "admins"
       ]
     )
+    (mkRenamedOptionModule
+      [
+        "services"
+        "buildbot-nix"
+        "master"
+        "github"
+        "tokenFile"
+      ]
+      [
+        "services"
+        "buildbot-nix"
+        "master"
+        "github"
+        "authType"
+        "legacy"
+        "tokenFile"
+      ]
+    )
   ];
 
   options = {
@@ -106,10 +124,39 @@ in
           default = cfg.authBackend == "github";
         };
 
-        tokenFile = lib.mkOption {
-          type = lib.types.path;
-          description = "Github token file";
+        authType = lib.mkOption {
+          type = lib.types.attrTag {
+            legacy = lib.mkOption {
+              description = "GitHub legacy auth backend";
+              type = lib.types.submodule {
+                options.tokenFile = lib.mkOption {
+                  type = lib.types.path;
+                  description = "Github token file";
+                };
+              };
+            };
+
+            app = lib.mkOption {
+              description = "GitHub legacy auth backend";
+              type = lib.types.submodule {
+                options.id = lib.mkOption {
+                  type = lib.types.int;
+                  description = ''
+                    GitHub app ID.
+                  '';
+                };
+
+                options.secretKeyFile = lib.mkOption {
+                  type = lib.types.str;
+                  description = ''
+                    GitHub app secret key file location.
+                  '';
+                };
+              };
+            };
+          };
         };
+
         webhookSecretFile = lib.mkOption {
           type = lib.types.path;
           description = "Github webhook secret file";
@@ -243,7 +290,16 @@ in
       home = "/var/lib/buildbot";
       extraImports = ''
         from datetime import timedelta
-        from buildbot_nix import GithubConfig, NixConfigurator, CachixConfig, GiteaConfig
+        from buildbot_nix import (
+          GithubConfig,
+          NixConfigurator,
+          CachixConfig,
+          GiteaConfig,
+        )
+        from buildbot_nix.github.auth._type import (
+          AuthTypeLegacy,
+          AuthTypeApp,
+        )
       '';
       configurators = [
         ''
@@ -260,6 +316,18 @@ in
                   oauth_id=${builtins.toJSON cfg.github.oauthId},
                   buildbot_user=${builtins.toJSON cfg.github.user},
                   topic=${builtins.toJSON cfg.github.topic},
+                  auth_type=${
+                          if cfg.github.authType ? "legacy" then
+                            ''AuthTypeLegacy()''
+                          else if cfg.github.authType ? "app" then
+                            ''
+                              AuthTypeApp(
+                                app_id=${toString cfg.github.authType.app.id},
+                              )
+                            ''
+                          else
+                            throw "One of AuthTypeApp or AuthTypeLegacy must be enabled"
+                        }
               )"
               },
               gitea=${
@@ -323,6 +391,9 @@ in
 
     systemd.services.buildbot-master = {
       after = [ "postgresql.service" ];
+      path = [
+        pkgs.openssl
+      ];
       serviceConfig = {
         # in master.py we read secrets from $CREDENTIALS_DIRECTORY
         LoadCredential =
@@ -337,10 +408,15 @@ in
             (
               cfg.cachix.authTokenFile != null
             ) "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}"
-          ++ lib.optionals (cfg.github.enable) [
-            "github-token:${cfg.github.tokenFile}"
+          ++ lib.optionals (cfg.github.enable) ([
             "github-webhook-secret:${cfg.github.webhookSecretFile}"
           ]
+          ++ lib.optionals (cfg.github.authType ? "legacy") [
+            "github-token:${cfg.github.authType.legacy.tokenFile}"
+          ]
+          ++ lib.optionals (cfg.github.authType ? "app") [
+            "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
+          ])
           ++ lib.optionals cfg.gitea.enable [
             "gitea-token:${cfg.gitea.tokenFile}"
             "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"

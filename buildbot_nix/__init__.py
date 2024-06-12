@@ -872,6 +872,8 @@ class NixConfigurator(ConfiguratorBase):
                 ],
             )
             config["services"].append(backend.create_reporter())
+            config.setdefault("secretProviders", [])
+            config["secretsProviders"].extend(backend.create_secret_providers())
 
         systemd_secrets = SecretInAFile(
             dirname=os.environ["CREDENTIALS_DIRECTORY"],
@@ -887,13 +889,15 @@ class NixConfigurator(ConfiguratorBase):
                 backend.create_change_hook()
             )
 
-        if "auth" not in config["www"]:
-            config["www"].setdefault("avatar_methods", [])
+        config["www"].setdefault("avatar_methods", [])
 
-            for backend in backends.values():
-                avatar_method = backend.create_avatar_method()
-                if avatar_method is not None:
-                    config["www"]["avatar_methods"].append(avatar_method)
+        for backend in backends.values():
+            avatar_method = backend.create_avatar_method()
+            print(avatar_method)
+            if avatar_method is not None:
+                config["www"]["avatar_methods"].append(avatar_method)
+
+        if "auth" not in config["www"]:
             # TODO one cannot have multiple auth backends...
             if auth is not None:
                 config["www"]["auth"] = auth
