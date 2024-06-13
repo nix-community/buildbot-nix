@@ -572,7 +572,7 @@ class GithubBackend(GitBackend):
 
         if isinstance(self.auth_backend, GithubAppAuthBackend):
             dropped_repos = list(
-                filter(lambda repo: not "installation_id" in repo, repos)
+                filter(lambda repo: "installation_id" not in repo, repos)
             )
             if dropped_repos:
                 tlog.info(
@@ -611,7 +611,7 @@ class GithubBackend(GitBackend):
 
         all_have_installation_id = True
         for project in json.loads(self.config.project_cache_file.read_text()):
-            if not "installation_id" in project:
+            if "installation_id" not in project:
                 all_have_installation_id = False
                 break
 
