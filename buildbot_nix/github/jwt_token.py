@@ -73,7 +73,7 @@ class JWTToken(RepoToken):
         # return list(map(lambda installation: create_installation_access_token(installation['id']).json()["token"], installations))
 
     def get(self) -> str:
-        if datetime.now(tz=UTC) - self.expiration > self.lifetime * 0.8:
+        if self.expiration - datetime.now(tz=UTC) < self.lifetime * 0.2:
             self.token, self.expiration = JWTToken.generate_token(
                 self.app_id, self.app_private_key, self.lifetime
             )
