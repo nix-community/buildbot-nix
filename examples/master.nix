@@ -19,10 +19,8 @@
     # All other user in the organization will be able to restart builds or evaluations.
     admins = [ "Mic92" ];
     github = {
-      # Github user used as a CI identity
-      user = "mic92-buildbot";
       authType.legacy = {
-        # Github token of the same user
+        # Github user token used as a CI identity
         tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
       };
       # authType.app = {

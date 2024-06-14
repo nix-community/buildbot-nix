@@ -22,7 +22,6 @@
           webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000";
           oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
           oauthId = "aaaaaaaaaaaaaaaaaaaa";
-          user = "mic92-buildbot";
         };
       };
     };

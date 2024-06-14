@@ -5,7 +5,7 @@
 }:
 let
   cfg = config.services.buildbot-nix.master;
-  inherit (lib) mkRenamedOptionModule;
+  inherit (lib) mkRemovedOptionModule mkRenamedOptionModule;
 in
 {
   imports = [
@@ -41,6 +41,18 @@ in
         "legacy"
         "tokenFile"
       ]
+    )
+    (mkRemovedOptionModule
+      [
+        "services"
+        "buildbot-nix"
+        "master"
+        "github"
+        "user"
+      ]
+      ''
+        Setting a user is not required.
+      ''
     )
   ];
 
@@ -177,11 +189,6 @@ in
           default = null;
           description = "Github oauth id. Used for the login button";
         };
-        # Most likely you want to use the same user as for the buildbot
-        user = lib.mkOption {
-          type = lib.types.str;
-          description = "Github user that is used for the buildbot";
-        };
         topic = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
           default = "build-with-buildbot";
@@ -314,7 +321,6 @@ in
                 else
                   "GithubConfig(
                   oauth_id=${builtins.toJSON cfg.github.oauthId},
-                  buildbot_user=${builtins.toJSON cfg.github.user},
                   topic=${builtins.toJSON cfg.github.topic},
                   auth_type=${
                           if cfg.github.authType ? "legacy" then
