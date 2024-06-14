@@ -149,6 +149,15 @@ Buildbot-nix also supports pushing packages to cachix. Check out the comment out
 [example configuration](https://github.com/Mic92/buildbot-nix/blob/main/examples/master.nix)
 in our repository.
 
+#### Attic
+
+Buildbot-nix does not have native support for pushing packages to
+[attic](https://github.com/zhaofengli/attic) yet. However it's possible to
+integrate run a systemd service as described in
+[this example configuration](./examples/attic-watch-store.nix). The systemd
+service watches for changes in the local buildbot-nix store and uploads the
+contents to the attic cache.
+
 ## Real-World Deployments
 
 See Buildbot-nix in action in these deployments:
