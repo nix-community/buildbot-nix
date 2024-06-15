@@ -443,8 +443,6 @@ class GitHubAppSecretService(SecretProviderBase):
 class GithubConfig:
     oauth_id: str | None
     auth_type: AuthType
-    # TODO unused
-    buildbot_user: str
     oauth_secret_name: str = "github-oauth-secret"
     webhook_secret_name: str = "github-webhook-secret"
     project_cache_file: Path = Path("github-project-cache-v1.json")
