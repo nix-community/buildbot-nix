@@ -1,6 +1,5 @@
 { pkgs
 , config
-, inputs
 , ...
 }: {
   # sops-nix (https://github.com/Mic92/sops-nix) is just an example, here.
