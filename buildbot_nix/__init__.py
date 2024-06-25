@@ -831,7 +831,10 @@ class NixConfigurator(ConfiguratorBase):
             cores = item.get("cores", 0)
             for i in range(cores):
                 worker_name = f"{item['name']}-{i:03}"
-                config["workers"].append(worker.Worker(worker_name, item["pass"]))
+                if "pass" in item:
+                    config["workers"].append(worker.Worker(worker_name, item["pass"]))
+                else:
+                    config["workers"].append(worker.LocalWorker(worker_name))
                 worker_names.append(worker_name)
 
         eval_lock = util.MasterLock("nix-eval")
