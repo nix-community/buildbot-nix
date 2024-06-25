@@ -159,7 +159,7 @@ in
                 };
 
                 options.secretKeyFile = lib.mkOption {
-                  type = lib.types.str;
+                  type = lib.types.nullOr lib.types.path;
                   description = ''
                     GitHub app secret key file location.
                   '';
