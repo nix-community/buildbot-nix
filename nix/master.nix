@@ -378,12 +378,7 @@ in
         in
         "${if hasSSL then "https" else "http"}://${cfg.domain}/";
       dbUrl = config.services.buildbot-nix.master.dbUrl;
-      # Can be dropped after we have 24.05 everywhere
-      package = lib.mkIf (lib.versionOlder pkgs.buildbot.version "3.10.0") (
-        pkgs.buildbot.overrideAttrs (old: {
-          patches = old.patches ++ [ ./0001-allow-secrets-to-be-group-readable.patch ];
-        })
-      );
+      package = pkgs.buildbot;
       pythonPackages = ps: [
         ps.requests
         ps.treq
