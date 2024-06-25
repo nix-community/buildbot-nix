@@ -53,7 +53,8 @@ At the moment all projects are visible without authentication.
 
 For some actions a login is required. This login can either be based on GitHub
 or on Gitea (more logins may follow). The backend is set by the
-`services.buildbot-nix.master.authBackend` NixOS option ("gitea"/"github", "github" by default).
+`services.buildbot-nix.master.authBackend` NixOS option ("gitea"/"github",
+"github" by default).
 
 We have the following two roles:
 
@@ -73,20 +74,25 @@ This is the preferred option to setup buildbot-nix for GitHub.
 To integrate with GitHub using app authentication:
 
 1. **GitHub App**:
-    1. Create a new GitHub app by navigating to `https://github.com/settings/apps/new` for single-user installations or `https://github.com/organizations/<org>/settings/apps/new` for organisations where `<org>` is the name of your GitHub organizaction.
-    2. GitHub App Name: "buildbox-nix <org>"
-    3. Homepage URL: `https://buildbot.<your-domain>`
-    4. Callback URL: `https://buildbot.<your-domain>/auth/login`.
-    5. Disable the Webhook
-    6. Repository Permissions:
-      - Contents: Read-only
-      - Commit statuses: Read and write
-      - Metadata: Read-only
-      - Webhooks: Read and write
+   1. Create a new GitHub app by navigating to
+      `https://github.com/settings/apps/new` for single-user installations or
+      `https://github.com/organizations/<org>/settings/apps/new` for
+      organisations where `<org>` is the name of your GitHub organizaction.
+   2. GitHub App Name: "buildbox-nix <org>"
+   3. Homepage URL: `https://buildbot.<your-domain>`
+   4. Callback URL: `https://buildbot.<your-domain>/auth/login`.
+   5. Disable the Webhook
+   6. Repository Permissions:
+   - Contents: Read-only
+   - Commit statuses: Read and write
+   - Metadata: Read-only
+   - Webhooks: Read and write
 2. **GitHub App private key**: Get the app private key and app ID from GitHub,
    configure using the buildbot-nix NixOS module.
-    - Set `services.buildbot-nix.master.github.authType.app.id = <your-github-id>;`
-    - Set `services.buildbot-nix.master.github.authType.app.secretKeyFile = "/path/to.pem";`
+   - Set
+     `services.buildbot-nix.master.github.authType.app.id = <your-github-id>;`
+   - Set
+     `services.buildbot-nix.master.github.authType.app.secretKeyFile = "/path/to.pem";`
 3. **Install App**: Install the app for an organization or specific user.
 4. **Refresh GitHub Projects**: Currently buildbot-nix doesn't respond to
    changes (new repositories or installations) automatically, it is therefore
@@ -191,4 +197,3 @@ The following instances integrated with Gitea:
 
 We have a matrix channel at
 [buildbot-nix](https://matrix.to/#/#buildbot-nix:thalheim.io).
-
