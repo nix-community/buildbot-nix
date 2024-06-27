@@ -92,7 +92,7 @@ To integrate with GitHub using app authentication:
    - Set
      `services.buildbot-nix.master.github.authType.app.id = <your-github-id>;`
    - Set
-     `services.buildbot-nix.master.github.authType.app.secretKeyFile = "/path/to.pem";`
+     `services.buildbot-nix.master.github.authType.app.secretKeyFile = /path/to.pem;`
 3. **Install App**: Install the app for an organization or specific user.
 4. **Refresh GitHub Projects**: Currently buildbot-nix doesn't respond to
    changes (new repositories or installations) automatically, it is therefore
