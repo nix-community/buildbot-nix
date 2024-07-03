@@ -818,7 +818,7 @@ class NixConfigurator(ConfiguratorBase):
         backends: dict[str, GitBackend] = {}
 
         if self.github is not None:
-            backends["github"] = GithubBackend(self.github)
+            backends["github"] = GithubBackend(self.github, self.url)
 
         if self.gitea is not None:
             backends["gitea"] = GiteaBackend(self.gitea)
@@ -851,7 +851,6 @@ class NixConfigurator(ConfiguratorBase):
         eval_lock = util.MasterLock("nix-eval")
 
         for project in projects:
-            project.create_project_hook(project.owner, project.repo, self.url)
             config_for_project(
                 config,
                 project,
