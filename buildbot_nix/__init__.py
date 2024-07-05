@@ -653,7 +653,7 @@ def config_for_project(
 def normalize_virtual_builder_name(name: str) -> str:
     if re.match(r"^[^:]+:", name) is not None:
         # rewrites github:nix-community/srvos#checks.aarch64-linux.nixos-stable-example-hardware-hetzner-online-intel -> nix-community/srvos/nix-build
-        match = re.match(r"[^:]:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
+        match = re.match(r"[^:]+:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
         if match:
             return f"{match['owner']}/{match['repo']}/nix-build"
 
