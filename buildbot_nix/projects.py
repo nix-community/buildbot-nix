@@ -63,15 +63,6 @@ class GitBackend(ABC):
 
 class GitProject(ABC):
     @abstractmethod
-    def create_project_hook(
-        self,
-        owner: str,
-        repo: str,
-        webhook_url: str,
-    ) -> None:
-        pass
-
-    @abstractmethod
     def get_project_url(self) -> str:
         pass
 

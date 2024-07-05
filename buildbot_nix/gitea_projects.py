@@ -1,36 +1,34 @@
 import json
 import os
 import signal
-from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import urlparse
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
-from buildbot.process.buildstep import BuildStep
 from buildbot.process.properties import Interpolate
 from buildbot.reporters.base import ReporterBase
 from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase
 from buildbot_gitea.auth import GiteaAuth  # type: ignore[import]
 from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
-from twisted.internet import defer, threads
+from twisted.logger import Logger
 from twisted.python import log
-from twisted.python.failure import Failure
-
-if TYPE_CHECKING:
-    from buildbot.process.log import StreamLog
 
 from .common import (
+    ThreadDeferredBuildStep,
+    atomic_write_file,
+    filter_repos_by_topic,
     http_request,
     paginated_github_request,
     slugify_project_name,
 )
 from .projects import GitBackend, GitProject
 from .secrets import read_secret_file
+
+tlog = Logger()
 
 
 @dataclass
@@ -62,46 +60,6 @@ class GiteaProject(GitProject):
         self.config = config
         self.webhook_secret = webhook_secret
         self.data = data
-
-    def create_project_hook(
-        self,
-        owner: str,
-        repo: str,
-        webhook_url: str,
-    ) -> None:
-        hooks = paginated_github_request(
-            f"{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
-            self.config.token(),
-        )
-        config = dict(
-            url=webhook_url + "change_hook/gitea",
-            content_type="json",
-            insecure_ssl="0",
-            secret=self.webhook_secret,
-        )
-        data = dict(
-            name="web",
-            active=True,
-            events=["push", "pull_request"],
-            config=config,
-            type="gitea",
-        )
-        headers = {
-            "Authorization": f"token {self.config.token()}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
-        for hook in hooks:
-            if hook["config"]["url"] == webhook_url + "change_hook/gitea":
-                log.msg(f"hook for {owner}/{repo} already exists")
-                return
-
-        http_request(
-            f"{self.config.instance_url}/api/v1/repos/{owner}/{repo}/hooks",
-            method="POST",
-            headers=headers,
-            data=data,
-        )
 
     def get_project_url(self) -> str:
         url = urlparse(self.config.instance_url)
@@ -153,6 +111,7 @@ class GiteaProject(GitProject):
 
 class GiteaBackend(GitBackend):
     config: GiteaConfig
+    webhook_secret: str
 
     def __init__(self, config: GiteaConfig) -> None:
         self.config = config
@@ -163,6 +122,11 @@ class GiteaBackend(GitBackend):
         factory = util.BuildFactory()
         factory.addStep(
             ReloadGiteaProjects(self.config, self.config.project_cache_file),
+        )
+        factory.addStep(
+            CreateGiteaProjectHooks(
+                self.config, self.config.project_cache_file, self.webhook_secret
+            ),
         )
         return util.BuilderConfig(
             name=self.reload_builder_name,
@@ -201,20 +165,22 @@ class GiteaBackend(GitBackend):
         if not self.config.project_cache_file.exists():
             return []
 
-        repos: list[dict[str, Any]] = sorted(
-            json.loads(self.config.project_cache_file.read_text()),
-            key=lambda x: x["full_name"],
+        repos: list[dict[str, Any]] = filter_repos_by_topic(
+            self.config.topic,
+            sorted(
+                json.loads(self.config.project_cache_file.read_text()),
+                key=lambda x: x["full_name"],
+            ),
+            lambda repo: repo["topics"],
         )
-        return list(
-            filter(
-                lambda project: self.config.topic is not None
-                and self.config.topic in project.topics,
-                [
-                    GiteaProject(self.config, self.webhook_secret, repo)
-                    for repo in repos
-                ],
-            )
+        repo_names: list[str] = [
+            repo["owner"]["login"] + "/" + repo["name"] for repo in repos
+        ]
+        tlog.info(
+            f"Loading {len(repos)} cached repositories: [{', '.join(repo_names)}]"
         )
+
+        return [GiteaProject(self.config, self.webhook_secret, repo) for repo in repos]
 
     def are_projects_cached(self) -> bool:
         return self.config.project_cache_file.exists()
@@ -236,43 +202,111 @@ class GiteaBackend(GitBackend):
         return "gitea"
 
 
-class ReloadGiteaProjects(BuildStep):
-    name = "reload_gitea_projects"
+def create_repo_hook(
+    token: str, webhook_secret: str, owner: str, repo: str, webhook_url: str
+) -> None:
+    hooks = paginated_github_request(
+        f"{webhook_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
+        token,
+    )
+    config = dict(
+        url=webhook_url + "change_hook/gitea",
+        content_type="json",
+        insecure_ssl="0",
+        secret=webhook_secret,
+    )
+    data = dict(
+        name="web",
+        active=True,
+        events=["push", "pull_request"],
+        config=config,
+        type="gitea",
+    )
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    for hook in hooks:
+        if hook["config"]["url"] == webhook_url + "change_hook/gitea":
+            log.msg(f"hook for {owner}/{repo} already exists")
+            return
+
+    log.msg(f"creating hook for {owner}/{repo}")
+    http_request(
+        f"{webhook_url}/api/v1/repos/{owner}/{repo}/hooks",
+        method="POST",
+        headers=headers,
+        data=data,
+    )
+
+
+class CreateGiteaProjectHooks(ThreadDeferredBuildStep):
+    name = "create_gitea_project_hooks"
+
     config: GiteaConfig
+    project_cache_file: Path
+    webhook_secret: str
 
     def __init__(
-        self, config: GiteaConfig, project_cache_file: Path, **kwargs: Any
+        self,
+        config: GiteaConfig,
+        project_cache_file: Path,
+        webhook_secret: str,
+        **kwargs: Any,
+    ) -> None:
+        self.config = config
+        self.project_cache_file = project_cache_file
+        self.webhook_secret = webhook_secret
+        super().__init__(**kwargs)
+
+    def run_deferred(self) -> None:
+        repos = json.loads(self.project_cache_file.read_text())
+
+        for repo in repos:
+            create_repo_hook(
+                self.config.token(),
+                self.webhook_secret,
+                repo["owner"]["login"],
+                repo["name"],
+                self.config.instance_url,
+            )
+
+    def run_post(self) -> Any:
+        os.kill(os.getpid(), signal.SIGHUP)
+        return util.SUCCESS
+
+
+class ReloadGiteaProjects(ThreadDeferredBuildStep):
+    name = "reload_gitea_projects"
+
+    config: GiteaConfig
+    project_cache_file: Path
+
+    def __init__(
+        self,
+        config: GiteaConfig,
+        project_cache_file: Path,
+        **kwargs: Any,
     ) -> None:
         self.config = config
         self.project_cache_file = project_cache_file
         super().__init__(**kwargs)
 
-    def reload_projects(self) -> None:
-        refresh_projects(self.config, self.project_cache_file)
+    def run_deferred(self) -> None:
+        repos = filter_repos_by_topic(
+            self.config.topic,
+            refresh_projects(self.config, self.project_cache_file),
+            lambda repo: repo["topics"],
+        )
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
-        d = threads.deferToThread(self.reload_projects)  # type: ignore[no-untyped-call]
+        atomic_write_file(self.project_cache_file, json.dumps(repos))
 
-        self.error_msg = ""
-
-        def error_cb(failure: Failure) -> int:
-            self.error_msg += failure.getTraceback()
-            return util.FAILURE
-
-        d.addCallbacks(lambda _: util.SUCCESS, error_cb)
-        res = yield d
-        if res == util.SUCCESS:
-            # reload the buildbot config
-            os.kill(os.getpid(), signal.SIGHUP)
-            return util.SUCCESS
-        else:
-            log: StreamLog = yield self.addLog("log")
-            log.addStderr(f"Failed to reload project list: {self.error_msg}")
-            return util.FAILURE
+    def run_post(self) -> Any:
+        return util.SUCCESS
 
 
-def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> None:
+def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> list[Any]:
     repos = []
 
     for repo in paginated_github_request(
@@ -296,12 +330,4 @@ def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> None:
             except OSError:
                 pass
 
-    with NamedTemporaryFile("w", delete=False, dir=repo_cache_file.parent) as f:
-        path = Path(f.name)
-        try:
-            f.write(json.dumps(repos))
-            f.flush()
-            path.rename(repo_cache_file)
-        except OSError:
-            path.unlink()
-            raise
+    return repos
