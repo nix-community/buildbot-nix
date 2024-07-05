@@ -87,6 +87,9 @@ To integrate with GitHub using app authentication:
    - Commit statuses: Read and write
    - Metadata: Read-only
    - Webhooks: Read and write
+   7. Organisation Permissions (only if you create this app for an
+      organisation):
+   - Members: Read-only
 2. **GitHub App private key**: Get the app private key and app ID from GitHub,
    configure using the buildbot-nix NixOS module.
    - Set
