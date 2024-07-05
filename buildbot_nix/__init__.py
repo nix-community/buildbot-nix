@@ -678,8 +678,14 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         if res is None:
             return None
 
-        builder = yield self.master.data.get(("builders", res["builderid"]))
-        builder_name = normalize_virtual_builder_name(builder["name"])
+        builderid = res.get("builderid")
+        if builderid is None:
+            builder_name = res["builder_names"][0]
+        else:
+            builder = yield self.master.data.get(("builders", builderid))
+            builder_name = builder["name"]
+
+        builder_name = normalize_virtual_builder_name(builder_name)
         if builder_name in self.builders:
             log.warn(
                 "Builder {builder} allowed by {role}: {builders}",
@@ -695,6 +701,14 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
                 role=self.role,
                 builders=self.builders,
             )
+
+    def match_ForceSchedulerEndpoint_force(  # noqa: N802
+        self,
+        epobject: Any,
+        epdict: dict[str, Any],
+        options: dict[str, Any],
+    ) -> defer.Deferred[Match]:
+        return self.check_builder(epobject, epdict, "build")
 
     def match_BuildEndpoint_rebuild(  # noqa: N802
         self,
