@@ -427,11 +427,6 @@ in
             "gitea-token:${cfg.gitea.tokenFile}"
             "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
           ];
-
-        # Needed because it tries to reach out to github on boot.
-        # FIXME: if github is not available, we shouldn't fail buildbot, instead it should just try later again in the background
-        Restart = "always";
-        RestartSec = "30s";
       };
     };
 
