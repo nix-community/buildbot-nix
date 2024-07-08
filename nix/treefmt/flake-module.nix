@@ -8,6 +8,8 @@
       programs.nixpkgs-fmt.enable = true;
       programs.shellcheck.enable = true;
       programs.deno.enable = true;
+      programs.ruff.check = true;
+      programs.ruff.format = true;
       settings.formatter.shellcheck.options = [ "-s" "bash" ];
 
       programs.mypy = {
@@ -16,18 +18,9 @@
           pkgs.python3.pkgs.twisted
         ];
       };
-      settings.formatter.python = {
-        command = "sh";
-        options = [
-          "-eucx"
-          ''
-            ${pkgs.ruff}/bin/ruff --fix "$@"
-            ${pkgs.ruff}/bin/ruff format "$@"
-          ''
-          "--" # this argument is ignored by bash
-        ];
-        includes = [ "*.py" ];
-      };
+
+      settings.formatter.ruff-check.priority = 1;
+      settings.formatter.ruff-format.priority = 2;
     };
   };
 }
