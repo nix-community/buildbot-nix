@@ -76,7 +76,7 @@ in
         '';
       };
       buildRetries = lib.mkOption {
-        type = lib.types.ints.positive;
+        type = lib.types.int;
         default = 1;
         description = "Number of times a build is retried";
       };
