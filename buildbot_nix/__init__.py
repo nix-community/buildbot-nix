@@ -240,8 +240,9 @@ class EvalErrorStep(steps.BuildStep):
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
     """Builds a nix derivation."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, retries: int, **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
+        self.retries = retries
         super().__init__(**kwargs)
 
     @defer.inlineCallbacks
@@ -253,7 +254,7 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         res = cmd.results()
         if res == util.FAILURE:
             retries = RETRY_COUNTER.retry_build(self.getProperty("build_uuid"))
-            if retries > 0:
+            if retries > self.retries - 1:
                 return util.RETRY
         return res
 
@@ -446,6 +447,7 @@ def nix_build_config(
     worker_names: list[str],
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
+    retries: int = 1,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
@@ -472,6 +474,7 @@ def nix_build_config(
             # 3 hours, defaults to 20 minutes
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
+            retries=retries,
             haltOnFailure=True,
         ),
     )
@@ -571,6 +574,7 @@ def config_for_project(
     eval_lock: MasterLock,
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
+    build_retries: int = 1,
 ) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
@@ -644,6 +648,7 @@ def config_for_project(
                 worker_names,
                 cachix=cachix,
                 outputs_path=outputs_path,
+                retries=build_retries,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
         ],
@@ -788,6 +793,7 @@ class NixConfigurator(ConfiguratorBase):
         # Shape of this file: [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
         admins: list[str],
         auth_backend: str,
+        build_retries: int,
         github: GithubConfig | None,
         gitea: GiteaConfig | None,
         url: str,
@@ -809,6 +815,7 @@ class NixConfigurator(ConfiguratorBase):
         self.gitea = gitea
         self.url = url
         self.cachix = cachix
+        self.build_retries = build_retries
         if outputs_path is None:
             self.outputs_path = None
         else:
@@ -861,6 +868,7 @@ class NixConfigurator(ConfiguratorBase):
                 eval_lock,
                 self.cachix,
                 self.outputs_path,
+                self.build_retries,
             )
 
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
