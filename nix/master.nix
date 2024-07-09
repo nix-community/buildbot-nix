@@ -75,6 +75,11 @@ in
           Which OAuth2 backend to use.
         '';
       };
+      buildRetries = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 1;
+        description = "Number of times a build is retried";
+      };
       cachix = {
         name = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
@@ -346,6 +351,7 @@ in
                   topic=${builtins.toJSON cfg.gitea.topic},
               )"
               },
+              build_retries=${builtins.toJSON cfg.buildRetries},
               cachix=${
                 if cfg.cachix.name == null then
                   "None"
