@@ -2,7 +2,6 @@ import json
 import os
 import signal
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import starmap
 from pathlib import Path
@@ -257,114 +256,6 @@ class ReloadGithubProjects(ThreadDeferredBuildStep):
         return util.SUCCESS
 
 
-class GitHubAppStatusPush(GitHubStatusPush):
-    token_source: Callable[[int], RepoToken]
-    project_id_source: Callable[[str], int]
-    saved_args: dict[str, Any]
-    saved_kwargs: dict[str, Any]
-
-    def checkConfig(
-        self,
-        token_source: Callable[[int], RepoToken],
-        project_id_source: Callable[[str], int],
-        context: Any = None,
-        baseURL: Any = None,
-        verbose: Any = False,
-        debug: Any = None,
-        verify: Any = None,
-        generators: Any = None,
-        **kwargs: dict[str, Any],
-    ) -> Any:
-        if generators is None:
-            generators = self._create_default_generators()
-
-        if "token" in kwargs:
-            del kwargs["token"]
-        super().checkConfig(
-            token="",
-            context=context,
-            baseURL=baseURL,
-            verbose=verbose,
-            debug=debug,
-            verify=verify,
-            generators=generators,
-            **kwargs,
-        )
-
-    def reconfigService(
-        self,
-        token_source: Callable[[int], RepoToken],
-        project_id_source: Callable[[str], int],
-        context: Any = None,
-        baseURL: Any = None,
-        verbose: Any = False,
-        debug: Any = None,
-        verify: Any = None,
-        generators: Any = None,
-        **kwargs: dict[str, Any],
-    ) -> Any:
-        if "saved_args" not in self or self.saved_args is None:
-            self.saved_args = {}
-        self.token_source = token_source
-        self.project_id_source = project_id_source
-        self.saved_kwargs = kwargs
-        self.saved_args["context"] = context
-        self.saved_args["baseURL"] = baseURL
-        self.saved_args["verbose"] = verbose
-        self.saved_args["debug"] = debug
-        self.saved_args["verify"] = verify
-        self.saved_args["generators"] = generators
-
-        if generators is None:
-            generators = self._create_default_generators()
-
-        if "token" in kwargs:
-            del kwargs["token"]
-        super().reconfigService(
-            token="",
-            context=context,
-            baseURL=baseURL,
-            verbose=verbose,
-            debug=debug,
-            verify=verify,
-            generators=generators,
-            **kwargs,
-        )
-
-    def sendMessage(self, reports: Any) -> Any:
-        build = reports[0]["builds"][0]
-        sourcestamps = build["buildset"].get("sourcestamps")
-        if not sourcestamps:
-            return None
-
-        for sourcestamp in sourcestamps:
-            build["buildset"]["sourcestamps"] = [sourcestamp]
-
-            token: str
-
-            if "project" in sourcestamp and sourcestamp["project"] != "":
-                token = self.token_source(
-                    self.project_id_source(sourcestamp["project"])
-                ).get()
-            else:
-                token = ""
-
-            super().reconfigService(
-                token,
-                context=self.saved_args["context"],
-                baseURL=self.saved_args["baseURL"],
-                verbose=self.saved_args["verbose"],
-                debug=self.saved_args["debug"],
-                verify=self.saved_args["verify"],
-                generators=self.saved_args["generators"],
-                **self.saved_kwargs,
-            )
-
-            return super().sendMessage(reports)
-
-        return None
-
-
 class GithubAuthBackend(ABC):
     @abstractmethod
     def get_general_token(self) -> RepoToken:
@@ -496,9 +387,10 @@ class GithubAppAuthBackend(GithubAuthBackend):
         return [GitHubAppSecretService(self.installation_tokens, self.jwt_token)]
 
     def create_reporter(self) -> ReporterBase:
-        return GitHubAppStatusPush(
-            token_source=lambda iid: self.installation_tokens[iid],
-            project_id_source=lambda project: self.project_id_map[project],
+        return GitHubStatusPush(
+            token=lambda project: self.installation_tokens[
+                self.project_id_map[project]
+            ].get(),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
