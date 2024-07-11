@@ -409,7 +409,22 @@ in
           in
           "${if hasSSL then "https" else "http"}://${cfg.domain}/";
         dbUrl = config.services.buildbot-nix.master.dbUrl;
-        package = cfg.package;
+        package =
+          let
+            fixPatch = { patch, name }:
+              pkgs.runCommand "${name}.patch" { } ''
+                sed -r \
+                  's~^(---|\+\+\+) (a|b)/master/(.+)$~\1 \2/\3~' \
+                  ${patch} >$out
+              '';
+          in
+          cfg.package.overrideAttrs (old: {
+            patches =
+              old.patches ++ [
+                ./0001-Support-per-installation-tokens-in-GithubStatusPush-.patch #;
+
+              ];
+          });
         pythonPackages = ps: [
           ps.requests
           ps.treq
