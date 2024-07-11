@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from itertools import starmap
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
@@ -20,6 +20,7 @@ from buildbot.www.oauth2 import GitHubAuth
 from pydantic import BaseModel, ConfigDict, Field
 from twisted.logger import Logger
 from twisted.python import log
+from twisted.internet import defer
 
 from .common import (
     ThreadDeferredBuildStep,
@@ -309,6 +310,32 @@ class GithubAuthBackend(ABC):
     ) -> list[BuildStep]:
         pass
 
+class ModifyingGitHubStatusPush(GitHubStatusPush):
+    def checkConfig(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+        self.modifyingFilter = modifyingFilter
+
+        return super().checkConfig(**kwargs)
+
+    def reconfigService(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+        self.modifyingFilter = modifyingFilter
+
+        return super().reconfigService(**kwargs)
+
+    @defer.inlineCallbacks
+    def sendMessage(self, reports: Any) -> Any:
+        reports = self.modifyingFilter(reports)
+        if reports is None:
+            return
+
+        result = yield super().sendMessage(reports)
+        return result
+
+def filter_for_combined_builds(reports: Any) -> Any | None:
+    properties = reports[0]["builds"][0]["properties"]
+
+    if "report_status" in properties and not properties["report_status"][0]:
+        return None
+    return reports
 
 class GithubLegacyAuthBackend(GithubAuthBackend):
     auth_type: GitHubLegacyConfig
@@ -329,12 +356,13 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
         return [GitHubLegacySecretService(self.token)]
 
     def create_reporter(self) -> ReporterBase:
-        return GitHubStatusPush(
+        return ModifyingGitHubStatusPush(
             token=self.token.get(),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
+            modifyingFilter=filter_for_combined_builds,
         )
 
     def create_reload_builder_steps(
@@ -416,12 +444,13 @@ class GithubAppAuthBackend(GithubAuthBackend):
                 self.project_id_map[props["projectname"]]
             ].get()
 
-        return GitHubStatusPush(
+        return ModifyingGitHubStatusPush(
             token=WithProperties("%(github_token)s", github_token=get_github_token),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
+            modifyingFilter=filter_for_combined_builds,
         )
 
     def create_reload_builder_steps(

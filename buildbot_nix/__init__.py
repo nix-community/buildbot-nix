@@ -59,12 +59,14 @@ class BuildTrigger(Trigger):
         builds_scheduler: str,
         skipped_builds_scheduler: str,
         jobs: list[dict[str, Any]],
+        report_status: bool,
         **kwargs: Any,
     ) -> None:
         if "name" not in kwargs:
             kwargs["name"] = "trigger"
         self.project = project
         self.jobs = jobs
+        self.report_status = report_status
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
@@ -102,6 +104,7 @@ class BuildTrigger(Trigger):
             props.setProperty("virtual_builder_name", name, source)
             props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
             props.setProperty("virtual_builder_tags", "", source)
+            props.setProperty("report_status", self.report_status, source)
 
             drv_path = job.get("drvPath")
             system = job.get("system")
@@ -143,6 +146,15 @@ class BuildTrigger(Trigger):
                         f"{self._result_list.count(status)} {statusToString(status, count)}",
                     )
         return {"step": f"({', '.join(summary)})"}
+
+
+class NixBuildCombined(steps.BuildStep):
+    """Shows the error message of a failed evaluation."""
+
+    name = "nix-build-combined"
+
+    def run(self) -> Generator[Any, object, Any]:
+        return self.build.results
 
 
 class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
@@ -190,16 +202,32 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 if not system or system in self.supported_systems:  # report eval errors
                     filtered_jobs.append(job)
 
+            self.number_of_jobs = len(filtered_jobs)
+
             self.build.addStepsAfterCurrentStep(
-                [
+                [  # noqa: RUF005
                     BuildTrigger(
                         self.project,
                         builds_scheduler=f"{project_id}-nix-build",
                         skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
                         name="build flake",
                         jobs=filtered_jobs,
+                        report_status=(self.number_of_jobs <= 2),
                     ),
-                ],
+                ]
+                + [
+                    Trigger(
+                        waitForFinish=True,
+                        schedulerNames=[f"{project_id}-nix-build-combined"],
+                        haltOnFailure=True,
+                        flunkOnFailure=True,
+                        sourceStamps=[],
+                        alwaysUseLatest=False,
+                        updateSourceStamp=False,
+                    ),
+                ]
+                if self.number_of_jobs > 2
+                else [],
             )
 
         return result
@@ -600,6 +628,23 @@ def nix_register_gcroot_config(
         factory=factory,
     )
 
+def nix_build_combined_config(
+    project: GitProject,
+    worker_names: list[str],
+) -> BuilderConfig:
+    factory = util.BuildFactory()
+    factory.addStep(NixBuildCombined())
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-build-combined",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+        properties=dict(status_name="nix-build-combined"),
+    )
+
 
 def config_for_project(
     config: dict[str, Any],
@@ -653,6 +698,11 @@ def config_for_project(
                 name=f"{project.project_id}-nix-skipped-build",
                 builderNames=[f"{project.name}/nix-skipped-build"],
             ),
+            # this is triggered from `nix-eval` when the build contains too many outputs
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-build-combined",
+                builderNames=[f"{project.name}/nix-build-combined"],
+            ),
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-register-gcroot",
                 builderNames=[f"{project.name}/nix-register-gcroot"],
@@ -693,6 +743,7 @@ def config_for_project(
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
             nix_register_gcroot_config(project, worker_names),
+            nix_build_combined_config(project, worker_names),
         ],
     )
 
