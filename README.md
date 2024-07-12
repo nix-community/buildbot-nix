@@ -25,6 +25,16 @@ separate machines. To support multiple architectures, configure them as
 For a practical NixOS example, see
 [this remote builder configuration](https://github.com/Mic92/dotfiles/blob/main/nixos/eve/modules/remote-builder.nix).
 
+## Vendoring `buildbot`
+
+`buildbot-nix` vendors `buildbot` and assumes that `buildbot` is of version
+`4.x.x`. `nixpkgs-stable` currently has `builbot` `3.x.x` and the custom patches
+that `buildbot-nix` requires to work, will not apply. The vendored version comes
+from the `nixpkgs` input of the `buildbot-nix` flake, therefore it is imperative
+that you do not make it follow a checkout which has `buildbot` of version
+`3.x.x`. It is best to leave it be, that input is only used for its `lib` output
+and the vendored `builbot`.
+
 ## Using Buildbot in Your Project
 
 Buildbot-nix automatically triggers builds for your project under these

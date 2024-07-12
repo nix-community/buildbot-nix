@@ -20,8 +20,8 @@
         ] ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix;
         systems = [ "x86_64-linux" ];
         flake = {
-          nixosModules.buildbot-master = ./nix/master.nix;
-          nixosModules.buildbot-worker = ./nix/worker.nix;
+          nixosModules.buildbot-master = import ./nix/master.nix inputs;
+          nixosModules.buildbot-worker = import ./nix/worker.nix inputs;
 
           nixosConfigurations =
             let
