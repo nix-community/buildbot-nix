@@ -2,9 +2,20 @@ import contextlib
 import http.client
 import json
 import urllib.request
+from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from buildbot.process.log import StreamLog
+from collections.abc import Generator
+
+from buildbot.plugins import util
+from buildbot.process.buildstep import BuildStep
+from twisted.internet import defer, threads
+from twisted.python.failure import Failure
 
 
 def slugify_project_name(name: str) -> str:
@@ -97,3 +108,49 @@ def atomic_write_file(file: Path, data: str) -> None:
         except OSError:
             path.unlink()
             raise
+
+
+def filter_repos_by_topic(
+    topic: str | None, repos: list[Any], topics: Callable[[Any], list[str]]
+) -> list[Any]:
+    return list(
+        filter(
+            lambda repo: topic is None or topic in topics(repo),
+            repos,
+        )
+    )
+
+
+class ThreadDeferredBuildStep(BuildStep, ABC):
+    def __init__(
+        self,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+
+    @abstractmethod
+    def run_deferred(self) -> None:
+        pass
+
+    @abstractmethod
+    def run_post(self) -> Any:
+        pass
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, object, Any]:
+        d = threads.deferToThread(self.run_deferred)  # type: ignore[no-untyped-call]
+
+        self.error_msg = ""
+
+        def error_cb(failure: Failure) -> int:
+            self.error_msg += failure.getTraceback()
+            return util.FAILURE
+
+        d.addCallbacks(lambda _: util.SUCCESS, error_cb)
+        res = yield d
+        if res == util.SUCCESS:
+            return self.run_post()
+        else:
+            log: StreamLog = yield self.addLog("log")
+            log.addStderr(f"Failed to reload project list: {self.error_msg}")
+            return util.FAILURE

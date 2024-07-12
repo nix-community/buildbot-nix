@@ -75,6 +75,11 @@ in
           Which OAuth2 backend to use.
         '';
       };
+      buildRetries = lib.mkOption {
+        type = lib.types.int;
+        default = 1;
+        description = "Number of times a build is retried";
+      };
       cachix = {
         name = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
@@ -159,7 +164,7 @@ in
                 };
 
                 options.secretKeyFile = lib.mkOption {
-                  type = lib.types.str;
+                  type = lib.types.nullOr lib.types.path;
                   description = ''
                     GitHub app secret key file location.
                   '';
@@ -346,6 +351,7 @@ in
                   topic=${builtins.toJSON cfg.gitea.topic},
               )"
               },
+              build_retries=${builtins.toJSON cfg.buildRetries},
               cachix=${
                 if cfg.cachix.name == null then
                   "None"
@@ -422,11 +428,6 @@ in
             "gitea-token:${cfg.gitea.tokenFile}"
             "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
           ];
-
-        # Needed because it tries to reach out to github on boot.
-        # FIXME: if github is not available, we shouldn't fail buildbot, instead it should just try later again in the background
-        Restart = "always";
-        RestartSec = "30s";
       };
     };
 

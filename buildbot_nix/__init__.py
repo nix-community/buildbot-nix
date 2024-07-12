@@ -240,8 +240,9 @@ class EvalErrorStep(steps.BuildStep):
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
     """Builds a nix derivation."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, retries: int, **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
+        self.retries = retries
         super().__init__(**kwargs)
 
     @defer.inlineCallbacks
@@ -251,9 +252,9 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         yield self.runCommand(cmd)
 
         res = cmd.results()
-        if res == util.FAILURE:
+        if res == util.FAILURE and self.retries > 0:
             retries = RETRY_COUNTER.retry_build(self.getProperty("build_uuid"))
-            if retries > 0:
+            if retries > self.retries - 1:
                 return util.RETRY
         return res
 
@@ -446,6 +447,7 @@ def nix_build_config(
     worker_names: list[str],
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
+    retries: int = 1,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
@@ -472,6 +474,7 @@ def nix_build_config(
             # 3 hours, defaults to 20 minutes
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
+            retries=retries,
             haltOnFailure=True,
         ),
     )
@@ -571,6 +574,7 @@ def config_for_project(
     eval_lock: MasterLock,
     cachix: CachixConfig | None = None,
     outputs_path: Path | None = None,
+    build_retries: int = 1,
 ) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
@@ -644,6 +648,7 @@ def config_for_project(
                 worker_names,
                 cachix=cachix,
                 outputs_path=outputs_path,
+                retries=build_retries,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
         ],
@@ -653,7 +658,7 @@ def config_for_project(
 def normalize_virtual_builder_name(name: str) -> str:
     if re.match(r"^[^:]+:", name) is not None:
         # rewrites github:nix-community/srvos#checks.aarch64-linux.nixos-stable-example-hardware-hetzner-online-intel -> nix-community/srvos/nix-build
-        match = re.match(r"[^:]:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
+        match = re.match(r"[^:]+:(?P<owner>[^/]+)/(?P<repo>[^#]+)#.+", name)
         if match:
             return f"{match['owner']}/{match['repo']}/nix-build"
 
@@ -678,8 +683,14 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         if res is None:
             return None
 
-        builder = yield self.master.data.get(("builders", res["builderid"]))
-        builder_name = normalize_virtual_builder_name(builder["name"])
+        builderid = res.get("builderid")
+        if builderid is None:
+            builder_name = res["builder_names"][0]
+        else:
+            builder = yield self.master.data.get(("builders", builderid))
+            builder_name = builder["name"]
+
+        builder_name = normalize_virtual_builder_name(builder_name)
         if builder_name in self.builders:
             log.warn(
                 "Builder {builder} allowed by {role}: {builders}",
@@ -695,6 +706,14 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
                 role=self.role,
                 builders=self.builders,
             )
+
+    def match_ForceSchedulerEndpoint_force(  # noqa: N802
+        self,
+        epobject: Any,
+        epdict: dict[str, Any],
+        options: dict[str, Any],
+    ) -> defer.Deferred[Match]:
+        return self.check_builder(epobject, epdict, "build")
 
     def match_BuildEndpoint_rebuild(  # noqa: N802
         self,
@@ -774,6 +793,7 @@ class NixConfigurator(ConfiguratorBase):
         # Shape of this file: [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
         admins: list[str],
         auth_backend: str,
+        build_retries: int,
         github: GithubConfig | None,
         gitea: GiteaConfig | None,
         url: str,
@@ -795,6 +815,7 @@ class NixConfigurator(ConfiguratorBase):
         self.gitea = gitea
         self.url = url
         self.cachix = cachix
+        self.build_retries = build_retries
         if outputs_path is None:
             self.outputs_path = None
         else:
@@ -804,7 +825,7 @@ class NixConfigurator(ConfiguratorBase):
         backends: dict[str, GitBackend] = {}
 
         if self.github is not None:
-            backends["github"] = GithubBackend(self.github)
+            backends["github"] = GithubBackend(self.github, self.url)
 
         if self.gitea is not None:
             backends["gitea"] = GiteaBackend(self.gitea)
@@ -837,7 +858,6 @@ class NixConfigurator(ConfiguratorBase):
         eval_lock = util.MasterLock("nix-eval")
 
         for project in projects:
-            project.create_project_hook(project.owner, project.repo, self.url)
             config_for_project(
                 config,
                 project,
@@ -848,6 +868,7 @@ class NixConfigurator(ConfiguratorBase):
                 eval_lock,
                 self.cachix,
                 self.outputs_path,
+                self.build_retries,
             )
 
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
