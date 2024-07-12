@@ -462,7 +462,6 @@ def nix_build_config(
                 "--option",
                 "keep-going",
                 "true",
-                "--option",
                 # stop stuck builds after 20 minutes
                 "--max-silent-time",
                 str(60 * 20),
