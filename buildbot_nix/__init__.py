@@ -165,7 +165,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     project: GitProject
 
     def __init__(
-        self, project: GitProject, supported_systems: list[str], **kwargs: Any
+        self,
+        project: GitProject,
+        supported_systems: list[str],
+        job_report_limit: int | None,
+        **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
@@ -173,6 +177,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.observer = logobserver.BufferLogObserver()
         self.addLogObserver("stdio", self.observer)
         self.supported_systems = supported_systems
+        self.job_report_limit = job_report_limit
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
@@ -205,29 +210,35 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             self.number_of_jobs = len(filtered_jobs)
 
             self.build.addStepsAfterCurrentStep(
-                [  # noqa: RUF005
+                [
                     BuildTrigger(
                         self.project,
                         builds_scheduler=f"{project_id}-nix-build",
                         skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
                         name="build flake",
                         jobs=filtered_jobs,
-                        report_status=(self.number_of_jobs <= 2),
+                        report_status=(
+                            self.job_report_limit is None
+                            or self.number_of_jobs <= self.job_report_limit
+                        ),
                     ),
                 ]
-                + [
-                    Trigger(
-                        waitForFinish=True,
-                        schedulerNames=[f"{project_id}-nix-build-combined"],
-                        haltOnFailure=True,
-                        flunkOnFailure=True,
-                        sourceStamps=[],
-                        alwaysUseLatest=False,
-                        updateSourceStamp=False,
-                    ),
-                ]
-                if self.number_of_jobs > 2
-                else [],
+                + (
+                    [
+                        Trigger(
+                            waitForFinish=True,
+                            schedulerNames=[f"{project_id}-nix-build-combined"],
+                            haltOnFailure=True,
+                            flunkOnFailure=True,
+                            sourceStamps=[],
+                            alwaysUseLatest=False,
+                            updateSourceStamp=False,
+                        ),
+                    ]
+                    if self.job_report_limit is not None
+                    and self.number_of_jobs > self.job_report_limit
+                    else []
+                ),
             )
 
         return result
@@ -388,6 +399,7 @@ def nix_eval_config(
     eval_lock: MasterLock,
     worker_count: int,
     max_memory_size: int,
+    job_report_limit: int | None,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -413,6 +425,7 @@ def nix_eval_config(
             env={},
             name="evaluate flake",
             supported_systems=supported_systems,
+            job_report_limit=job_report_limit,
             command=[
                 "nix-eval-jobs",
                 "--workers",
@@ -655,6 +668,7 @@ def config_for_project(
     nix_eval_max_memory_size: int,
     eval_lock: MasterLock,
     post_build_steps: list[steps.BuildStep],
+    job_report_limit: int | None,
     outputs_path: Path | None = None,
     build_retries: int = 1,
 ) -> None:
@@ -730,6 +744,7 @@ def config_for_project(
                 worker_names,
                 git_url=project.get_project_url(),
                 supported_systems=nix_supported_systems,
+                job_report_limit=job_report_limit,
                 worker_count=nix_eval_worker_count,
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
@@ -946,6 +961,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.config.eval_max_memory_size,
                 eval_lock,
                 [x.to_buildstep() for x in self.config.post_build_steps],
+                self.config.job_report_limit,
                 self.config.outputs_path,
                 self.config.build_retries,
             )
