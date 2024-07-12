@@ -1,3 +1,4 @@
+{ ... }:
 { config
 , pkgs
 , lib
@@ -10,6 +11,7 @@ let
   python = cfg.package.pythonModule;
 in
 {
+  _file = ./worker.nix;
   options = {
     services.buildbot-nix.worker = {
       enable = lib.mkEnableOption "buildbot-worker";
@@ -86,7 +88,10 @@ in
 
         # Restart buildbot with a delay. This time way we can use buildbot to deploy itself.
         ExecReload = "+${config.systemd.package}/bin/systemd-run --on-active=60 ${config.systemd.package}/bin/systemctl restart buildbot-worker";
-        ExecStart = "${python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
+        ExecStart = lib.traceIf
+          (lib.versionOlder pkgs.buildbot-worker.version "4.0.0")
+          "`buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`"
+          "${python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
       };
     };
   };

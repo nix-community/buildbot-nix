@@ -25,6 +25,33 @@ separate machines. To support multiple architectures, configure them as
 For a practical NixOS example, see
 [this remote builder configuration](https://github.com/Mic92/dotfiles/blob/main/nixos/eve/modules/remote-builder.nix).
 
+## Using `buildbot` with NixOS 24.05 (stable release)
+
+The module applies custom patches that only apply to buildbot > 4.0.0. To use
+buildbot-nix with NixOS 24.05, you should therefore not override the nixpkgs
+input to your own stable version of buildbot-nix and leave it to the default
+instead that is set to nixos-unstable-small.
+
+So instead of using this in your flake
+
+```
+inputs = {
+  buildbot-nix.url = "github:nix-community/buildbot-nix";
+  buildbot-nix.inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+Just use:
+
+```
+inputs = {
+  buildbot-nix.url = "github:nix-community/buildbot-nix";
+};
+```
+
+An alternative is to point nixpkgs to your own version of nixpkgs-unstable in
+case you are already using it elsewhere.
+
 ## Using Buildbot in Your Project
 
 Buildbot-nix automatically triggers builds for your project under these
