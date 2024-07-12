@@ -252,7 +252,7 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         yield self.runCommand(cmd)
 
         res = cmd.results()
-        if res == util.FAILURE:
+        if res == util.FAILURE and self.retries > 0:
             retries = RETRY_COUNTER.retry_build(self.getProperty("build_uuid"))
             if retries > self.retries - 1:
                 return util.RETRY
