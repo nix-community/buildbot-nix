@@ -1,4 +1,3 @@
-{ ... }:
 { config
 , pkgs
 , lib
@@ -90,7 +89,10 @@ in
         ExecReload = "+${config.systemd.package}/bin/systemd-run --on-active=60 ${config.systemd.package}/bin/systemctl restart buildbot-worker";
         ExecStart = lib.traceIf
           (lib.versionOlder pkgs.buildbot-worker.version "4.0.0")
-          "`buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`"
+          ''
+            `buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`.
+            Consider upgrading by setting `services.buildbot-nix.worker.package` i.e. from nixpkgs-unstable.
+          ''
           "${python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
       };
     };
