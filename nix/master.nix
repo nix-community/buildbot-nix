@@ -401,7 +401,7 @@ in
         dbUrl = config.services.buildbot-nix.master.dbUrl;
 
         package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
-          patches = old.patches ++ [ ./0001-Support-per-installation-tokens-in-GithubStatusPush-.patch ];
+          patches = old.patches ++ [ ./0001-master-reporters-github-render-token-for-each-reques.patch ];
         });
         pythonPackages = ps: [
           ps.requests
