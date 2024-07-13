@@ -1,4 +1,3 @@
-{ nixpkgs, ... }:
 { config
 , pkgs
 , lib
@@ -9,7 +8,6 @@ let
   inherit (lib) mkRemovedOptionModule mkRenamedOptionModule;
 in
 {
-  _file = ./master.nix;
   imports = [
     (mkRenamedOptionModule
       [
@@ -59,17 +57,8 @@ in
   ];
 
   options = {
-    services.buildbot-nix.vendorBuildbot = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = ''
-        Whether to vendow `buildbot-master` from the `nixpkgs` input of the `buildbot-nix` flake.
-        `buildbot-nix` requires `buildbot-master` to be at least of version `4`.
-      '';
-    };
     services.buildbot-nix.master = {
       enable = lib.mkEnableOption "buildbot-master";
-      package = lib.mkPackageOption pkgs "buildbot" { };
       dbUrl = lib.mkOption {
         type = lib.types.str;
         default = "postgresql://@/buildbot";
@@ -266,6 +255,11 @@ in
         '';
       };
 
+      buildbotNixpkgs = lib.mkOption {
+        type = lib.types.raw;
+        description = "Nixpkgs to use for buildbot packages";
+      };
+
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
@@ -275,14 +269,6 @@ in
     };
   };
   config = lib.mkMerge [
-    (lib.mkIf config.services.buildbot-nix.vendorBuildbot {
-      nixpkgs.overlays = [
-        (final: prev:
-          {
-            buildbotPackages = prev.python3.pkgs.callPackage "${nixpkgs}/pkgs/development/tools/continuous-integration/buildbot" { };
-          })
-      ];
-    })
     (lib.mkIf cfg.enable {
       # By default buildbot uses a normal user, which is not a good default, because
       # we grant normal users potentially access to other resources. Also
@@ -296,8 +282,12 @@ in
       assertions = [
         {
           assertion =
-            lib.versionAtLeast cfg.package.version "4.0.0";
-          message = "`buildbot-nix` requires `buildbot` 4.0.0 or greater to function";
+            lib.versionAtLeast cfg.buildbotNixpkgs.buildbot.version "4.0.0";
+          message = ''
+            `buildbot-nix` requires `buildbot` 4.0.0 or greater to function.
+            Set services.buildbot-nix.master.buildbotNixpkgs to a nixpkgs with buildbot >= 4.0.0,
+            i.e. nixpkgs-unstable.
+          '';
         }
         {
           assertion =
@@ -409,21 +399,20 @@ in
           in
           "${if hasSSL then "https" else "http"}://${cfg.domain}/";
         dbUrl = config.services.buildbot-nix.master.dbUrl;
-        package =
-          cfg.package.overrideAttrs (old: {
-            patches =
-              old.patches ++ [
-                ./0001-Support-per-installation-tokens-in-GithubStatusPush-.patch #;
-              ];
-          });
+
+        package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
+          patches = old.patches ++ [ ./0001-Support-per-installation-tokens-in-GithubStatusPush-.patch ];
+        });
         pythonPackages = ps: [
           ps.requests
           ps.treq
           ps.psycopg2
-          (ps.toPythonModule pkgs.buildbot-worker)
-          pkgs.buildbot-plugins.www-react
-          (pkgs.python3.pkgs.callPackage ../default.nix { })
-          (pkgs.python3.pkgs.callPackage ./buildbot-gitea.nix { buildbot = cfg.package; })
+          (ps.toPythonModule cfg.buildbotNixpkgs.buildbot-worker)
+          cfg.buildbotNixpkgs.buildbot-plugins.www-react
+          (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
+          (cfg.buildbotNixpkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
+            inherit (cfg.buildbotNixpkgs) buildbot;
+          })
         ];
       };
 
