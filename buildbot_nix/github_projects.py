@@ -10,7 +10,7 @@ from typing import Any
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
-from buildbot.process.properties import Interpolate
+from buildbot.process.properties import Interpolate, Properties, WithProperties
 from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.github import GitHubStatusPush
 from buildbot.secrets.providers.base import SecretProviderBase
@@ -387,10 +387,13 @@ class GithubAppAuthBackend(GithubAuthBackend):
         return [GitHubAppSecretService(self.installation_tokens, self.jwt_token)]
 
     def create_reporter(self) -> ReporterBase:
+        def get_github_token(props: Properties) -> str:
+            return self.installation_tokens[
+                self.project_id_map[props["projectname"]]
+            ].get()
+
         return GitHubStatusPush(
-            token=lambda project: self.installation_tokens[
-                self.project_id_map[project]
-            ].get(),
+            token=WithProperties("%(github_token)s", github_token=get_github_token),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
