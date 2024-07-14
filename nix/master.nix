@@ -408,7 +408,7 @@ in
           ps.treq
           ps.psycopg2
           (ps.toPythonModule cfg.buildbotNixpkgs.buildbot-worker)
-          cfg.buildbotNixpkgs.buildbot-plugins.www-react
+          cfg.buildbotNixpkgs.buildbot-plugins.www
           (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
           (cfg.buildbotNixpkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
             inherit (cfg.buildbotNixpkgs) buildbot;
