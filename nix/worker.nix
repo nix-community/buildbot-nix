@@ -19,9 +19,13 @@ in
         default = config.networking.hostName;
         description = "The buildbot worker name.";
       };
+      buildbotNixpkgs = lib.mkOption {
+        type = lib.types.raw;
+        description = "Nixpkgs to use for buildbot packages";
+      };
       package = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.buildbot-worker;
+        default = cfg.buildbotNixpkgs.buildbot-worker;
         defaultText = "pkgs.buildbot-worker";
         description = "The buildbot-worker package to use.";
       };
@@ -88,7 +92,7 @@ in
         # Restart buildbot with a delay. This time way we can use buildbot to deploy itself.
         ExecReload = "+${config.systemd.package}/bin/systemd-run --on-active=60 ${config.systemd.package}/bin/systemctl restart buildbot-worker";
         ExecStart = lib.traceIf
-          (lib.versionOlder pkgs.buildbot-worker.version "4.0.0")
+          (lib.versionOlder cfg.package.version "4.0.0")
           ''
             `buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`.
             Consider upgrading by setting `services.buildbot-nix.worker.package` i.e. from nixpkgs-unstable.
