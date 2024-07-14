@@ -901,7 +901,6 @@ class NixConfigurator(ConfiguratorBase):
         config["secretsProviders"].append(systemd_secrets)
 
         config["www"].setdefault("plugins", {})
-        config["www"]["plugins"].update(dict(base_react={}))
 
         config["www"].setdefault("change_hook_dialects", {})
         for backend in backends.values():
