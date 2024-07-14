@@ -29,7 +29,7 @@
           nixosModules.buildbot-worker.imports = [
             ./nix/worker.nix
             ({ pkgs, ... }: {
-              services.buildbot-nix.worker.package = lib.mkDefault inputs.nixpkgs.legacyPackages.${pkgs.hostPlatform.system}.buildbot-worker;
+              services.buildbot-nix.worker.buildbotNixpkgs = lib.mkDefault inputs.nixpkgs.legacyPackages.${pkgs.hostPlatform.system};
             })
           ];
 
