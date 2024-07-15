@@ -1,7 +1,7 @@
 import os
 import signal
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from buildbot.config.builder import BuilderConfig
@@ -15,10 +15,12 @@ from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from pydantic import BaseModel
 from twisted.logger import Logger
 from twisted.python import log
+from twisted.internet import defer
 
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
+    filter_for_combined_builds,
     filter_repos_by_topic,
     http_request,
     model_dump_project_cache,
@@ -104,6 +106,26 @@ class GiteaProject(GitProject):
         # TODO Gitea doesn't include this information
         return False  # self.data["owner"]["type"] == "Organization"
 
+class ModifyingGiteaStatusPush(GiteaStatusPush):
+    def checkConfig(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+        self.modifyingFilter = modifyingFilter
+
+        return super().checkConfig(**kwargs)
+
+    def reconfigService(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+        self.modifyingFilter = modifyingFilter
+
+        return super().reconfigService(**kwargs)
+
+    @defer.inlineCallbacks
+    def sendMessage(self, reports: Any) -> Any:
+        reports = self.modifyingFilter(reports)
+        if reports is None:
+            return
+
+        result = yield super().sendMessage(reports)
+        return result
+
 
 class GiteaBackend(GitBackend):
     config: GiteaConfig
@@ -127,11 +149,12 @@ class GiteaBackend(GitBackend):
         )
 
     def create_reporter(self) -> ReporterBase:
-        return GiteaStatusPush(
+        return ModifyingGiteaStatusPush(
             self.config.instance_url,
             Interpolate(self.config.token),
             context=Interpolate("buildbot/%(prop:status_name)s"),
             context_pr=Interpolate("buildbot/%(prop:status_name)s"),
+            modifyingFilter=filter_for_combined_builds,
         )
 
     def create_change_hook(self) -> dict[str, Any]:

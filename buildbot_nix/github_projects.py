@@ -25,6 +25,7 @@ from twisted.internet import defer
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
+    filter_for_combined_builds,
     filter_repos_by_topic,
     http_request,
     model_dump_project_cache,
@@ -330,13 +331,6 @@ class ModifyingGitHubStatusPush(GitHubStatusPush):
         result = yield super().sendMessage(reports)
         return result
 
-def filter_for_combined_builds(reports: Any) -> Any | None:
-    properties = reports[0]["builds"][0]["properties"]
-
-    if "report_status" in properties and not properties["report_status"][0]:
-        return None
-    return reports
-
 class GithubLegacyAuthBackend(GithubAuthBackend):
     auth_type: GitHubLegacyConfig
 
@@ -443,6 +437,7 @@ class GithubAppAuthBackend(GithubAuthBackend):
             return self.installation_tokens[
                 self.project_id_map[props["projectname"]]
             ].get()
+
 
         return ModifyingGitHubStatusPush(
             token=WithProperties("%(github_token)s", github_token=get_github_token),
