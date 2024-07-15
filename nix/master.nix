@@ -340,10 +340,10 @@ in
       };
 
       jobReportLimit = lib.mkOption {
-        type = lib.types.nullOr lib.types.ints.positive;
+        type = lib.types.nullOr lib.types.ints.unsigned;
         description = ''
           The max number of build jobs per `nix-eval` `buildbot-nix` will report to backends (GitHub, Gitea, etc.).
-          If set to `null`, report everything, if set to `n` (some positive intereger), report builds individually
+          If set to `null`, report everything, if set to `n` (some unsiggned intereger), report builds individually
           as long as the number of builds is less than or equal to `n`, then report builds using a combined
           `nix-build-combined` build.
         '';
