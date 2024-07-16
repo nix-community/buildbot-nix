@@ -403,17 +403,27 @@ in
         package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
           patches = old.patches ++ [ ./0001-master-reporters-github-render-token-for-each-reques.patch ];
         });
-        pythonPackages = ps: [
-          ps.requests
-          ps.treq
-          ps.psycopg2
-          (ps.toPythonModule cfg.buildbotNixpkgs.buildbot-worker)
-          cfg.buildbotNixpkgs.buildbot-plugins.www
-          (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
-          (cfg.buildbotNixpkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
-            inherit (cfg.buildbotNixpkgs) buildbot;
-          })
-        ];
+        pythonPackages =
+          let
+            buildbot-gitea = (cfg.buildbotNixpkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
+              inherit (cfg.buildbotNixpkgs) buildbot;
+            }).overrideAttrs (old: {
+              patches = old.patches ++ [
+                ./0002-GiteaHandler-set-branch-to-the-PR-branch-not-the-bas.patch
+                ./0001-GiteaHandler-set-the-category-of-PR-changes-to-pull-.patch
+              ];
+            });
+          in
+          ps: [
+            pkgs.nix
+            ps.requests
+            ps.treq
+            ps.psycopg2
+            (ps.toPythonModule cfg.buildbotNixpkgs.buildbot-worker)
+            cfg.buildbotNixpkgs.buildbot-plugins.www
+            (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
+            buildbot-gitea
+          ];
       };
 
       systemd.services.buildbot-master = {

@@ -105,6 +105,18 @@ class BuildTrigger(Trigger):
             props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
             props.setProperty("virtual_builder_tags", "", source)
 
+            drv_path = job.get("drvPath")
+            system = job.get("system")
+            out_path = job.get("outputs", {}).get("out")
+
+            props.setProperty("attr", attr, source)
+            props.setProperty("system", system, source)
+            props.setProperty("drv_path", drv_path, source)
+            props.setProperty("out_path", out_path, source)
+            props.setProperty("default_branch", self.project.default_branch, source)
+            # we use this to identify builds when running a retry
+            props.setProperty("build_uuid", str(uuid.uuid4()), source)
+
             if error is not None:
                 props.setProperty("error", error, source)
                 triggered_schedulers.append((self.skipped_builds_scheduler, props))
@@ -114,19 +126,8 @@ class BuildTrigger(Trigger):
                 triggered_schedulers.append((self.skipped_builds_scheduler, props))
                 continue
 
-            drv_path = job.get("drvPath")
-            system = job.get("system")
-            out_path = job.get("outputs", {}).get("out")
-
             build_props.setProperty(f"{attr}-out_path", out_path, source)
             build_props.setProperty(f"{attr}-drv_path", drv_path, source)
-
-            props.setProperty("attr", attr, source)
-            props.setProperty("system", system, source)
-            props.setProperty("drv_path", drv_path, source)
-            props.setProperty("out_path", out_path, source)
-            # we use this to identify builds when running a retry
-            props.setProperty("build_uuid", str(uuid.uuid4()), source)
 
             triggered_schedulers.append((self.builds_scheduler, props))
         return triggered_schedulers
@@ -442,6 +443,21 @@ class CachixConfig:
         return env
 
 
+@defer.inlineCallbacks
+def do_register_gcroot_if(s: steps.BuildStep) -> Generator[Any, object, Any]:
+    gc_root = yield util.Interpolate(
+        "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
+    ).getRenderingFor(s.getProperties())
+    out_path = yield util.Property("out_path").getRenderingFor(s.getProperties())
+    default_branch = yield util.Property("default_branch").getRenderingFor(
+        s.getProperties()
+    )
+
+    return s.getProperty("branch") == str(default_branch) and not (
+        Path(str(gc_root)).exists() and Path(str(gc_root)).readlink() == str(out_path)
+    )
+
+
 def nix_build_config(
     project: GitProject,
     worker_names: list[str],
@@ -492,19 +508,19 @@ def nix_build_config(
         )
 
     factory.addStep(
-        steps.ShellCommand(
+        Trigger(
             name="Register gcroot",
-            command=[
-                "nix-store",
-                "--add-root",
-                # FIXME: cleanup old build attributes
-                util.Interpolate(
-                    "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s",
-                ),
-                "-r",
-                util.Property("out_path"),
+            waitForFinish=True,
+            schedulerNames=[
+                f"{slugify_project_name(project.name)}-nix-register-gcroot"
             ],
-            doStepIf=lambda s: s.getProperty("branch") == project.default_branch,
+            haltOnFailure=True,
+            flunkOnFailure=True,
+            sourceStamps=[],
+            alwaysUseLatest=False,
+            updateSourceStamp=False,
+            doStepIf=do_register_gcroot_if,
+            copy_properties=["out_path", "attr"],
         ),
     )
     factory.addStep(
@@ -553,8 +569,59 @@ def nix_skipped_build_config(
             hideStepIf=lambda _, s: s.getProperty("error"),
         ),
     )
+
+    # if the change got pulled in from a PR, the roots haven't been created yet
+    factory.addStep(
+        Trigger(
+            name="Register gcroot",
+            waitForFinish=True,
+            schedulerNames=[
+                f"{slugify_project_name(project.name)}-nix-register-gcroot"
+            ],
+            haltOnFailure=True,
+            flunkOnFailure=True,
+            sourceStamps=[],
+            alwaysUseLatest=False,
+            updateSourceStamp=False,
+            doStepIf=do_register_gcroot_if,
+            copy_properties=["out_path", "attr"],
+        ),
+    )
     return util.BuilderConfig(
         name=f"{project.name}/nix-skipped-build",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
+
+
+def nix_register_gcroot_config(
+    project: GitProject,
+    worker_names: list[str],
+) -> BuilderConfig:
+    factory = util.BuildFactory()
+
+    # if the change got pulled in from a PR, the roots haven't been created yet
+    factory.addStep(
+        steps.ShellCommand(
+            name="Register gcroot",
+            command=[
+                "nix-store",
+                "--add-root",
+                # FIXME: cleanup old build attributes
+                util.Interpolate(
+                    "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s",
+                ),
+                "-r",
+                util.Property("out_path"),
+            ],
+        ),
+    )
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-register-gcroot",
         project=project.name,
         workernames=worker_names,
         collapseRequests=False,
@@ -615,6 +682,10 @@ def config_for_project(
                 name=f"{project.project_id}-nix-skipped-build",
                 builderNames=[f"{project.name}/nix-skipped-build"],
             ),
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-register-gcroot",
+                builderNames=[f"{project.name}/nix-register-gcroot"],
+            ),
             # allow to manually trigger a nix-build
             schedulers.ForceScheduler(
                 name=f"{project.project_id}-force",
@@ -650,6 +721,7 @@ def config_for_project(
                 retries=build_retries,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_register_gcroot_config(project, worker_names),
         ],
     )
 
