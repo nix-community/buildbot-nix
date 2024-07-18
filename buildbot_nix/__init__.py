@@ -445,7 +445,7 @@ class CachixConfig:
 def nix_build_config(
     project: GitProject,
     worker_names: list[str],
-    cachix: CachixConfig | None = None,
+    post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
     retries: int = 1,
 ) -> BuilderConfig:
@@ -477,19 +477,7 @@ def nix_build_config(
             haltOnFailure=True,
         ),
     )
-    if cachix:
-        factory.addStep(
-            steps.ShellCommand(
-                name="Upload cachix",
-                env=cachix.cachix_env(),
-                command=[
-                    "cachix",
-                    "push",
-                    cachix.name,
-                    util.Interpolate("result-%(prop:attr)s"),
-                ],
-            ),
-        )
+    factory.addSteps(post_build_steps)
 
     factory.addStep(
         steps.ShellCommand(
@@ -571,7 +559,7 @@ def config_for_project(
     nix_eval_worker_count: int,
     nix_eval_max_memory_size: int,
     eval_lock: MasterLock,
-    cachix: CachixConfig | None = None,
+    post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
     build_retries: int = 1,
 ) -> None:
@@ -645,9 +633,9 @@ def config_for_project(
             nix_build_config(
                 project,
                 worker_names,
-                cachix=cachix,
                 outputs_path=outputs_path,
                 retries=build_retries,
+                post_build_steps=post_build_steps,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
         ],
@@ -799,6 +787,7 @@ class NixConfigurator(ConfiguratorBase):
         nix_supported_systems: list[str],
         nix_eval_worker_count: int | None,
         nix_eval_max_memory_size: int,
+        post_build_steps: list[steps.BuildStep] | None = None,
         nix_workers_secret_name: str = "buildbot-nix-workers",  # noqa: S107
         cachix: CachixConfig | None = None,
         outputs_path: str | None = None,
@@ -808,6 +797,7 @@ class NixConfigurator(ConfiguratorBase):
         self.nix_eval_max_memory_size = nix_eval_max_memory_size
         self.nix_eval_worker_count = nix_eval_worker_count
         self.nix_supported_systems = nix_supported_systems
+        self.post_build_steps = post_build_steps or []
         self.auth_backend = auth_backend
         self.admins = admins
         self.github = github
@@ -856,6 +846,20 @@ class NixConfigurator(ConfiguratorBase):
 
         eval_lock = util.MasterLock("nix-eval")
 
+        if self.cachix is not None:
+            self.post_build_steps.append(
+                steps.ShellCommand(
+                    name="Upload cachix",
+                    env=self.cachix.cachix_env(),
+                    command=[
+                        "cachix",
+                        "push",
+                        self.cachix.name,
+                        util.Interpolate("result-%(prop:attr)s"),
+                    ],
+                )
+            )
+
         for project in projects:
             config_for_project(
                 config,
@@ -865,7 +869,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.nix_eval_worker_count or multiprocessing.cpu_count(),
                 self.nix_eval_max_memory_size,
                 eval_lock,
-                self.cachix,
+                self.post_build_steps,
                 self.outputs_path,
                 self.build_retries,
             )

@@ -6,6 +6,25 @@
 let
   cfg = config.services.buildbot-nix.master;
   inherit (lib) mkRemovedOptionModule mkRenamedOptionModule;
+
+  interpolateType =
+    lib.mkOptionType {
+      name = "interpolate";
+
+      description = ''
+        A type represnting a Buildbot interpolation string, supports interpolations like `result-%(prop:attr)s`.
+      '';
+
+      check = x:
+        x ? "_type" && x._type == "interpolate" && x ? "value";
+    };
+
+  interpolateToString =
+    value:
+    if lib.isAttrs value && value ? "_type" && value._type == "interpolate" then
+      "util.Interpolate(${builtins.toJSON value.value})"
+    else
+      builtins.toJSON value;
 in
 {
   imports = [
@@ -80,6 +99,60 @@ in
         default = 1;
         description = "Number of times a build is retried";
       };
+
+      postBuildSteps = lib.mkOption {
+        default = [ ];
+        description = ''
+          A list of steps to execute after every successful build.
+        '';
+        type = lib.types.listOf (lib.types.submodule {
+          options = {
+            name = lib.mkOption {
+              type = lib.types.str;
+              description = ''
+                The name of the build step, will show up in Buildbot's UI.
+              '';
+            };
+
+            environment = lib.mkOption {
+              type = with lib.types; attrsOf (oneOf [ interpolateType str ]);
+              description = ''
+                Extra environment variables to add to the environment of this build step.
+                The base environment is the environment of the `buildbot-worker` service.
+
+                To access the properties of a build, use the `interpolate` function defined in
+                `inputs.buildbot-nix.lib.interpolate` like so `(interpolate "result-%(prop:attr)s")`.
+              '';
+              default = { };
+            };
+
+            command = lib.mkOption {
+              type = with lib.types; oneOf [ str (listOf (oneOf [ str interpolateType ])) ];
+              description = ''
+                The command to execute as part of the build step. Either a single string or
+                a list of strings. Be careful that neither variant is interpreted by a shell,
+                but is passed to `execve` verbatim. If you desire a shell, you must use
+                `writeShellScript` or similar functions.
+
+                To access the properties of a build, use the `interpolate` function defined in
+                `inputs.buildbot-nix.lib.interpolate` like so `(interpolate "result-%(prop:attr)s")`.
+              '';
+            };
+          };
+        });
+
+        example = lib.literalExpression ''
+          [
+            name = "upload-to-s3";
+            environment = {
+              S3_TOKEN = "xxxxxxx";
+              S3_BUCKET = "bucket";
+            };
+            command = [ "nix" "copy" "%result%" ];
+          ]
+        '';
+      };
+
       cachix = {
         name = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
@@ -323,6 +396,10 @@ in
             CachixConfig,
             GiteaConfig,
           )
+          from buildbot.plugins import (
+            steps,
+            util,
+          )
           from buildbot_nix.github.auth._type import (
             AuthTypeLegacy,
             AuthTypeApp,
@@ -389,6 +466,23 @@ in
                 },
                 nix_supported_systems=${builtins.toJSON cfg.buildSystems},
                 outputs_path=${if cfg.outputsPath == null then "None" else builtins.toJSON cfg.outputsPath},
+                post_build_steps=[
+                  ${lib.concatMapStringsSep ",\n" ({ name, environment, command }: ''
+                    steps.ShellCommand(
+                      name=${builtins.toJSON name},
+                      env={
+                        ${lib.concatMapStringsSep ",\n" ({name, value}: ''
+                          ${name}: ${interpolateToString value}
+                        '') (lib.mapAttrsToList lib.nameValuePair environment)}
+                      },
+                      command=[
+                        ${lib.concatMapStringsSep ",\n" (value:
+                          interpolateToString value
+                        ) (if lib.isList command then command else [ command ])}
+                      ]
+                    )
+                  '') cfg.postBuildSteps}
+                ]
             )
           ''
         ];
