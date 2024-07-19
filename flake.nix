@@ -42,6 +42,11 @@
               };
             in
             examplesFor "x86_64-linux" // examplesFor "aarch64-linux";
+
+          lib = {
+            interpolate = value:
+              { _type = "interpolate"; inherit value; };
+          };
         };
         perSystem = { self', pkgs, system, ... }: {
           packages.default = pkgs.mkShell {
