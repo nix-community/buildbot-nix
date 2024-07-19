@@ -145,7 +145,7 @@ in
           [
             name = "upload-to-s3";
             environment = {
-              S3_TOKEN = "xxxxxxx";
+              S3_TOKEN = "%(secret:s3-token)";
               S3_BUCKET = "bucket";
             };
             command = [ "nix" "copy" "%result%" ];
