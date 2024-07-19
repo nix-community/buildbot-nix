@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from .repo_token import RepoToken
@@ -10,7 +11,7 @@ from .repo_token import RepoToken
 
 class JWTToken(RepoToken):
     app_id: int
-    app_private_key: str
+    app_private_key_file: Path
     lifetime: timedelta
 
     expiration: datetime
@@ -19,20 +20,20 @@ class JWTToken(RepoToken):
     def __init__(
         self,
         app_id: int,
-        app_private_key: str,
+        app_private_key_file: Path,
         lifetime: timedelta = timedelta(minutes=10),
     ) -> None:
         self.app_id = app_id
-        self.app_private_key = app_private_key
+        self.app_private_key_file = app_private_key_file
         self.lifetime = lifetime
 
         self.token, self.expiration = JWTToken.generate_token(
-            self.app_id, self.app_private_key, lifetime
+            self.app_id, self.app_private_key_file, lifetime
         )
 
     @staticmethod
     def generate_token(
-        app_id: int, app_private_key: str, lifetime: timedelta
+        app_id: int, app_private_key_file: Path, lifetime: timedelta
     ) -> tuple[str, datetime]:
         def build_jwt_payload(
             app_id: int, lifetime: timedelta
@@ -48,9 +49,9 @@ class JWTToken(RepoToken):
             }
             return (jwt_payload, exp)
 
-        def rs256_sign(data: str, private_key: str) -> str:
+        def rs256_sign(data: str, private_key_file: Path) -> str:
             signature = subprocess.run(
-                ["openssl", "dgst", "-binary", "-sha256", "-sign", private_key],
+                ["openssl", "dgst", "-binary", "-sha256", "-sign", private_key_file],
                 input=data.encode("utf-8"),
                 stdout=subprocess.PIPE,
                 check=True,
@@ -65,7 +66,7 @@ class JWTToken(RepoToken):
         jwt_payload = json.dumps(jwt).encode("utf-8")
         json_headers = json.dumps({"alg": "RS256", "typ": "JWT"}).encode("utf-8")
         encoded_jwt_parts = f"{base64url(json_headers)}.{base64url(jwt_payload)}"
-        encoded_mac = rs256_sign(encoded_jwt_parts, app_private_key)
+        encoded_mac = rs256_sign(encoded_jwt_parts, app_private_key_file)
         return (f"{encoded_jwt_parts}.{encoded_mac}", expiration)
 
         # installations = paginated_github_request("https://api.github.com/app/installations?per_page=100", generated_jwt)
@@ -75,7 +76,7 @@ class JWTToken(RepoToken):
     def get(self) -> str:
         if self.expiration - datetime.now(tz=UTC) < self.lifetime * 0.2:
             self.token, self.expiration = JWTToken.generate_token(
-                self.app_id, self.app_private_key, self.lifetime
+                self.app_id, self.app_private_key_file, self.lifetime
             )
 
         return self.token

@@ -27,7 +27,6 @@ scripts = { buildbot-effects = "hercules_effects.cli:main" }
 packages = [
   "buildbot_nix",
   "buildbot_nix.github",
-  "buildbot_nix.github.auth",
   "buildbot_effects"
 ]
 

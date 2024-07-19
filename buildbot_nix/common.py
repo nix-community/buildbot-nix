@@ -6,10 +6,12 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
+    from pydantic import BaseModel
+
 from collections.abc import Generator
 
 from buildbot.plugins import util
@@ -110,9 +112,12 @@ def atomic_write_file(file: Path, data: str) -> None:
             raise
 
 
+Y = TypeVar("Y")
+
+
 def filter_repos_by_topic(
-    topic: str | None, repos: list[Any], topics: Callable[[Any], list[str]]
-) -> list[Any]:
+    topic: str | None, repos: list[Y], topics: Callable[[Y], list[str]]
+) -> list[Y]:
     return list(
         filter(
             lambda repo: topic is None or topic in topics(repo),
@@ -154,3 +159,16 @@ class ThreadDeferredBuildStep(BuildStep, ABC):
             log: StreamLog = yield self.addLog("log")
             log.addStderr(f"Failed to reload project list: {self.error_msg}")
             return util.FAILURE
+
+
+_T = TypeVar("_T", bound="BaseModel")
+
+
+def model_validate_project_cache(cls: type[_T], project_cache_file: Path) -> list[_T]:
+    return [
+        cls.model_validate(data) for data in json.loads(project_cache_file.read_text())
+    ]
+
+
+def model_dump_project_cache(repos: list[_T]) -> str:
+    return json.dumps([repo.model_dump() for repo in repos])

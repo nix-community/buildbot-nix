@@ -5,7 +5,6 @@ import re
 import uuid
 from collections import defaultdict
 from collections.abc import Generator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -33,13 +32,12 @@ from twisted.logger import Logger
 from .common import (
     slugify_project_name,
 )
-from .gitea_projects import GiteaBackend, GiteaConfig
+from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
-    GithubConfig,
 )
+from .models import BuildbotNixConfig
 from .projects import GitBackend, GitProject
-from .secrets import read_secret_file
 
 SKIPPED_BUILDER_NAME = "skipped-builds"
 
@@ -426,21 +424,6 @@ def nix_eval_config(
         factory=factory,
         properties=dict(status_name="nix-eval"),
     )
-
-
-@dataclass
-class CachixConfig:
-    name: str
-    signing_key_secret_name: str | None = None
-    auth_token_secret_name: str | None = None
-
-    def cachix_env(self) -> dict[str, str]:
-        env = {}
-        if self.signing_key_secret_name is not None:
-            env["CACHIX_SIGNING_KEY"] = util.Secret(self.signing_key_secret_name)
-        if self.auth_token_secret_name is not None:
-            env["CACHIX_AUTH_TOKEN"] = util.Secret(self.auth_token_secret_name)
-        return env
 
 
 @defer.inlineCallbacks
@@ -847,53 +830,23 @@ class PeriodicWithStartup(schedulers.Periodic):
 class NixConfigurator(ConfiguratorBase):
     """Janitor is a configurator which create a Janitor Builder with all needed Janitor steps"""
 
-    def __init__(
-        self,
-        # Shape of this file: [ { "name": "<worker-name>", "pass": "<worker-password>", "cores": "<cpu-cores>" } ]
-        admins: list[str],
-        auth_backend: str,
-        build_retries: int,
-        github: GithubConfig | None,
-        gitea: GiteaConfig | None,
-        url: str,
-        nix_supported_systems: list[str],
-        nix_eval_worker_count: int | None,
-        nix_eval_max_memory_size: int,
-        post_build_steps: list[steps.BuildStep] | None = None,
-        nix_workers_secret_name: str = "buildbot-nix-workers",  # noqa: S107
-        cachix: CachixConfig | None = None,
-        outputs_path: str | None = None,
-    ) -> None:
+    def __init__(self, config: BuildbotNixConfig) -> None:
         super().__init__()
-        self.nix_workers_secret_name = nix_workers_secret_name
-        self.nix_eval_max_memory_size = nix_eval_max_memory_size
-        self.nix_eval_worker_count = nix_eval_worker_count
-        self.nix_supported_systems = nix_supported_systems
-        self.post_build_steps = post_build_steps or []
-        self.auth_backend = auth_backend
-        self.admins = admins
-        self.github = github
-        self.gitea = gitea
-        self.url = url
-        self.cachix = cachix
-        self.build_retries = build_retries
-        if outputs_path is None:
-            self.outputs_path = None
-        else:
-            self.outputs_path = Path(outputs_path)
+
+        self.config = config
 
     def configure(self, config: dict[str, Any]) -> None:
         backends: dict[str, GitBackend] = {}
 
-        if self.github is not None:
-            backends["github"] = GithubBackend(self.github, self.url)
+        if self.config.github is not None:
+            backends["github"] = GithubBackend(self.config.github, self.config.url)
 
-        if self.gitea is not None:
-            backends["gitea"] = GiteaBackend(self.gitea)
+        if self.config.gitea is not None:
+            backends["gitea"] = GiteaBackend(self.config.gitea)
 
         auth: AuthBase | None = (
-            backends[self.auth_backend].create_auth()
-            if self.auth_backend != "none"
+            backends[self.config.auth_backend].create_auth()
+            if self.config.auth_backend != "none"
             else None
         )
 
@@ -902,7 +855,7 @@ class NixConfigurator(ConfiguratorBase):
         for backend in backends.values():
             projects += backend.load_projects()
 
-        worker_config = json.loads(read_secret_file(self.nix_workers_secret_name))
+        worker_config = json.loads(self.config.nix_workers_secret)
         worker_names = []
 
         config.setdefault("projects", [])
@@ -918,7 +871,7 @@ class NixConfigurator(ConfiguratorBase):
 
         eval_lock = util.MasterLock("nix-eval")
 
-        if self.cachix is not None:
+        if self.config.cachix is not None:
             self.post_build_steps.append(
                 steps.ShellCommand(
                     name="Upload cachix",
@@ -937,13 +890,13 @@ class NixConfigurator(ConfiguratorBase):
                 config,
                 project,
                 worker_names,
-                self.nix_supported_systems,
-                self.nix_eval_worker_count or multiprocessing.cpu_count(),
-                self.nix_eval_max_memory_size,
+                self.config.build_systems,
+                self.config.eval_worker_count or multiprocessing.cpu_count(),
+                self.config.eval_max_memory_size,
                 eval_lock,
-                self.post_build_steps,
-                self.outputs_path,
-                self.build_retries,
+                [x.to_buildstep() for x in self.config.post_build_steps],
+                self.config.outputs_path,
+                self.config.build_retries,
             )
 
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
@@ -998,7 +951,7 @@ class NixConfigurator(ConfiguratorBase):
                 config["www"]["auth"] = auth
 
             config["www"]["authz"] = setup_authz(
-                admins=self.admins,
+                admins=self.config.admins,
                 backends=list(backends.values()),
                 projects=projects,
             )
