@@ -17,6 +17,7 @@ from buildbot.secrets.providers.base import SecretProviderBase
 from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
+from pydantic import BaseModel, ConfigDict, Field
 from twisted.logger import Logger
 from twisted.python import log
 
@@ -25,10 +26,11 @@ from .common import (
     atomic_write_file,
     filter_repos_by_topic,
     http_request,
+    model_dump_project_cache,
+    model_validate_project_cache,
     paginated_github_request,
     slugify_project_name,
 )
-from .github.auth._type import AuthType, AuthTypeApp, AuthTypeLegacy
 from .github.installation_token import InstallationToken
 from .github.jwt_token import JWTToken
 from .github.legacy_token import (
@@ -37,10 +39,31 @@ from .github.legacy_token import (
 from .github.repo_token import (
     RepoToken,
 )
+from .models import (
+    GitHubAppConfig,
+    GitHubConfig,
+    GitHubLegacyConfig,
+)
 from .projects import GitBackend, GitProject
-from .secrets import read_secret_file
 
 tlog = Logger()
+
+
+class RepoOwnerData(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    login: str
+    ttype: str = Field(alias="type")
+
+
+class RepoData(BaseModel):
+    name: str
+    owner: RepoOwnerData
+    full_name: str
+    html_url: str
+    default_branch: str
+    topics: list[str]
+    installation_id: int | None
 
 
 def get_installations(jwt_token: JWTToken) -> list[int]:
@@ -80,7 +103,7 @@ class CreateGitHubInstallationHooks(ThreadDeferredBuildStep):
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
-        repos = json.loads(self.project_cache_file.read_text())
+        repos = model_validate_project_cache(RepoData, self.project_cache_file)
         installation_token_map: dict[int, InstallationToken] = dict(
             starmap(
                 lambda k, v: (
@@ -94,11 +117,14 @@ class CreateGitHubInstallationHooks(ThreadDeferredBuildStep):
         )
 
         for repo in repos:
+            if repo.installation_id is None:
+                continue
+
             create_project_hook(
-                installation_token_map[repo["installation_id"]],
+                installation_token_map[repo.installation_id],
                 self.webhook_secret,
-                repo["owner"]["login"],
-                repo["name"],
+                repo.owner.login,
+                repo.name,
                 self.webhook_url,
             )
 
@@ -144,7 +170,7 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
             get_installations(self.jwt_token),
         )
 
-        repos: list[Any] = []
+        repos: list[RepoData] = []
         project_id_map: dict[str, int] = {}
 
         repos = []
@@ -160,17 +186,17 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
                     subkey="repositories",
                     require_admin=False,
                 ),
-                lambda repo: repo["topics"],
+                lambda repo: repo.topics,
             )
 
             for repo in new_repos:
-                repo["installation_id"] = k
+                repo.installation_id = k
 
-                project_id_map[repo["full_name"]] = k
+                project_id_map[repo.full_name] = k
 
             repos.extend(new_repos)
 
-        atomic_write_file(self.project_cache_file, json.dumps(repos))
+        atomic_write_file(self.project_cache_file, model_dump_project_cache(repos))
         atomic_write_file(self.project_id_map_name, json.dumps(project_id_map))
 
         tlog.info(
@@ -207,14 +233,14 @@ class CreateGitHubProjectHooks(ThreadDeferredBuildStep):
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
-        repos = json.loads(self.project_cache_file.read_text())
+        repos = model_validate_project_cache(RepoData, self.project_cache_file)
 
         for repo in repos:
             create_project_hook(
                 self.token,
                 self.webhook_secret,
-                repo["owner"]["login"],
-                repo["name"],
+                repo.owner.login,
+                repo.name,
                 self.webhook_url,
             )
 
@@ -244,13 +270,13 @@ class ReloadGithubProjects(ThreadDeferredBuildStep):
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
-        repos: list[Any] = filter_repos_by_topic(
+        repos: list[RepoData] = filter_repos_by_topic(
             self.topic,
             refresh_projects(self.token.get(), self.project_cache_file),
-            lambda repo: repo["topics"],
+            lambda repo: repo.topics,
         )
 
-        atomic_write_file(self.project_cache_file, json.dumps(repos))
+        atomic_write_file(self.project_cache_file, model_dump_project_cache(repos))
 
     def run_post(self) -> Any:
         return util.SUCCESS
@@ -262,7 +288,7 @@ class GithubAuthBackend(ABC):
         pass
 
     @abstractmethod
-    def get_repo_token(self, repo: dict[str, Any]) -> RepoToken:
+    def get_repo_token(self, repo: RepoData) -> RepoToken:
         pass
 
     @abstractmethod
@@ -285,18 +311,18 @@ class GithubAuthBackend(ABC):
 
 
 class GithubLegacyAuthBackend(GithubAuthBackend):
-    auth_type: AuthTypeLegacy
+    auth_type: GitHubLegacyConfig
 
     token: LegacyToken
 
-    def __init__(self, auth_type: AuthTypeLegacy) -> None:
+    def __init__(self, auth_type: GitHubLegacyConfig) -> None:
         self.auth_type = auth_type
-        self.token = LegacyToken(read_secret_file(auth_type.token_secret_name))
+        self.token = LegacyToken(auth_type.token)
 
     def get_general_token(self) -> RepoToken:
         return self.token
 
-    def get_repo_token(self, repo: dict[str, Any]) -> RepoToken:
+    def get_repo_token(self, repo: RepoData) -> RepoToken:
         return self.token
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
@@ -351,24 +377,22 @@ class GitHubLegacySecretService(SecretProviderBase):
 
 
 class GithubAppAuthBackend(GithubAuthBackend):
-    auth_type: AuthTypeApp
+    auth_type: GitHubAppConfig
 
     jwt_token: JWTToken
     installation_tokens: dict[int, InstallationToken]
     project_id_map: dict[str, int]
 
-    def __init__(self, auth_type: AuthTypeApp) -> None:
+    def __init__(self, auth_type: GitHubAppConfig) -> None:
         self.auth_type = auth_type
-        self.jwt_token = JWTToken(
-            self.auth_type.app_id, self.auth_type.app_secret_key_name
-        )
+        self.jwt_token = JWTToken(self.auth_type.id, self.auth_type.secret_key_file)
         self.installation_tokens = GithubBackend.load_installations(
             self.jwt_token,
-            self.auth_type.app_installation_token_map_name,
+            self.auth_type.installation_token_map_file,
         )
-        if self.auth_type.app_project_id_map_name.exists():
+        if self.auth_type.project_id_map_file.exists():
             self.project_id_map = json.loads(
-                self.auth_type.app_project_id_map_name.read_text()
+                self.auth_type.project_id_map_file.read_text()
             )
         else:
             tlog.info(
@@ -379,9 +403,9 @@ class GithubAppAuthBackend(GithubAuthBackend):
     def get_general_token(self) -> RepoToken:
         return self.jwt_token
 
-    def get_repo_token(self, repo: dict[str, Any]) -> RepoToken:
-        assert "installation_id" in repo, f"Missing installation_id in {repo}"
-        return self.installation_tokens[repo["installation_id"]]
+    def get_repo_token(self, repo: RepoData) -> RepoToken:
+        assert repo.installation_id is not None, f"Missing installation_id in {repo}"
+        return self.installation_tokens[repo.installation_id]
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
         return [GitHubAppSecretService(self.installation_tokens, self.jwt_token)]
@@ -411,14 +435,14 @@ class GithubAppAuthBackend(GithubAuthBackend):
             ReloadGithubInstallations(
                 self.jwt_token,
                 project_cache_file,
-                self.auth_type.app_installation_token_map_name,
-                self.auth_type.app_project_id_map_name,
+                self.auth_type.installation_token_map_file,
+                self.auth_type.project_id_map_file,
                 topic,
             ),
             CreateGitHubInstallationHooks(
                 self.jwt_token,
                 project_cache_file,
-                self.auth_type.app_installation_token_map_name,
+                self.auth_type.installation_token_map_file,
                 webhook_secret=webhook_secret,
                 webhook_url=webhook_url,
                 topic=topic,
@@ -451,31 +475,21 @@ class GitHubAppSecretService(SecretProviderBase):
 
 
 @dataclass
-class GithubConfig:
-    oauth_id: str | None
-    auth_type: AuthType
-    oauth_secret_name: str = "github-oauth-secret"
-    webhook_secret_name: str = "github-webhook-secret"
-    project_cache_file: Path = Path("github-project-cache-v1.json")
-    topic: str | None = "build-with-buildbot"
-
-
-@dataclass
 class GithubBackend(GitBackend):
-    config: GithubConfig
+    config: GitHubConfig
     webhook_secret: str
     webhook_url: str
 
     auth_backend: GithubAuthBackend
 
-    def __init__(self, config: GithubConfig, webhook_url: str) -> None:
+    def __init__(self, config: GitHubConfig, webhook_url: str) -> None:
         self.config = config
-        self.webhook_secret = read_secret_file(self.config.webhook_secret_name)
+        self.webhook_secret = self.config.webhook_secret
         self.webhook_url = webhook_url
 
-        if isinstance(self.config.auth_type, AuthTypeLegacy):
+        if isinstance(self.config.auth_type, GitHubLegacyConfig):
             self.auth_backend = GithubLegacyAuthBackend(self.config.auth_type)
-        elif isinstance(self.config.auth_type, AuthTypeApp):
+        elif isinstance(self.config.auth_type, GitHubAppConfig):
             self.auth_backend = GithubAppAuthBackend(self.config.auth_type)
 
     @staticmethod
@@ -551,7 +565,7 @@ class GithubBackend(GitBackend):
         assert self.config.oauth_id is not None, "GitHub OAuth ID is required"
         return GitHubAuth(
             self.config.oauth_id,
-            read_secret_file(self.config.oauth_secret_name),
+            self.config.oauth_secret,
             apiVersion=4,
         )
 
@@ -562,30 +576,28 @@ class GithubBackend(GitBackend):
         if not self.config.project_cache_file.exists():
             return []
 
-        repos: list[dict[str, Any]] = filter_repos_by_topic(
+        repos: list[RepoData] = filter_repos_by_topic(
             self.config.topic,
             sorted(
-                json.loads(self.config.project_cache_file.read_text()),
-                key=lambda x: x["full_name"],
+                model_validate_project_cache(RepoData, self.config.project_cache_file),
+                key=lambda repo: repo.full_name,
             ),
-            lambda repo: repo["topics"],
+            lambda repo: repo.topics,
         )
 
         if isinstance(self.auth_backend, GithubAppAuthBackend):
             dropped_repos = list(
-                filter(lambda repo: "installation_id" not in repo, repos)
+                filter(lambda repo: repo.installation_id is None, repos)
             )
             if dropped_repos:
                 tlog.info(
                     "Dropped projects follow, refresh will follow after initialisation:"
                 )
                 for dropped_repo in dropped_repos:
-                    tlog.info(f"\tDropping repo {dropped_repo['full_name']}")
-            repos = list(filter(lambda repo: "installation_id" in repo, repos))
+                    tlog.info(f"\tDropping repo {dropped_repo.full_name}")
+            repos = list(filter(lambda repo: repo.installation_id is not None, repos))
 
-        repo_names: list[str] = [
-            repo["owner"]["login"] + "/" + repo["name"] for repo in repos
-        ]
+        repo_names: list[str] = [repo.owner.login + "/" + repo.name for repo in repos]
 
         tlog.info(
             f"Loading {len(repos)} cached repositories: [{', '.join(repo_names)}]"
@@ -595,7 +607,7 @@ class GithubBackend(GitBackend):
                 self.auth_backend.get_repo_token(repo),
                 self.config,
                 self.webhook_secret,
-                repo,
+                RepoData.model_validate(repo),
             )
             for repo in repos
         ]
@@ -605,14 +617,16 @@ class GithubBackend(GitBackend):
             return False
 
         if (
-            isinstance(self.config.auth_type, AuthTypeApp)
-            and not self.config.auth_type.app_project_id_map_name.exists()
+            isinstance(self.config.auth_type, GitHubAppConfig)
+            and not self.config.auth_type.project_id_map_file.exists()
         ):
             return False
 
         all_have_installation_id = True
-        for project in json.loads(self.config.project_cache_file.read_text()):
-            if "installation_id" not in project:
+        for project in model_validate_project_cache(
+            RepoData, self.config.project_cache_file
+        ):
+            if project.installation_id is not None:
                 all_have_installation_id = False
                 break
 
@@ -669,17 +683,17 @@ def create_project_hook(
 
 
 class GithubProject(GitProject):
-    config: GithubConfig
+    config: GitHubConfig
     webhook_secret: str
-    data: dict[str, Any]
+    data: RepoData
     token: RepoToken
 
     def __init__(
         self,
         token: RepoToken,
-        config: GithubConfig,
+        config: GitHubConfig,
         webhook_secret: str,
-        data: dict[str, Any],
+        data: RepoData,
     ) -> None:
         self.token = token
         self.config = config
@@ -699,35 +713,35 @@ class GithubProject(GitProject):
 
     @property
     def repo(self) -> str:
-        return self.data["name"]
+        return self.data.name
 
     @property
     def owner(self) -> str:
-        return self.data["owner"]["login"]
+        return self.data.owner.login
 
     @property
     def name(self) -> str:
-        return self.data["full_name"]
+        return self.data.full_name
 
     @property
     def url(self) -> str:
-        return self.data["html_url"]
+        return self.data.html_url
 
     @property
     def project_id(self) -> str:
-        return slugify_project_name(self.data["full_name"])
+        return slugify_project_name(self.data.full_name)
 
     @property
     def default_branch(self) -> str:
-        return self.data["default_branch"]
+        return self.data.default_branch
 
     @property
     def topics(self) -> list[str]:
-        return self.data["topics"]
+        return self.data.topics
 
     @property
     def belongs_to_org(self) -> bool:
-        return self.data["owner"]["type"] == "Organization"
+        return self.data.owner.ttype == "Organization"
 
 
 def refresh_projects(
@@ -738,7 +752,7 @@ def refresh_projects(
     api_endpoint: str = "/user/repos",
     subkey: None | str = None,
     require_admin: bool = True,
-) -> list[Any]:
+) -> list[RepoData]:
     if repos is None:
         repos = []
 
@@ -754,6 +768,7 @@ def refresh_projects(
                 f"skipping {name} because we do not have admin privileges, needed for hook management",
             )
         else:
-            repos.append(repo)
+            repo["installation_id"] = None
+            repos.append(RepoData.model_validate(repo))
 
     return repos
