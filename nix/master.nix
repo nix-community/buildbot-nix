@@ -702,7 +702,12 @@ in
             ps.treq
             ps.psycopg2
             (ps.toPythonModule cfg.buildbotNixpkgs.buildbot-worker)
-            cfg.buildbotNixpkgs.buildbot-plugins.www
+            (cfg.buildbotNixpkgs.buildbot-plugins.www.overrideAttrs (old: {
+              src = pkgs.fetchurl {
+                url = "https://github.com/Mic92/dotfiles/releases/download/assets/buildbot_www-4.0.2.dev3.tar.gz";
+                hash = "sha256-tNOq66khYs/Y4/7NfJCgoedXAzL/NN9Kq24pvjnCKcI=";
+              };
+            }))
             (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
             buildbot-gitea
           ];
