@@ -445,7 +445,7 @@ in
                                        else if (cfg.github.authType ? "app") then
                                          {
                                            id = cfg.github.authType.app.id;
-                                           secret_key_file = cfg.github.authType.app.secretKeyFile;
+                                           secret_key_file = "github-app-secret-key";
                                            installation_token_map_file = "github-app-installation-token-map.json";
                                            project_id_map_file = "github-app-project-id-map-name.json";
                                            jwt_token_map = "github-app-jwt-token";
