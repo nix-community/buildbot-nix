@@ -908,7 +908,7 @@ class NixConfigurator(ConfiguratorBase):
             backends["github"] = GithubBackend(self.config.github, self.config.url)
 
         if self.config.gitea is not None:
-            backends["gitea"] = GiteaBackend(self.config.gitea)
+            backends["gitea"] = GiteaBackend(self.config.gitea, self.config.url)
 
         auth: AuthBase | None = (
             backends[self.config.auth_backend].create_auth()
