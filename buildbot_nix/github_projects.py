@@ -2,10 +2,11 @@ import json
 import os
 import signal
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import starmap
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
@@ -18,9 +19,9 @@ from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
 from pydantic import BaseModel, ConfigDict, Field
+from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
-from twisted.internet import defer
 
 from .common import (
     ThreadDeferredBuildStep,
@@ -311,13 +312,22 @@ class GithubAuthBackend(ABC):
     ) -> list[BuildStep]:
         pass
 
+
 class ModifyingGitHubStatusPush(GitHubStatusPush):
-    def checkConfig(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+    def checkConfig(
+        self,
+        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
+        **kwargs: Any,
+    ) -> Any:
         self.modifyingFilter = modifyingFilter
 
         return super().checkConfig(**kwargs)
 
-    def reconfigService(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+    def reconfigService(
+        self,
+        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
+        **kwargs: Any,
+    ) -> Any:
         self.modifyingFilter = modifyingFilter
 
         return super().reconfigService(**kwargs)
@@ -330,6 +340,7 @@ class ModifyingGitHubStatusPush(GitHubStatusPush):
 
         result = yield super().sendMessage(reports)
         return result
+
 
 class GithubLegacyAuthBackend(GithubAuthBackend):
     auth_type: GitHubLegacyConfig
@@ -437,7 +448,6 @@ class GithubAppAuthBackend(GithubAuthBackend):
             return self.installation_tokens[
                 self.project_id_map[props["projectname"]]
             ].get()
-
 
         return ModifyingGitHubStatusPush(
             token=WithProperties("%(github_token)s", github_token=get_github_token),

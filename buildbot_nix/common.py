@@ -180,4 +180,3 @@ def filter_for_combined_builds(reports: Any) -> Any | None:
     if "report_status" in properties and not properties["report_status"][0]:
         return None
     return reports
-

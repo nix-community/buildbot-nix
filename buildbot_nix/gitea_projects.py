@@ -1,7 +1,8 @@
 import os
 import signal
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 from buildbot.config.builder import BuilderConfig
@@ -13,9 +14,9 @@ from buildbot.www.avatar import AvatarBase
 from buildbot_gitea.auth import GiteaAuth  # type: ignore[import]
 from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from pydantic import BaseModel
+from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
-from twisted.internet import defer
 
 from .common import (
     ThreadDeferredBuildStep,
@@ -106,13 +107,22 @@ class GiteaProject(GitProject):
         # TODO Gitea doesn't include this information
         return False  # self.data["owner"]["type"] == "Organization"
 
+
 class ModifyingGiteaStatusPush(GiteaStatusPush):
-    def checkConfig(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+    def checkConfig(
+        self,
+        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
+        **kwargs: Any,
+    ) -> Any:
         self.modifyingFilter = modifyingFilter
 
         return super().checkConfig(**kwargs)
 
-    def reconfigService(self, modifyingFilter: Callable[[Any], Any | None] = lambda x: x, **kwargs: Any) -> Any:
+    def reconfigService(
+        self,
+        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
+        **kwargs: Any,
+    ) -> Any:
         self.modifyingFilter = modifyingFilter
 
         return super().reconfigService(**kwargs)

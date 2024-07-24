@@ -533,7 +533,7 @@ def nix_build_config(
             updateSourceStamp=False,
             doStepIf=do_register_gcroot_if,
             copy_properties=["out_path", "attr"],
-            set_properties={"report_status": False}
+            set_properties={"report_status": False},
         ),
     )
     factory.addStep(
@@ -598,7 +598,7 @@ def nix_skipped_build_config(
             updateSourceStamp=False,
             doStepIf=do_register_gcroot_if,
             copy_properties=["out_path", "attr"],
-            set_properties={"report_status": False}
+            set_properties={"report_status": False},
         ),
     )
     return util.BuilderConfig(
@@ -642,6 +642,7 @@ def nix_register_gcroot_config(
         env={},
         factory=factory,
     )
+
 
 def nix_build_combined_config(
     project: GitProject,
