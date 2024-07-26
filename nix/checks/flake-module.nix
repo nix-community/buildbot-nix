@@ -11,6 +11,7 @@
         {
           master = import ./master.nix checkArgs;
           worker = import ./worker.nix checkArgs;
+          effects = import ./effects.nix checkArgs;
         };
     };
 }

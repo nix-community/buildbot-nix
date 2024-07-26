@@ -57,6 +57,7 @@
             ];
           };
           packages.buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
+          packages.buildbot-effects = pkgs.python3.pkgs.callPackage ./nix/buildbot-effects.nix { };
           checks =
             let
               nixosMachines = lib.mapAttrs' (name: config: lib.nameValuePair "nixos-${name}" config.config.system.build.toplevel) ((lib.filterAttrs (_: config: config.pkgs.system == system)) self.nixosConfigurations);

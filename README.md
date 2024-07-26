@@ -6,6 +6,21 @@ into the Nix ecosystem. This module is under active development, and while it's
 generally stable and widely used, please be aware that some APIs may change over
 time.
 
+## Features
+
+- Fast, Parallel evaluation using
+  [nix-eval-jobs](https://github.com/nix-community/nix-eval-jobs)
+- Github integration:
+  - Login with GitHub to control builds
+  - CI status notification in pull requests and on the default branch
+- All builds share the same nix store for speed
+- The last attribute of a build is protected from garbage collection
+- Build matrix based on `.#checks` attributes
+- No arbitrary code runs outside of the Nix sandbox
+- _experimental_
+  [hercules-ci effect](https://docs.hercules-ci.com/hercules-ci-effects/) to run
+  impure CI steps i.e. deploying NixOS
+
 ## Getting Started with Buildbot Setup
 
 To set up Buildbot using Buildbot-nix, you can start by exploring the provided
