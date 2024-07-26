@@ -8,6 +8,8 @@ let
   cfg = config.services.buildbot-nix.master;
   inherit (lib) mkRemovedOptionModule mkRenamedOptionModule;
 
+  optionsCachix = options.services.buildbot-nix.master.cachix;
+
   interpolateType =
     lib.mkOptionType {
       name = "interpolate";
@@ -367,7 +369,6 @@ in
         {
           assertion =
             let
-              optionsCachix = options.services.buildbot-nix.master.cachix;
               allIsNull = lib.all (x: x == null);
             in
             optionsCachix.enable.value || lib.foldr (a: b: a && b) true [
@@ -449,8 +450,8 @@ in
                          else
                            {
                              name = cfg.cachix.name;
-                             signing_key_file = cfg.cachix.signingKeyFile;
-                             auth_token_file = cfg.cachix.authTokenFile;
+                             signing_key_file = if optionsCachix.signingKeyFile.isDefined then cfg.cachix.signingKeyFile else null;
+                             auth_token_file = if optionsCachix.signingKeyFile.isDefined then cfg.cachix.authTokenFile else null;
                            };
                 gitea = if !cfg.gitea.enable then
                   null
