@@ -11,6 +11,7 @@ from collections import defaultdict
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from multiprocessing import cpu_count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -61,7 +62,7 @@ from .models import (
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 
-SKIPPED_BUILDER_NAME = "skipped-builds"
+SKIPPED_BUILDER_NAMES = [f"skipped-builds-{n}" for n in range(cpu_count())]
 
 log = Logger()
 
@@ -1330,10 +1331,10 @@ def config_for_project(
                 outputs_path=outputs_path,
                 post_build_steps=post_build_steps,
             ),
-            nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME], outputs_path),
-            nix_failed_eval_config(project, [SKIPPED_BUILDER_NAME]),
-            nix_dependency_failed_config(project, [SKIPPED_BUILDER_NAME]),
-            nix_cached_failure_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_skipped_build_config(project, SKIPPED_BUILDER_NAMES, outputs_path),
+            nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
+            nix_dependency_failed_config(project, SKIPPED_BUILDER_NAMES),
+            nix_cached_failure_config(project, SKIPPED_BUILDER_NAMES),
             nix_register_gcroot_config(project, worker_names),
         ],
     )
@@ -1548,7 +1549,7 @@ class NixConfigurator(ConfiguratorBase):
                 outputs_path=self.config.outputs_path,
             )
 
-        config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
+        config["workers"].extend(worker.LocalWorker(w) for w in SKIPPED_BUILDER_NAMES)
 
         for backend in backends.values():
             # Reload backend projects
