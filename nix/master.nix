@@ -1,6 +1,7 @@
 { config
 , pkgs
 , lib
+, options
 , ...
 }:
 let
@@ -352,6 +353,23 @@ in
       };
 
       assertions = [
+        {
+          assertion =
+            let
+              optionsCachix = options.services.buildbot-nix.master.cachix;
+              allIsNull = lib.all (x: x == null);
+            in
+            optionsCachix.enable.value || lib.foldr (a: b: a && b) true [
+              (optionsCachix.name.isDefined -> allIsNull optionsCachix.name.definitions)
+              (optionsCachix.signingKeyFile.isDefined -> allIsNull optionsCachix.signingKeyFile.definitions)
+              (optionsCachix.authTokenFile.isDefined -> allIsNull optionsCachix.authTokenFile.definitions)
+            ];
+          message = ''
+            The semantics of `options.services.buildbot-nix.master.cachix` recently changed slightly, the options
+            `name`, `signingKeyFile`, and `authTokenFile` are no longer null-able. To enable Cachix support use:
+            `options.services.buildbot-nix.master.cachix.enable = True`.
+          '';
+        }
         {
           assertion =
             lib.versionAtLeast cfg.buildbotNixpkgs.buildbot.version "4.0.0";
