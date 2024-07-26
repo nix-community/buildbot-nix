@@ -20,7 +20,7 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python"
 ]
-version = "0.0.1"
+version = "0.1.0"
 scripts = { buildbot-effects = "hercules_effects.cli:main" }
 
 [tool.setuptools]
