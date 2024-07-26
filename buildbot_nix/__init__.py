@@ -59,12 +59,14 @@ class BuildTrigger(Trigger):
         builds_scheduler: str,
         skipped_builds_scheduler: str,
         jobs: list[dict[str, Any]],
+        report_status: bool,
         **kwargs: Any,
     ) -> None:
         if "name" not in kwargs:
             kwargs["name"] = "trigger"
         self.project = project
         self.jobs = jobs
+        self.report_status = report_status
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
@@ -102,6 +104,7 @@ class BuildTrigger(Trigger):
             props.setProperty("virtual_builder_name", name, source)
             props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
             props.setProperty("virtual_builder_tags", "", source)
+            props.setProperty("report_status", self.report_status, source)
 
             drv_path = job.get("drvPath")
             system = job.get("system")
@@ -145,6 +148,15 @@ class BuildTrigger(Trigger):
         return {"step": f"({', '.join(summary)})"}
 
 
+class NixBuildCombined(steps.BuildStep):
+    """Shows the error message of a failed evaluation."""
+
+    name = "nix-build-combined"
+
+    def run(self) -> Generator[Any, object, Any]:
+        return self.build.results
+
+
 class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     """Parses the output of `nix-eval-jobs` and triggers a `nix-build` build for
     every attribute.
@@ -153,7 +165,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     project: GitProject
 
     def __init__(
-        self, project: GitProject, supported_systems: list[str], **kwargs: Any
+        self,
+        project: GitProject,
+        supported_systems: list[str],
+        job_report_limit: int | None,
+        **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
@@ -161,6 +177,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.observer = logobserver.BufferLogObserver()
         self.addLogObserver("stdio", self.observer)
         self.supported_systems = supported_systems
+        self.job_report_limit = job_report_limit
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
@@ -190,6 +207,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 if not system or system in self.supported_systems:  # report eval errors
                     filtered_jobs.append(job)
 
+            self.number_of_jobs = len(filtered_jobs)
+
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
@@ -198,8 +217,28 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
                         name="build flake",
                         jobs=filtered_jobs,
+                        report_status=(
+                            self.job_report_limit is None
+                            or self.number_of_jobs <= self.job_report_limit
+                        ),
                     ),
-                ],
+                ]
+                + (
+                    [
+                        Trigger(
+                            waitForFinish=True,
+                            schedulerNames=[f"{project_id}-nix-build-combined"],
+                            haltOnFailure=True,
+                            flunkOnFailure=True,
+                            sourceStamps=[],
+                            alwaysUseLatest=False,
+                            updateSourceStamp=False,
+                        ),
+                    ]
+                    if self.job_report_limit is not None
+                    and self.number_of_jobs > self.job_report_limit
+                    else []
+                ),
             )
 
         return result
@@ -360,6 +399,7 @@ def nix_eval_config(
     eval_lock: MasterLock,
     worker_count: int,
     max_memory_size: int,
+    job_report_limit: int | None,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -385,6 +425,7 @@ def nix_eval_config(
             env={},
             name="evaluate flake",
             supported_systems=supported_systems,
+            job_report_limit=job_report_limit,
             command=[
                 "nix-eval-jobs",
                 "--workers",
@@ -492,6 +533,7 @@ def nix_build_config(
             updateSourceStamp=False,
             doStepIf=do_register_gcroot_if,
             copy_properties=["out_path", "attr"],
+            set_properties={"report_status": False},
         ),
     )
     factory.addStep(
@@ -556,6 +598,7 @@ def nix_skipped_build_config(
             updateSourceStamp=False,
             doStepIf=do_register_gcroot_if,
             copy_properties=["out_path", "attr"],
+            set_properties={"report_status": False},
         ),
     )
     return util.BuilderConfig(
@@ -601,6 +644,24 @@ def nix_register_gcroot_config(
     )
 
 
+def nix_build_combined_config(
+    project: GitProject,
+    worker_names: list[str],
+) -> BuilderConfig:
+    factory = util.BuildFactory()
+    factory.addStep(NixBuildCombined())
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-build-combined",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+        properties=dict(status_name="nix-build-combined"),
+    )
+
+
 def config_for_project(
     config: dict[str, Any],
     project: GitProject,
@@ -610,6 +671,7 @@ def config_for_project(
     nix_eval_max_memory_size: int,
     eval_lock: MasterLock,
     post_build_steps: list[steps.BuildStep],
+    job_report_limit: int | None,
     outputs_path: Path | None = None,
     build_retries: int = 1,
 ) -> None:
@@ -653,6 +715,11 @@ def config_for_project(
                 name=f"{project.project_id}-nix-skipped-build",
                 builderNames=[f"{project.name}/nix-skipped-build"],
             ),
+            # this is triggered from `nix-eval` when the build contains too many outputs
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-build-combined",
+                builderNames=[f"{project.name}/nix-build-combined"],
+            ),
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-register-gcroot",
                 builderNames=[f"{project.name}/nix-register-gcroot"],
@@ -680,6 +747,7 @@ def config_for_project(
                 worker_names,
                 git_url=project.get_project_url(),
                 supported_systems=nix_supported_systems,
+                job_report_limit=job_report_limit,
                 worker_count=nix_eval_worker_count,
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
@@ -693,6 +761,7 @@ def config_for_project(
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
             nix_register_gcroot_config(project, worker_names),
+            nix_build_combined_config(project, worker_names),
         ],
     )
 
@@ -842,7 +911,7 @@ class NixConfigurator(ConfiguratorBase):
             backends["github"] = GithubBackend(self.config.github, self.config.url)
 
         if self.config.gitea is not None:
-            backends["gitea"] = GiteaBackend(self.config.gitea)
+            backends["gitea"] = GiteaBackend(self.config.gitea, self.config.url)
 
         auth: AuthBase | None = (
             backends[self.config.auth_backend].create_auth()
@@ -895,6 +964,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.config.eval_max_memory_size,
                 eval_lock,
                 [x.to_buildstep() for x in self.config.post_build_steps],
+                self.config.job_report_limit,
                 self.config.outputs_path,
                 self.config.build_retries,
             )

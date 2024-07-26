@@ -339,6 +339,17 @@ in
         default = null;
         example = "/var/www/buildbot/nix-outputs";
       };
+
+      jobReportLimit = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.unsigned;
+        description = ''
+          The max number of build jobs per `nix-eval` `buildbot-nix` will report to backends (GitHub, Gitea, etc.).
+          If set to `null`, report everything, if set to `n` (some unsiggned intereger), report builds individually
+          as long as the number of builds is less than or equal to `n`, then report builds using a combined
+          `nix-build-combined` build.
+        '';
+        default = 50;
+      };
     };
   };
   config = lib.mkMerge [
@@ -487,6 +498,7 @@ in
                 outputs_path = cfg.outputsPath;
                 url = config.services.buildbot-nix.master.webhookBaseUrl;
                 post_build_steps = cfg.postBuildSteps;
+                job_report_limit=if cfg.jobReportLimit == null then "None" else builtins.toJSON cfg.jobReportLimit;
               }}").read_text()))
             )
           ''
@@ -500,7 +512,9 @@ in
         dbUrl = config.services.buildbot-nix.master.dbUrl;
 
         package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
-          patches = old.patches ++ [ ./0001-master-reporters-github-render-token-for-each-reques.patch ];
+          patches = old.patches ++ [
+            ./0001-master-reporters-github-render-token-for-each-reques.patch
+          ];
         });
         pythonPackages =
           let

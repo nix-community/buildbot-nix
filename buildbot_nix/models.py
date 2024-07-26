@@ -179,6 +179,7 @@ class BuildbotNixConfig(BaseModel):
     outputs_path: Path | None
     url: str
     post_build_steps: list[PostBuildStep]
+    job_report_limit: int | None
 
     @property
     def nix_workers_secret(self) -> str:

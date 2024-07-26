@@ -1,5 +1,6 @@
 import os
 import signal
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -13,12 +14,14 @@ from buildbot.www.avatar import AvatarBase
 from buildbot_gitea.auth import GiteaAuth  # type: ignore[import]
 from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from pydantic import BaseModel
+from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
 
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
+    filter_for_combined_builds,
     filter_repos_by_topic,
     http_request,
     model_dump_project_cache,
@@ -105,11 +108,43 @@ class GiteaProject(GitProject):
         return False  # self.data["owner"]["type"] == "Organization"
 
 
+class ModifyingGiteaStatusPush(GiteaStatusPush):
+    def checkConfig(
+        self,
+        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
+        **kwargs: Any,
+    ) -> Any:
+        self.modifyingFilter = modifyingFilter
+
+        return super().checkConfig(**kwargs)
+
+    def reconfigService(
+        self,
+        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
+        **kwargs: Any,
+    ) -> Any:
+        self.modifyingFilter = modifyingFilter
+
+        return super().reconfigService(**kwargs)
+
+    @defer.inlineCallbacks
+    def sendMessage(self, reports: Any) -> Any:
+        reports = self.modifyingFilter(reports)
+        if reports is None:
+            return
+
+        result = yield super().sendMessage(reports)
+        return result
+
+
 class GiteaBackend(GitBackend):
     config: GiteaConfig
+    webhook_secret: str
+    instance_url: str
 
-    def __init__(self, config: GiteaConfig) -> None:
+    def __init__(self, config: GiteaConfig, instance_url: str) -> None:
         self.config = config
+        self.instance_url = instance_url
 
     def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig:
         """Updates the flake an opens a PR for it."""
@@ -118,7 +153,10 @@ class GiteaBackend(GitBackend):
             ReloadGiteaProjects(self.config, self.config.project_cache_file),
         )
         factory.addStep(
-            CreateGiteaProjectHooks(self.config),
+            CreateGiteaProjectHooks(
+                self.config,
+                self.instance_url,
+            ),
         )
         return util.BuilderConfig(
             name=self.reload_builder_name,
@@ -127,11 +165,12 @@ class GiteaBackend(GitBackend):
         )
 
     def create_reporter(self) -> ReporterBase:
-        return GiteaStatusPush(
-            self.config.instance_url,
-            Interpolate(self.config.token),
+        return ModifyingGiteaStatusPush(
+            baseURL=self.config.instance_url,
+            token=Interpolate(self.config.token),
             context=Interpolate("buildbot/%(prop:status_name)s"),
             context_pr=Interpolate("buildbot/%(prop:status_name)s"),
+            modifyingFilter=filter_for_combined_builds,
         )
 
     def create_change_hook(self) -> dict[str, Any]:
@@ -198,14 +237,19 @@ class GiteaBackend(GitBackend):
 
 
 def create_repo_hook(
-    token: str, webhook_secret: str, owner: str, repo: str, webhook_url: str
+    token: str,
+    webhook_secret: str,
+    owner: str,
+    repo: str,
+    gitea_url: str,
+    instance_url: str,
 ) -> None:
     hooks = paginated_github_request(
-        f"{webhook_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
+        f"{gitea_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
         token,
     )
     config = dict(
-        url=webhook_url + "change_hook/gitea",
+        url=instance_url + "change_hook/gitea",
         content_type="json",
         insecure_ssl="0",
         secret=webhook_secret,
@@ -223,13 +267,13 @@ def create_repo_hook(
         "Content-Type": "application/json",
     }
     for hook in hooks:
-        if hook["config"]["url"] == webhook_url + "change_hook/gitea":
+        if hook["config"]["url"] == instance_url + "change_hook/gitea":
             log.msg(f"hook for {owner}/{repo} already exists")
             return
 
     log.msg(f"creating hook for {owner}/{repo}")
     http_request(
-        f"{webhook_url}/api/v1/repos/{owner}/{repo}/hooks",
+        f"{gitea_url}/api/v1/repos/{owner}/{repo}/hooks",
         method="POST",
         headers=headers,
         data=data,
@@ -240,13 +284,16 @@ class CreateGiteaProjectHooks(ThreadDeferredBuildStep):
     name = "create_gitea_project_hooks"
 
     config: GiteaConfig
+    instance_url: str
 
     def __init__(
         self,
         config: GiteaConfig,
+        instance_url: str,
         **kwargs: Any,
     ) -> None:
         self.config = config
+        self.instance_url = instance_url
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
@@ -254,11 +301,12 @@ class CreateGiteaProjectHooks(ThreadDeferredBuildStep):
 
         for repo in repos:
             create_repo_hook(
-                self.config.token,
-                self.config.webhook_secret,
-                repo.owner.login,
-                repo.name,
-                self.config.instance_url,
+                token=self.config.token,
+                webhook_secret=self.config.webhook_secret,
+                owner=repo.owner.login,
+                repo=repo.name,
+                gitea_url=self.config.instance_url,
+                instance_url=self.instance_url,
             )
 
     def run_post(self) -> Any:

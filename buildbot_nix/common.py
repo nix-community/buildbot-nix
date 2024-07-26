@@ -172,3 +172,11 @@ def model_validate_project_cache(cls: type[_T], project_cache_file: Path) -> lis
 
 def model_dump_project_cache(repos: list[_T]) -> str:
     return json.dumps([repo.model_dump() for repo in repos])
+
+
+def filter_for_combined_builds(reports: Any) -> Any | None:
+    properties = reports[0]["builds"][0]["properties"]
+
+    if "report_status" in properties and not properties["report_status"][0]:
+        return None
+    return reports
