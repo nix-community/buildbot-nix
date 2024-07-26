@@ -125,7 +125,7 @@ class BuildTrigger(Trigger):
                 continue
 
             if job.get("isCached"):
-                triggered_schedulers.append((self.skipped_builds_scheduler, props))
+                #triggered_schedulers.append((self.skipped_builds_scheduler, props))
                 continue
 
             build_props.setProperty(f"{attr}-out_path", out_path, source)
