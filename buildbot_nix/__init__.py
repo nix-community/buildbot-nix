@@ -21,6 +21,7 @@ from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
+from multiprocessing import cpu_count
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
@@ -39,7 +40,7 @@ from .github_projects import (
 from .models import BuildbotNixConfig
 from .projects import GitBackend, GitProject
 
-SKIPPED_BUILDER_NAME = "skipped-builds"
+SKIPPED_BUILDER_NAMES = [f"skipped-builds-{n}" for n in range(cpu_count())]
 
 log = Logger()
 
@@ -759,7 +760,7 @@ def config_for_project(
                 retries=build_retries,
                 post_build_steps=post_build_steps,
             ),
-            nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_skipped_build_config(project, SKIPPED_BUILDER_NAMES),
             nix_register_gcroot_config(project, worker_names),
             nix_build_combined_config(project, worker_names),
         ],
@@ -969,7 +970,7 @@ class NixConfigurator(ConfiguratorBase):
                 self.config.build_retries,
             )
 
-        config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
+        config["workers"].extend(worker.LocalWorker(w) for w in SKIPPED_BUILDER_NAMES)
 
         for backend in backends.values():
             # Reload backend projects
