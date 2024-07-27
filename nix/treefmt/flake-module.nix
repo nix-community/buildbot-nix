@@ -4,7 +4,7 @@
   ];
   perSystem = { pkgs, ... }: {
     treefmt = {
-      projectRootFile = ".git/config";
+      projectRootFile = "flake.nix";
       programs.nixpkgs-fmt.enable = true;
       programs.shellcheck.enable = true;
       programs.deno.enable = true;
