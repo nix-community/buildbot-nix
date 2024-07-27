@@ -8,8 +8,6 @@ let
   cfg = config.services.buildbot-nix.master;
   inherit (lib) mkRemovedOptionModule mkRenamedOptionModule;
 
-  optionsCachix = options.services.buildbot-nix.master.cachix;
-
   interpolateType =
     lib.mkOptionType {
       name = "interpolate";
@@ -164,13 +162,51 @@ in
           description = "Cachix name";
         };
 
+        auth = lib.mkOption {
+          type = lib.types.attrTag {
+            signingKey = lib.mkOption {
+              description = ''
+                Use a signing key to authenticate with Cachix.
+              '';
+
+              type = lib.types.submodule {
+                options.file = lib.mkOption {
+                  type = lib.types.path;
+                  description = ''
+                    Path to a file containing the signing key.
+                  '';
+                };
+              };
+            };
+
+            authToken = lib.mkOption {
+              description = ''
+                Use an authentication token to authenticate with Cachix.
+              '';
+
+              type = lib.types.submodule {
+                options.file = lib.mkOption {
+                  type = lib.types.path;
+                  description = ''
+                    Path to a file containing the authentication token.
+                  '';
+                };
+              };
+            };
+          };
+        };
+
         signingKeyFile = lib.mkOption {
-          type = lib.types.path;
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          visible = false;
           description = "Cachix signing key";
         };
 
         authTokenFile = lib.mkOption {
-          type = lib.types.str;
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          visible = false;
           description = "Cachix auth token";
         };
       };
@@ -365,21 +401,36 @@ in
         isSystemUser = true;
       };
 
+      services.buildbot-nix.master.cachix.auth = lib.mkIf (cfg.cachix.authTokenFile != null || cfg.cachix.signingKeyFile != null)
+        (if (cfg.cachix.authTokenFile != null) then
+          lib.warn
+            "Obsolete option `services.buildbot-nix.master.cachix.authTokenFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.authToken.file'."
+            { authToken.file = cfg.cachix.authTokenFile; }
+        else if (cfg.cachix.signingKeyFile != null) then
+          lib.warn
+            "Obsolete option `services.buildbot-nix.master.cachix.signingKeyFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.signingKey.file'."
+            { signingKey.file = cfg.cachix.signingKeyFile; }
+        else
+          throw "Impossible, guarded by mkIf.");
+
       assertions = [
         {
           assertion =
             let
-              allIsNull = lib.all (x: x == null);
+              isNull = x: x == null;
             in
-            optionsCachix.enable.value || lib.foldr (a: b: a && b) true [
-              (optionsCachix.name.isDefined -> allIsNull optionsCachix.name.definitions)
-              (optionsCachix.signingKeyFile.isDefined -> allIsNull optionsCachix.signingKeyFile.definitions)
-              (optionsCachix.authTokenFile.isDefined -> allIsNull optionsCachix.authTokenFile.definitions)
-            ];
+            isNull cfg.cachix.authTokenFile && isNull cfg.cachix.signingKeyFile ||
+            isNull cfg.cachix.authTokenFile && cfg.cachix.enable ||
+            isNull cfg.cachix.signingKeyFile && cfg.cachix.enable;
           message = ''
-            The semantics of `options.services.buildbot-nix.master.cachix` recently changed slightly, the options
-            `name`, `signingKeyFile`, and `authTokenFile` are no longer null-able. To enable Cachix support use:
-            `options.services.buildbot-nix.master.cachix.enable = True`.
+            The semantics of `options.services.buildbot-nix.master.cachix` recently changed
+            slightly, the option `name` is no longer null-able. To enable Cachix support
+            use `services.buildbot-nix.master.cachix.enable = true`.
+
+            Furthermore, the options `services.buildbot-nix.master.cachix.authTokenFile` and
+            `services.buildbot-nix.master.cachix.signingKeyFile` were renamed to
+            `services.buildbot-nix.master.cachix.auth.authToken.file` and
+            `services.buildbot-nix.master.cachix.auth.signingKey.file` respectively.
           '';
         }
         {
@@ -450,8 +501,16 @@ in
                          else
                            {
                              name = cfg.cachix.name;
-                             signing_key_file = if optionsCachix.signingKeyFile.isDefined then cfg.cachix.signingKeyFile else null;
-                             auth_token_file = if optionsCachix.signingKeyFile.isDefined then cfg.cachix.authTokenFile else null;
+                             signing_key_file =
+                               if cfg.cachix.auth ? "signingKey" then
+                                 cfg.cachix.auth.signingKey.file
+                               else
+                                 null;
+                             auth_token_file =
+                               if cfg.cachix.auth ? "authToken" then
+                                 cfg.cachix.authTokenFile
+                               else
+                                 null;
                            };
                 gitea = if !cfg.gitea.enable then
                   null
@@ -560,10 +619,10 @@ in
             )
             ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
             ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
-            ++ lib.optionals cfg.cachix.enable [
+            ++ lib.optional (cfg.cachix.enable && cfg.cachix ? "signingKey")
               "cachix-signing-key:${builtins.toString cfg.cachix.signingKeyFile}"
+            ++ lib.optional (cfg.cachix.enable && cfg.cachix ? "authToken")
               "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}"
-            ]
             ++ lib.optionals cfg.gitea.enable [
               "gitea-token:${cfg.gitea.tokenFile}"
               "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
