@@ -21,7 +21,7 @@
     github = {
       # Use this when you have set up a GitHub App
       authType.app = {
-        id = 000000; # FIXME: replace with App ID obtained from GitHub
+        id = 0; # FIXME: replace with App ID obtained from GitHub
         secretKeyFile = pkgs.writeText "app-secret.key" "00000000000000000000"; # FIXME: replace with App secret key obtained from GitHub
       };
       #authType.legacy = {

@@ -1,7 +1,8 @@
-{ config
-, pkgs
-, lib
-, ...
+{
+  config,
+  pkgs,
+  lib,
+  ...
 }:
 let
   cfg = config.services.buildbot-nix.worker;
@@ -61,7 +62,10 @@ in
     systemd.services.buildbot-worker = {
       reloadIfChanged = true;
       description = "Buildbot Worker.";
-      after = [ "network.target" "buildbot-master.service" ];
+      after = [
+        "network.target"
+        "buildbot-master.service"
+      ];
       wantedBy = [ "multi-user.target" ];
       path = [
         pkgs.cachix
@@ -70,7 +74,7 @@ in
         pkgs.nix
         pkgs.nix-eval-jobs
       ];
-      environment.PYTHONPATH = "${python.withPackages (_: [cfg.package])}/${python.sitePackages}";
+      environment.PYTHONPATH = "${python.withPackages (_: [ cfg.package ])}/${python.sitePackages}";
       environment.MASTER_URL = cfg.masterUrl;
       environment.BUILDBOT_DIR = buildbotDir;
 
@@ -91,13 +95,13 @@ in
 
         # Restart buildbot with a delay. This time way we can use buildbot to deploy itself.
         ExecReload = "+${config.systemd.package}/bin/systemd-run --on-active=60 ${config.systemd.package}/bin/systemctl restart buildbot-worker";
-        ExecStart = lib.traceIf
-          (lib.versionOlder cfg.package.version "4.0.0")
-          ''
-            `buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`.
-            Consider upgrading by setting `services.buildbot-nix.worker.package` i.e. from nixpkgs-unstable.
-          ''
-          "${python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
+        ExecStart =
+          lib.traceIf (lib.versionOlder cfg.package.version "4.0.0")
+            ''
+              `buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`.
+              Consider upgrading by setting `services.buildbot-nix.worker.package` i.e. from nixpkgs-unstable.
+            ''
+            "${python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
       };
     };
   };

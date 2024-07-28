@@ -1,12 +1,14 @@
-{ self, ... }: {
+{ self, ... }:
+{
   perSystem =
-    { pkgs
-    , ...
-    }: {
+    { pkgs, ... }:
+    {
       checks =
         let
           # this gives us a reference to our flake but also all flake inputs
-          checkArgs = { inherit self pkgs; };
+          checkArgs = {
+            inherit self pkgs;
+          };
         in
         {
           master = import ./master.nix checkArgs;

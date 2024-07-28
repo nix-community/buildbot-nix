@@ -15,6 +15,8 @@ in
   # This makes `self` available in the NixOS configuration of our virtual machines.
   # This is useful for referencing modules or packages from your own flake
   # as well as importing from other flakes.
-  node.specialArgs = { inherit self; };
+  node.specialArgs = {
+    inherit self;
+  };
   imports = [ test ];
 }).config.result
