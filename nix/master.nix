@@ -1,24 +1,23 @@
-{ config
-, pkgs
-, lib
-, options
-, ...
+{
+  config,
+  pkgs,
+  lib,
+  options,
+  ...
 }:
 let
   cfg = config.services.buildbot-nix.master;
   inherit (lib) mkRemovedOptionModule mkRenamedOptionModule;
 
-  interpolateType =
-    lib.mkOptionType {
-      name = "interpolate";
+  interpolateType = lib.mkOptionType {
+    name = "interpolate";
 
-      description = ''
-        A type represnting a Buildbot interpolation string, supports interpolations like `result-%(prop:attr)s`.
-      '';
+    description = ''
+      A type represnting a Buildbot interpolation string, supports interpolations like `result-%(prop:attr)s`.
+    '';
 
-      check = x:
-        x ? "_type" && x._type == "interpolate" && x ? "value";
-    };
+    check = x: x ? "_type" && x._type == "interpolate" && x ? "value";
+  };
 
   interpolateToString =
     value:
@@ -106,41 +105,56 @@ in
         description = ''
           A list of steps to execute after every successful build.
         '';
-        type = lib.types.listOf (lib.types.submodule {
-          options = {
-            name = lib.mkOption {
-              type = lib.types.str;
-              description = ''
-                The name of the build step, will show up in Buildbot's UI.
-              '';
+        type = lib.types.listOf (
+          lib.types.submodule {
+            options = {
+              name = lib.mkOption {
+                type = lib.types.str;
+                description = ''
+                  The name of the build step, will show up in Buildbot's UI.
+                '';
+              };
+
+              environment = lib.mkOption {
+                type =
+                  with lib.types;
+                  attrsOf (oneOf [
+                    interpolateType
+                    str
+                  ]);
+                description = ''
+                  Extra environment variables to add to the environment of this build step.
+                  The base environment is the environment of the `buildbot-worker` service.
+
+                  To access the properties of a build, use the `interpolate` function defined in
+                  `inputs.buildbot-nix.lib.interpolate` like so `(interpolate "result-%(prop:attr)s")`.
+                '';
+                default = { };
+              };
+
+              command = lib.mkOption {
+                type =
+                  with lib.types;
+                  oneOf [
+                    str
+                    (listOf (oneOf [
+                      str
+                      interpolateType
+                    ]))
+                  ];
+                description = ''
+                  The command to execute as part of the build step. Either a single string or
+                  a list of strings. Be careful that neither variant is interpreted by a shell,
+                  but is passed to `execve` verbatim. If you desire a shell, you must use
+                  `writeShellScript` or similar functions.
+
+                  To access the properties of a build, use the `interpolate` function defined in
+                  `inputs.buildbot-nix.lib.interpolate` like so `(interpolate "result-%(prop:attr)s")`.
+                '';
+              };
             };
-
-            environment = lib.mkOption {
-              type = with lib.types; attrsOf (oneOf [ interpolateType str ]);
-              description = ''
-                Extra environment variables to add to the environment of this build step.
-                The base environment is the environment of the `buildbot-worker` service.
-
-                To access the properties of a build, use the `interpolate` function defined in
-                `inputs.buildbot-nix.lib.interpolate` like so `(interpolate "result-%(prop:attr)s")`.
-              '';
-              default = { };
-            };
-
-            command = lib.mkOption {
-              type = with lib.types; oneOf [ str (listOf (oneOf [ str interpolateType ])) ];
-              description = ''
-                The command to execute as part of the build step. Either a single string or
-                a list of strings. Be careful that neither variant is interpreted by a shell,
-                but is passed to `execve` verbatim. If you desire a shell, you must use
-                `writeShellScript` or similar functions.
-
-                To access the properties of a build, use the `interpolate` function defined in
-                `inputs.buildbot-nix.lib.interpolate` like so `(interpolate "result-%(prop:attr)s")`.
-              '';
-            };
-          };
-        });
+          }
+        );
 
         example = lib.literalExpression ''
           [
@@ -401,17 +415,20 @@ in
         isSystemUser = true;
       };
 
-      services.buildbot-nix.master.cachix.auth = lib.mkIf (cfg.cachix.authTokenFile != null || cfg.cachix.signingKeyFile != null)
-        (if (cfg.cachix.authTokenFile != null) then
-          lib.warn
-            "Obsolete option `services.buildbot-nix.master.cachix.authTokenFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.authToken.file'."
-            { authToken.file = cfg.cachix.authTokenFile; }
-        else if (cfg.cachix.signingKeyFile != null) then
-          lib.warn
-            "Obsolete option `services.buildbot-nix.master.cachix.signingKeyFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.signingKey.file'."
-            { signingKey.file = cfg.cachix.signingKeyFile; }
-        else
-          throw "Impossible, guarded by mkIf.");
+      services.buildbot-nix.master.cachix.auth =
+        lib.mkIf (cfg.cachix.authTokenFile != null || cfg.cachix.signingKeyFile != null)
+          (
+            if (cfg.cachix.authTokenFile != null) then
+              lib.warn
+                "Obsolete option `services.buildbot-nix.master.cachix.authTokenFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.authToken.file'."
+                { authToken.file = cfg.cachix.authTokenFile; }
+            else if (cfg.cachix.signingKeyFile != null) then
+              lib.warn
+                "Obsolete option `services.buildbot-nix.master.cachix.signingKeyFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.signingKey.file'."
+                { signingKey.file = cfg.cachix.signingKeyFile; }
+            else
+              throw "Impossible, guarded by mkIf."
+          );
 
       assertions = [
         {
@@ -419,9 +436,9 @@ in
             let
               isNull = x: x == null;
             in
-            isNull cfg.cachix.authTokenFile && isNull cfg.cachix.signingKeyFile ||
-            isNull cfg.cachix.authTokenFile && cfg.cachix.enable ||
-            isNull cfg.cachix.signingKeyFile && cfg.cachix.enable;
+            isNull cfg.cachix.authTokenFile && isNull cfg.cachix.signingKeyFile
+            || isNull cfg.cachix.authTokenFile && cfg.cachix.enable
+            || isNull cfg.cachix.signingKeyFile && cfg.cachix.enable;
           message = ''
             The semantics of `options.services.buildbot-nix.master.cachix` recently changed
             slightly, the option `name` is no longer null-able. To enable Cachix support
@@ -434,8 +451,7 @@ in
           '';
         }
         {
-          assertion =
-            lib.versionAtLeast cfg.buildbotNixpkgs.buildbot.version "4.0.0";
+          assertion = lib.versionAtLeast cfg.buildbotNixpkgs.buildbot.version "4.0.0";
           message = ''
             `buildbot-nix` requires `buildbot` 4.0.0 or greater to function.
             Set services.buildbot-nix.master.buildbotNixpkgs to a nixpkgs with buildbot >= 4.0.0,
@@ -453,15 +469,13 @@ in
           message = ''config.services.buildbot-nix.master.authBackend is set to "gitea", then config.services.buildbot-nix.master.gitea.oauthId and config.services.buildbot-nix.master.gitea.oauthSecretFile have to be set.'';
         }
         {
-          assertion =
-            cfg.authBackend == "github" -> cfg.github.enable;
+          assertion = cfg.authBackend == "github" -> cfg.github.enable;
           message = ''
             If `cfg.authBackend` is set to `"github"` the GitHub backend must be enabled with `cfg.github.enable`;
           '';
         }
         {
-          assertion =
-            cfg.authBackend == "gitea" -> cfg.gitea.enable;
+          assertion = cfg.authBackend == "gitea" -> cfg.gitea.enable;
           message = ''
             If `cfg.authBackend` is set to `"gitea"` the GitHub backend must be enabled with `cfg.gitea.enable`;
           '';
@@ -492,74 +506,72 @@ in
           ''
           ''
             NixConfigurator(
-              BuildbotNixConfig.model_validate(json.loads(Path("${(pkgs.formats.json {}).generate "buildbot-nix-config.json" {
-                db_url = cfg.dbUrl;
-                auth_backend = cfg.authBackend;
-                build_retries = cfg.buildRetries;
-                cachix = if !cfg.cachix.enable then
-                  null
-                         else
-                           {
-                             name = cfg.cachix.name;
-                             signing_key_file =
-                               if cfg.cachix.auth ? "signingKey" then
-                                 cfg.cachix.auth.signingKey.file
-                               else
-                                 null;
-                             auth_token_file =
-                               if cfg.cachix.auth ? "authToken" then
-                                 cfg.cachix.authTokenFile
-                               else
-                                 null;
-                           };
-                gitea = if !cfg.gitea.enable then
-                  null
-                        else
-                          {
-                            token_file = "gitea-token";
-                            webhook_secret_file = "gitea-webhook-secret";
-                            project_cache_file = "gitea-project-cache.json";
-                            oauth_secret_file = "gitea-oauth-secret";
-                            instance_url = cfg.gitea.instanceUrl;
-                            oauth_id = cfg.gitea.oauthId;
-                            topic = cfg.gitea.topic;
-                          };
-                github = if !cfg.github.enable then
-                  null
-                         else {
-                           auth_type = if (cfg.github.authType ? "legacy") then
-                             {
-                               token_file = "github-token";
-                             }
-                                       else if (cfg.github.authType ? "app") then
-                                         {
-                                           id = cfg.github.authType.app.id;
-                                           secret_key_file = "github-app-secret-key";
-                                           installation_token_map_file = "github-app-installation-token-map.json";
-                                           project_id_map_file = "github-app-project-id-map-name.json";
-                                           jwt_token_map = "github-app-jwt-token";
-                                         }
-                                       else
-                                         throw "authType is neither \"legacy\" nor \"app\"";
-                           project_cache_file = "github-project-cache-v1.json";
-                           webhook_secret_file = "github-webhook-secret";
-                           oauth_secret_file = "github-oauth-secret";
-                           oauth_id = cfg.github.oauthId;
-                           topic = cfg.github.topic;
-                         };
-                admins = cfg.admins;
-                workers_file = cfg.workersFile;
-                build_systems = cfg.buildSystems;
-                eval_max_memory_size = cfg.evalMaxMemorySize;
-                eval_worker_count = cfg.evalWorkerCount;
-                domain = cfg.domain;
-                webhook_base_url = cfg.webhookBaseUrl;
-                use_https = cfg.useHTTPS;
-                outputs_path = cfg.outputsPath;
-                url = config.services.buildbot-nix.master.webhookBaseUrl;
-                post_build_steps = cfg.postBuildSteps;
-                job_report_limit=if cfg.jobReportLimit == null then "None" else builtins.toJSON cfg.jobReportLimit;
-              }}").read_text()))
+              BuildbotNixConfig.model_validate(json.loads(Path("${
+                (pkgs.formats.json { }).generate "buildbot-nix-config.json" {
+                  db_url = cfg.dbUrl;
+                  auth_backend = cfg.authBackend;
+                  build_retries = cfg.buildRetries;
+                  cachix =
+                    if !cfg.cachix.enable then
+                      null
+                    else
+                      {
+                        name = cfg.cachix.name;
+                        signing_key_file = if cfg.cachix.auth ? "signingKey" then cfg.cachix.auth.signingKey.file else null;
+                        auth_token_file = if cfg.cachix.auth ? "authToken" then cfg.cachix.authTokenFile else null;
+                      };
+                  gitea =
+                    if !cfg.gitea.enable then
+                      null
+                    else
+                      {
+                        token_file = "gitea-token";
+                        webhook_secret_file = "gitea-webhook-secret";
+                        project_cache_file = "gitea-project-cache.json";
+                        oauth_secret_file = "gitea-oauth-secret";
+                        instance_url = cfg.gitea.instanceUrl;
+                        oauth_id = cfg.gitea.oauthId;
+                        topic = cfg.gitea.topic;
+                      };
+                  github =
+                    if !cfg.github.enable then
+                      null
+                    else
+                      {
+                        auth_type =
+                          if (cfg.github.authType ? "legacy") then
+                            { token_file = "github-token"; }
+                          else if (cfg.github.authType ? "app") then
+                            {
+                              id = cfg.github.authType.app.id;
+                              secret_key_file = "github-app-secret-key";
+                              installation_token_map_file = "github-app-installation-token-map.json";
+                              project_id_map_file = "github-app-project-id-map-name.json";
+                              jwt_token_map = "github-app-jwt-token";
+                            }
+                          else
+                            throw "authType is neither \"legacy\" nor \"app\"";
+                        project_cache_file = "github-project-cache-v1.json";
+                        webhook_secret_file = "github-webhook-secret";
+                        oauth_secret_file = "github-oauth-secret";
+                        oauth_id = cfg.github.oauthId;
+                        topic = cfg.github.topic;
+                      };
+                  admins = cfg.admins;
+                  workers_file = cfg.workersFile;
+                  build_systems = cfg.buildSystems;
+                  eval_max_memory_size = cfg.evalMaxMemorySize;
+                  eval_worker_count = cfg.evalWorkerCount;
+                  domain = cfg.domain;
+                  webhook_base_url = cfg.webhookBaseUrl;
+                  use_https = cfg.useHTTPS;
+                  outputs_path = cfg.outputsPath;
+                  url = config.services.buildbot-nix.master.webhookBaseUrl;
+                  post_build_steps = cfg.postBuildSteps;
+                  job_report_limit =
+                    if cfg.jobReportLimit == null then "None" else builtins.toJSON cfg.jobReportLimit;
+                }
+              }").read_text()))
             )
           ''
         ];
@@ -572,20 +584,20 @@ in
         dbUrl = config.services.buildbot-nix.master.dbUrl;
 
         package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
-          patches = old.patches ++ [
-            ./0001-master-reporters-github-render-token-for-each-reques.patch
-          ];
+          patches = old.patches ++ [ ./0001-master-reporters-github-render-token-for-each-reques.patch ];
         });
         pythonPackages =
           let
-            buildbot-gitea = (cfg.buildbotNixpkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
-              inherit (cfg.buildbotNixpkgs) buildbot;
-            }).overrideAttrs (old: {
-              patches = old.patches ++ [
-                ./0002-GiteaHandler-set-branch-to-the-PR-branch-not-the-bas.patch
-                ./0001-GiteaHandler-set-the-category-of-PR-changes-to-pull-.patch
-              ];
-            });
+            buildbot-gitea =
+              (cfg.buildbotNixpkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
+                inherit (cfg.buildbotNixpkgs) buildbot;
+              }).overrideAttrs
+                (old: {
+                  patches = old.patches ++ [
+                    ./0002-GiteaHandler-set-branch-to-the-PR-branch-not-the-bas.patch
+                    ./0001-GiteaHandler-set-the-category-of-PR-changes-to-pull-.patch
+                  ];
+                });
           in
           ps: [
             ps.pydantic
@@ -602,27 +614,28 @@ in
 
       systemd.services.buildbot-master = {
         after = [ "postgresql.service" ];
-        path = [
-          pkgs.openssl
-        ];
+        path = [ pkgs.openssl ];
         serviceConfig = {
           # in master.py we read secrets from $CREDENTIALS_DIRECTORY
           LoadCredential =
             [ "buildbot-nix-workers:${cfg.workersFile}" ]
-            ++ lib.optionals cfg.github.enable ([
-              "github-webhook-secret:${cfg.github.webhookSecretFile}"
-            ]
-            ++ lib.optional (cfg.github.authType ? "legacy")
-              "github-token:${cfg.github.authType.legacy.tokenFile}"
-            ++ lib.optional (cfg.github.authType ? "app")
-              "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
+            ++ lib.optionals cfg.github.enable (
+              [ "github-webhook-secret:${cfg.github.webhookSecretFile}" ]
+              ++ lib.optional (
+                cfg.github.authType ? "legacy"
+              ) "github-token:${cfg.github.authType.legacy.tokenFile}"
+              ++ lib.optional (
+                cfg.github.authType ? "app"
+              ) "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
             )
             ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
             ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
-            ++ lib.optional (cfg.cachix.enable && cfg.cachix ? "signingKey")
-              "cachix-signing-key:${builtins.toString cfg.cachix.signingKeyFile}"
-            ++ lib.optional (cfg.cachix.enable && cfg.cachix ? "authToken")
-              "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}"
+            ++ lib.optional (
+              cfg.cachix.enable && cfg.cachix ? "signingKey"
+            ) "cachix-signing-key:${builtins.toString cfg.cachix.signingKeyFile}"
+            ++ lib.optional (
+              cfg.cachix.enable && cfg.cachix ? "authToken"
+            ) "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}"
             ++ lib.optionals cfg.gitea.enable [
               "gitea-token:${cfg.gitea.tokenFile}"
               "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"

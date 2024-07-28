@@ -1,11 +1,13 @@
-{ pkgs
-, config
-, ...
-}: {
+{ pkgs, config, ... }:
+{
   # sops-nix (https://github.com/Mic92/sops-nix) is just an example, here.
   # Replace with your own secret management as needed: https://wiki.nixos.org/wiki/Comparison_of_secret_managing_schemes
-  sops.secrets."attic/prod-auth-token" = { sopsFile = ../secrets.yaml; };
-  sops.secrets."attic/netrc-file-pull-push" = { sopsFile = ../secrets.yaml; };
+  sops.secrets."attic/prod-auth-token" = {
+    sopsFile = ../secrets.yaml;
+  };
+  sops.secrets."attic/netrc-file-pull-push" = {
+    sopsFile = ../secrets.yaml;
+  };
 
   # Add netrc file for this machine to do its normal thing with the cache, as a machine.
   nix.settings.netrc-file = config.sops.secrets."attic/netrc-file-pull-push".path;
@@ -31,4 +33,4 @@
       exec attic watch-store prod:prod
     '';
   };
-}       
+}
