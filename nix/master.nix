@@ -25,6 +25,12 @@ let
       "util.Interpolate(${builtins.toJSON value.value})"
     else
       builtins.toJSON value;
+
+  backendPort =
+    if (cfg.accessMode ? "fullyPrivate") then
+      cfg.accessMode.fullyPrivate.port
+    else
+      config.services.buildbot-master.port;
 in
 {
   imports = [
@@ -226,6 +232,14 @@ in
                     A list of users that should be given access to BuildBot.
                   '';
                   default = [];
+                };
+
+                port = lib.mkOption {
+                  type = lib.types.port;
+                  description = ''
+                    Port number at which the `oauth2-proxy' will listen on.
+                  '';
+                  default = 8020;
                 };
               };
             };
@@ -680,11 +694,6 @@ in
             (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
             buildbot-gitea
           ];
-
-
-        extraConfig = ''
-          c['www'] = { "port": "unix:/run/buildbot-master/www.unix" }
-        '';
       };
 
       systemd.services.buildbot-master = {
@@ -733,14 +742,14 @@ in
       services.nginx.enable = true;
       services.nginx.virtualHosts.${cfg.domain} = {
         locations = {
-          "/".proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/";
+          "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
           "/sse" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/sse";
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
             # proxy buffering will prevent sse to work
             extraConfig = "proxy_buffering off;";
           };
           "/ws" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/ws";
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
             proxyWebsockets = true;
             # raise the proxy timeout for the websocket
             extraConfig = "proxy_read_timeout 6000s;";
@@ -770,9 +779,9 @@ in
             config = "/etc/oauth2-proxy/oauth2-proxy.toml";
             redirect-url = "https://${cfg.domain}/oauth2/callback";
 
-            http-address = "127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
+            http-address = "127.0.0.1:${builtins.toString cfg.accessMode.fullyPrivate.port}";
 
-            upstream = "unix:///run/buildbot-master/www.unix";
+            upstream = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
 
             cookie-secure = true;
           }
