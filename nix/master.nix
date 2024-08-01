@@ -168,6 +168,76 @@ in
         '';
       };
 
+      accessMode = lib.mkOption {
+        default = { public = {}; };
+        type = lib.types.attrTag {
+          public = lib.mkOption {
+            type = lib.types.submodule {};
+            description = ''
+              Default public mode, will allow read only access to anonymous users. Authentication is handled by
+              one of the `authBackend's. CAUTION this will leak information about private repos, the instance has
+              access to. Information includes, but is not limited to, repository URLs, number and name of checks,
+              and build logs
+            '';
+          };
+
+          fullyPrivate = lib.mkOption {
+            type = lib.types.submodule {
+              options = {
+                backend = lib.mkOption {
+                  type = lib.types.enum [
+                    "gitea"
+                    "github"
+                  ];
+                };
+
+                cookieSecretFile = lib.mkOption {
+                  type = lib.types.path;
+                  description = ''
+                    Path to a file containing the cookie secret.
+                  '';
+                };
+
+                clientSecretFile = lib.mkOption {
+                  type = lib.types.path;
+                  description = ''
+                    Path to a file containing the client secret.
+                  '';
+                };
+
+                clientId = lib.mkOption {
+                  type = lib.types.str;
+                  description = ''
+                    Client secret used for OAuth2 authentication.
+                  '';
+                };
+
+                teams = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  description = ''
+                    A list of teams that should be given access to BuildBot.
+                  '';
+                  default = [];
+                };
+
+                users = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  description = ''
+                    A list of users that should be given access to BuildBot.
+                  '';
+                  default = [];
+                };
+              };
+            };
+            description = ''
+              Puts the buildbot instance behind `oauth2-proxy' which protects the whole instance. This makes
+              buildbot-native authentication unnecessary unless one desires a mode where the team that can access
+              the instance read-only is a superset of the the team that can access it read-write.
+            '';
+          };
+        };
+      };
+
       cachix = {
         enable = lib.mkEnableOption "Enable Cachix integration";
 
@@ -610,6 +680,11 @@ in
             (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
             buildbot-gitea
           ];
+
+
+        extraConfig = ''
+          c['www'] = { "port": "unix:/run/buildbot-master/www.unix" }
+        '';
       };
 
       systemd.services.buildbot-master = {
@@ -640,6 +715,7 @@ in
               "gitea-token:${cfg.gitea.tokenFile}"
               "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
             ];
+          RuntimeDirectory = "buildbot-master";
         };
       };
 
@@ -680,6 +756,61 @@ in
         ++ lib.optional (cfg.outputsPath != null)
           # Allow buildbot-master to write to this directory
           "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
+
+
+      services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
+        enable = true;
+
+        clientID = cfg.accessMode.fullyPrivate.clientId;
+        clientSecret = null;
+        cookie.secret = null;
+
+        extraConfig = lib.mkMerge [
+          {
+            config = "/etc/oauth2-proxy/oauth2-proxy.toml";
+            redirect-url = "https://${cfg.domain}/oauth2/callback";
+
+            http-address = "127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
+
+            upstream = "unix:///run/buildbot-master/www.unix";
+
+            cookie-secure = true;
+          }
+          (lib.mkIf (lib.elem cfg.accessMode.fullyPrivate.backend [ "github" "gitea" ]) {
+            github-user = lib.concatStringsSep "," cfg.admins;
+            github-team = cfg.accessMode.fullyPrivate.teams;
+            email-domain = "*";
+          })
+          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") {
+            provider = "github";
+            # login-url = "https://github.com/login/oauth/authorize";
+            # redeem-url = "https://github.com/login/oauth/access_token";
+            # validate-url = "https://github.com/api/v3";
+          })
+          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
+            provider = "github";
+            provider-display-name = "Gitea";
+            login-url = "https://${cfg.gitea.instanceUrl}/login/oauth/authorize";
+            redeem-url = "https://${cfg.gitea.instanceUrl}/login/oauth/access_token";
+            validate-url = "https://${cfg.gitea.instanceUrl}/api/v1/user/emails";
+          })
+        ];
+      };
+
+
+      systemd.services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
+        serviceConfig = {
+          ConfigurationDirectory = "oauth2-proxy";
+        };
+        preStart = ''
+          cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
+          client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
+          cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
+          # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
+          scope = "read:user user:email repo"
+          EOF
+        '';
+      };
     })
   ];
 }
