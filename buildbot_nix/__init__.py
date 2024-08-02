@@ -20,12 +20,11 @@ from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
-from buildbot.www.auth import UserPasswordAuth
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
-    from buildbot.www.auth import AuthBase, UserInfoProviderBase
+    from buildbot.www.auth import AuthBase
 
 from twisted.internet import defer
 from twisted.logger import Logger
@@ -37,9 +36,9 @@ from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
 )
-from .models import BuildbotNixConfig, AuthBackendConfig
-from .projects import GitBackend, GitProject
+from .models import AuthBackendConfig, BuildbotNixConfig
 from .oauth2_proxy_auth import OAuth2ProxyAuth
+from .projects import GitBackend, GitProject
 
 SKIPPED_BUILDER_NAME = "skipped-builds"
 

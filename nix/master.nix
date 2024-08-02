@@ -185,10 +185,12 @@ in
       };
 
       accessMode = lib.mkOption {
-        default = { public = {}; };
+        default = {
+          public = { };
+        };
         type = lib.types.attrTag {
           public = lib.mkOption {
-            type = lib.types.submodule {};
+            type = lib.types.submodule { };
             description = ''
               Default public mode, will allow read only access to anonymous users. Authentication is handled by
               one of the `authBackend's. CAUTION this will leak information about private repos, the instance has
@@ -233,7 +235,7 @@ in
                   description = ''
                     A list of teams that should be given access to BuildBot.
                   '';
-                  default = [];
+                  default = [ ];
                 };
 
                 users = lib.mkOption {
@@ -241,7 +243,7 @@ in
                   description = ''
                     A list of users that should be given access to BuildBot.
                   '';
-                  default = [];
+                  default = [ ];
                 };
 
                 port = lib.mkOption {
@@ -777,7 +779,9 @@ in
           # Allow buildbot-master to write to this directory
           "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
 
-      services.buildbot-nix.master.authBackend = lib.mkIf (cfg.accessMode ? "fullyPrivate") "httpbasicauth";
+      services.buildbot-nix.master.authBackend = lib.mkIf (
+        cfg.accessMode ? "fullyPrivate"
+      ) "httpbasicauth";
 
       services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
         enable = true;
@@ -797,17 +801,19 @@ in
 
             cookie-secure = true;
           }
-          (lib.mkIf (cfg.authBackend == "httpbasicauth") {
-            set-basic-auth = true;
-          })
-          (lib.mkIf (lib.elem cfg.accessMode.fullyPrivate.backend [ "github" "gitea" ]) {
-            github-user = lib.concatStringsSep "," cfg.admins;
-            github-team = cfg.accessMode.fullyPrivate.teams;
-            email-domain = "*";
-          })
-          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") {
-            provider = "github";
-          })
+          (lib.mkIf (cfg.authBackend == "httpbasicauth") { set-basic-auth = true; })
+          (lib.mkIf
+            (lib.elem cfg.accessMode.fullyPrivate.backend [
+              "github"
+              "gitea"
+            ])
+            {
+              github-user = lib.concatStringsSep "," cfg.admins;
+              github-team = cfg.accessMode.fullyPrivate.teams;
+              email-domain = "*";
+            }
+          )
+          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") { provider = "github"; })
           (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
             provider = "github";
             provider-display-name = "Gitea";
@@ -817,7 +823,6 @@ in
           })
         ];
       };
-
 
       systemd.services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
         serviceConfig = {
