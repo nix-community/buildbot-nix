@@ -20,11 +20,12 @@ from buildbot.process.results import ALL_RESULTS, statusToString
 from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
+from buildbot.www.auth import UserPasswordAuth
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
-    from buildbot.www.auth import AuthBase
+    from buildbot.www.auth import AuthBase, UserInfoProviderBase
 
 from twisted.internet import defer
 from twisted.logger import Logger
@@ -36,8 +37,9 @@ from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
 )
-from .models import BuildbotNixConfig
+from .models import BuildbotNixConfig, AuthBackendConfig
 from .projects import GitBackend, GitProject
+from .oauth2_proxy_auth import OAuth2ProxyAuth
 
 SKIPPED_BUILDER_NAME = "skipped-builds"
 
@@ -913,11 +915,13 @@ class NixConfigurator(ConfiguratorBase):
         if self.config.gitea is not None:
             backends["gitea"] = GiteaBackend(self.config.gitea, self.config.url)
 
-        auth: AuthBase | None = (
-            backends[self.config.auth_backend].create_auth()
-            if self.config.auth_backend != "none"
-            else None
-        )
+        auth: AuthBase | None = None
+        if self.config.auth_backend == AuthBackendConfig.httpbasicauth:
+            auth = OAuth2ProxyAuth(self.config.http_basic_auth_password)
+        elif self.config.auth_backend == AuthBackendConfig.none:
+            pass
+        elif backends[self.config.auth_backend] is not None:
+            auth = backends[self.config.auth_backend].create_auth()
 
         projects: list[GitProject] = []
 

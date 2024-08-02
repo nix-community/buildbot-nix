@@ -93,6 +93,7 @@ in
         type = lib.types.enum [
           "github"
           "gitea"
+          "httpbasicauth"
           "none"
         ];
         default = "github";
@@ -100,6 +101,15 @@ in
           Which OAuth2 backend to use.
         '';
       };
+
+      httpBasicAuthPasswordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = ''
+          Path to file containing the password used in HTTP basic authentication.
+        '';
+      };
+
       buildRetries = lib.mkOption {
         type = lib.types.int;
         default = 1;
@@ -654,6 +664,7 @@ in
                   post_build_steps = cfg.postBuildSteps;
                   job_report_limit =
                     if cfg.jobReportLimit == null then "None" else builtins.toJSON cfg.jobReportLimit;
+                  http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
                 }
               }").read_text()))
             )
@@ -766,6 +777,7 @@ in
           # Allow buildbot-master to write to this directory
           "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
 
+      services.buildbot-nix.master.authBackend = lib.mkIf (cfg.accessMode ? "fullyPrivate") "httpbasicauth";
 
       services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
         enable = true;
@@ -785,6 +797,9 @@ in
 
             cookie-secure = true;
           }
+          (lib.mkIf (cfg.authBackend == "httpbasicauth") {
+            set-basic-auth = true;
+          })
           (lib.mkIf (lib.elem cfg.accessMode.fullyPrivate.backend [ "github" "gitea" ]) {
             github-user = lib.concatStringsSep "," cfg.admins;
             github-team = cfg.accessMode.fullyPrivate.teams;
@@ -792,9 +807,6 @@ in
           })
           (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") {
             provider = "github";
-            # login-url = "https://github.com/login/oauth/authorize";
-            # redeem-url = "https://github.com/login/oauth/access_token";
-            # validate-url = "https://github.com/api/v3";
           })
           (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
             provider = "github";
@@ -815,6 +827,7 @@ in
           cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
           client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
           cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
+          basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
           # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
           scope = "read:user user:email repo"
           EOF
