@@ -800,6 +800,11 @@ in
             upstream = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
 
             cookie-secure = true;
+            skip-auth-route = [ "^/change_hook" ];
+            api-route = [
+              "^/api"
+              "^/ws$"
+            ];
           }
           (lib.mkIf (cfg.authBackend == "httpbasicauth") { set-basic-auth = true; })
           (lib.mkIf
