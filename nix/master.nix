@@ -813,7 +813,7 @@ in
               "gitea"
             ])
             {
-              github-user = lib.concatStringsSep "," cfg.admins;
+              github-user = lib.concatStringsSep "," (cfg.accessMode.fullyPrivate.users ++ cfg.admins);
               github-team = cfg.accessMode.fullyPrivate.teams;
               email-domain = "*";
             }
