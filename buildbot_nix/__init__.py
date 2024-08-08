@@ -941,7 +941,7 @@ class NixConfigurator(ConfiguratorBase):
         eval_lock = util.MasterLock("nix-eval")
 
         if self.config.cachix is not None:
-            self.post_build_steps.append(
+            self.config.post_build_steps.append(
                 steps.ShellCommand(
                     name="Upload cachix",
                     env=self.cachix.cachix_env(),

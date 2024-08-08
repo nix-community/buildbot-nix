@@ -35,6 +35,23 @@ in
       ./worker.nix
     ];
   };
+  "example-cachix-master-worker-combined-${system}" = nixosSystem {
+    inherit system;
+    modules = [
+      dummy
+      buildbot-nix.nixosModules.buildbot-master
+      buildbot-nix.nixosModules.buildbot-worker
+      ./master.nix
+      ./worker.nix
+      {
+        services.buildbot-nix.master.cachix = {
+          enable = true;
+          name = "my-cachix";
+          auth.authToken.file = "/var/lib/secrets/cachix-token";
+        };
+      }
+    ];
+  };
   "example-master-${system}" = nixosSystem {
     inherit system;
     modules = [
