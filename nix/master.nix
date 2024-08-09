@@ -584,7 +584,10 @@ in
         dbUrl = config.services.buildbot-nix.master.dbUrl;
 
         package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
-          patches = old.patches ++ [ ./0001-master-reporters-github-render-token-for-each-reques.patch ];
+          patches = old.patches ++ [
+            ./0001-master-reporters-github-render-token-for-each-reques.patch
+            ./0001-Give-access-to-full_name-in-the-GitHub-hook-properti.patch
+          ];
         });
         pythonPackages =
           let

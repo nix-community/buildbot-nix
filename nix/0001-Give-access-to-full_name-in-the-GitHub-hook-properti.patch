@@ -1,0 +1,33 @@
+From ac52ad6d7c524d08ee61ba502f628e611ad55c6d Mon Sep 17 00:00:00 2001
+From: magic_rb <richard@brezak.sk>
+Date: Wed, 31 Jul 2024 17:03:45 +0200
+Subject: [PATCH] Give access to `full_name` in the GitHub hook properties
+
+Signed-off-by: magic_rb <richard@brezak.sk>
+---
+ master/buildbot/www/hooks/github.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/master/buildbot/www/hooks/github.py b/master/buildbot/www/hooks/github.py
+index e8aa2ba3a..bebb885e6 100644
+--- a/master/buildbot/www/hooks/github.py
++++ b/master/buildbot/www/hooks/github.py
+@@ -237,6 +237,7 @@ class GitHubEventHandler(PullRequestMixin):
+         if self._token:
+             p = Properties()
+             p.master = self.master
++            p.setProperty("full_name", repo, "change_hook")
+             token = yield p.render(self._token)
+             headers['Authorization'] = 'token ' + token
+ 
+@@ -268,6 +269,7 @@ class GitHubEventHandler(PullRequestMixin):
+         if self._token:
+             p = Properties()
+             p.master = self.master
++            p.setProperty("full_name", repo, "change_hook")
+             token = yield p.render(self._token)
+             headers["Authorization"] = "token " + token
+ 
+-- 
+2.44.1
+

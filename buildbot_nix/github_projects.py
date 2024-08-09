@@ -291,7 +291,7 @@ class GithubAuthBackend(ABC):
         pass
 
     @abstractmethod
-    def get_repo_token(self, repo: RepoData) -> RepoToken:
+    def get_repo_token(self, repo_full_name: str) -> RepoToken:
         pass
 
     @abstractmethod
@@ -354,7 +354,7 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
     def get_general_token(self) -> RepoToken:
         return self.token
 
-    def get_repo_token(self, repo: RepoData) -> RepoToken:
+    def get_repo_token(self, repo_full_name: str) -> RepoToken:
         return self.token
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
@@ -436,9 +436,9 @@ class GithubAppAuthBackend(GithubAuthBackend):
     def get_general_token(self) -> RepoToken:
         return self.jwt_token
 
-    def get_repo_token(self, repo: RepoData) -> RepoToken:
-        assert repo.installation_id is not None, f"Missing installation_id in {repo}"
-        return self.installation_tokens[repo.installation_id]
+    def get_repo_token(self, repo_full_name: str) -> RepoToken:
+        installation_id = self.project_id_map[repo_full_name]
+        return self.installation_tokens[installation_id]
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
         return [GitHubAppSecretService(self.installation_tokens, self.jwt_token)]
@@ -585,10 +585,15 @@ class GithubBackend(GitBackend):
         return self.auth_backend.create_reporter()
 
     def create_change_hook(self) -> dict[str, Any]:
+        def get_github_token(props: Properties) -> str:
+            return self.auth_backend.get_repo_token(
+                props.getProperty("full_name")
+            ).get()
+
         return {
             "secret": self.webhook_secret,
             "strict": True,
-            "token": self.auth_backend.get_general_token().get(),
+            "token": WithProperties("%(github_token)s", github_token=get_github_token),
             "github_property_whitelist": ["github.base.sha", "github.head.sha"],
         }
 
@@ -638,7 +643,7 @@ class GithubBackend(GitBackend):
         )
         return [
             GithubProject(
-                self.auth_backend.get_repo_token(repo),
+                self.auth_backend.get_repo_token(repo.full_name),
                 self.config,
                 self.webhook_secret,
                 RepoData.model_validate(repo),
