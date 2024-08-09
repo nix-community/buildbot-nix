@@ -18,6 +18,7 @@ def exclude_fields(fields: list[str]) -> dict[str, dict[str, bool]]:
 class AuthBackendConfig(str, Enum):
     github = "github"
     gitea = "gitea"
+    httpbasicauth = "httpbasicauth"
     none = "none"
 
 
@@ -180,7 +181,14 @@ class BuildbotNixConfig(BaseModel):
     url: str
     post_build_steps: list[PostBuildStep]
     job_report_limit: int | None
+    http_basic_auth_password_file: Path | None
 
     @property
     def nix_workers_secret(self) -> str:
         return read_secret_file(self.nix_workers_secret_file)
+
+    @property
+    def http_basic_auth_password(self) -> str:
+        if self.http_basic_auth_password_file is None:
+            raise InternalError
+        return read_secret_file(self.http_basic_auth_password_file)

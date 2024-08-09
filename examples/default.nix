@@ -65,4 +65,14 @@ in
       { services.buildbot-nix.worker.masterUrl = ''tcp:host=2a09\:80c0\:102\:\:1:port=9989''; }
     ];
   };
+
+  "example-oauth2-proxy-github-${system}" = nixosSystem {
+    inherit system;
+    modules = [
+      dummy
+      buildbot-nix.nixosModules.buildbot-master
+      buildbot-nix.nixosModules.buildbot-worker
+      ./fully-private-github.nix
+    ];
+  };
 }
