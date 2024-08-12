@@ -36,7 +36,8 @@ from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
 )
-from .models import BuildbotNixConfig
+from .models import AuthBackendConfig, BuildbotNixConfig
+from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 
 SKIPPED_BUILDER_NAME = "skipped-builds"
@@ -913,11 +914,13 @@ class NixConfigurator(ConfiguratorBase):
         if self.config.gitea is not None:
             backends["gitea"] = GiteaBackend(self.config.gitea, self.config.url)
 
-        auth: AuthBase | None = (
-            backends[self.config.auth_backend].create_auth()
-            if self.config.auth_backend != "none"
-            else None
-        )
+        auth: AuthBase | None = None
+        if self.config.auth_backend == AuthBackendConfig.httpbasicauth:
+            auth = OAuth2ProxyAuth(self.config.http_basic_auth_password)
+        elif self.config.auth_backend == AuthBackendConfig.none:
+            pass
+        elif backends[self.config.auth_backend] is not None:
+            auth = backends[self.config.auth_backend].create_auth()
 
         projects: list[GitProject] = []
 

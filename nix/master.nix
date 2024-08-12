@@ -25,6 +25,12 @@ let
       "util.Interpolate(${builtins.toJSON value.value})"
     else
       builtins.toJSON value;
+
+  backendPort =
+    if (cfg.accessMode ? "fullyPrivate") then
+      cfg.accessMode.fullyPrivate.port
+    else
+      config.services.buildbot-master.port;
 in
 {
   imports = [
@@ -87,6 +93,7 @@ in
         type = lib.types.enum [
           "github"
           "gitea"
+          "httpbasicauth"
           "none"
         ];
         default = "github";
@@ -94,6 +101,15 @@ in
           Which OAuth2 backend to use.
         '';
       };
+
+      httpBasicAuthPasswordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = ''
+          Path to file containing the password used in HTTP basic authentication.
+        '';
+      };
+
       buildRetries = lib.mkOption {
         type = lib.types.int;
         default = 1;
@@ -166,6 +182,86 @@ in
             command = [ "nix" "copy" "%result%" ];
           ]
         '';
+      };
+
+      accessMode = lib.mkOption {
+        default = {
+          public = { };
+        };
+        type = lib.types.attrTag {
+          public = lib.mkOption {
+            type = lib.types.submodule { };
+            description = ''
+              Default public mode, will allow read only access to anonymous users. Authentication is handled by
+              one of the `authBackend's. CAUTION this will leak information about private repos, the instance has
+              access to. Information includes, but is not limited to, repository URLs, number and name of checks,
+              and build logs
+            '';
+          };
+
+          fullyPrivate = lib.mkOption {
+            type = lib.types.submodule {
+              options = {
+                backend = lib.mkOption {
+                  type = lib.types.enum [
+                    "gitea"
+                    "github"
+                  ];
+                };
+
+                cookieSecretFile = lib.mkOption {
+                  type = lib.types.path;
+                  description = ''
+                    Path to a file containing the cookie secret.
+                  '';
+                };
+
+                clientSecretFile = lib.mkOption {
+                  type = lib.types.path;
+                  description = ''
+                    Path to a file containing the client secret.
+                  '';
+                };
+
+                clientId = lib.mkOption {
+                  type = lib.types.str;
+                  description = ''
+                    Client secret used for OAuth2 authentication.
+                  '';
+                };
+
+                teams = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  description = ''
+                    A list of teams that should be given access to BuildBot.
+                  '';
+                  default = [ ];
+                };
+
+                users = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  description = ''
+                    A list of users that should be given access to BuildBot.
+                  '';
+                  default = [ ];
+                };
+
+                port = lib.mkOption {
+                  type = lib.types.port;
+                  description = ''
+                    Port number at which the `oauth2-proxy' will listen on.
+                  '';
+                  default = 8020;
+                };
+              };
+            };
+            description = ''
+              Puts the buildbot instance behind `oauth2-proxy' which protects the whole instance. This makes
+              buildbot-native authentication unnecessary unless one desires a mode where the team that can access
+              the instance read-only is a superset of the the team that can access it read-write.
+            '';
+          };
+        };
       };
 
       cachix = {
@@ -570,6 +666,7 @@ in
                   post_build_steps = cfg.postBuildSteps;
                   job_report_limit =
                     if cfg.jobReportLimit == null then "None" else builtins.toJSON cfg.jobReportLimit;
+                  http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
                 }
               }").read_text()))
             )
@@ -640,6 +737,7 @@ in
               "gitea-token:${cfg.gitea.tokenFile}"
               "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
             ];
+          RuntimeDirectory = "buildbot-master";
         };
       };
 
@@ -657,14 +755,14 @@ in
       services.nginx.enable = true;
       services.nginx.virtualHosts.${cfg.domain} = {
         locations = {
-          "/".proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/";
+          "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
           "/sse" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/sse";
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
             # proxy buffering will prevent sse to work
             extraConfig = "proxy_buffering off;";
           };
           "/ws" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}/ws";
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
             proxyWebsockets = true;
             # raise the proxy timeout for the websocket
             extraConfig = "proxy_read_timeout 6000s;";
@@ -680,6 +778,71 @@ in
         ++ lib.optional (cfg.outputsPath != null)
           # Allow buildbot-master to write to this directory
           "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
+
+      services.buildbot-nix.master.authBackend = lib.mkIf (
+        cfg.accessMode ? "fullyPrivate"
+      ) "httpbasicauth";
+
+      services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
+        enable = true;
+
+        clientID = cfg.accessMode.fullyPrivate.clientId;
+        clientSecret = null;
+        cookie.secret = null;
+
+        extraConfig = lib.mkMerge [
+          {
+            config = "/etc/oauth2-proxy/oauth2-proxy.toml";
+            redirect-url = "https://${cfg.domain}/oauth2/callback";
+
+            http-address = "127.0.0.1:${builtins.toString cfg.accessMode.fullyPrivate.port}";
+
+            upstream = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
+
+            cookie-secure = true;
+            skip-auth-route = [ "^/change_hook" ];
+            api-route = [
+              "^/api"
+              "^/ws$"
+            ];
+          }
+          (lib.mkIf (cfg.authBackend == "httpbasicauth") { set-basic-auth = true; })
+          (lib.mkIf
+            (lib.elem cfg.accessMode.fullyPrivate.backend [
+              "github"
+              "gitea"
+            ])
+            {
+              github-user = lib.concatStringsSep "," (cfg.accessMode.fullyPrivate.users ++ cfg.admins);
+              github-team = cfg.accessMode.fullyPrivate.teams;
+              email-domain = "*";
+            }
+          )
+          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") { provider = "github"; })
+          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
+            provider = "github";
+            provider-display-name = "Gitea";
+            login-url = "${cfg.gitea.instanceUrl}/login/oauth/authorize";
+            redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
+            validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
+          })
+        ];
+      };
+
+      systemd.services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
+        serviceConfig = {
+          ConfigurationDirectory = "oauth2-proxy";
+        };
+        preStart = ''
+          cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
+          client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
+          cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
+          basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
+          # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
+          scope = "read:user user:email repo"
+          EOF
+        '';
+      };
     })
   ];
 }

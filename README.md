@@ -76,7 +76,19 @@ examples to guide you:
 
 ### Authentication backend
 
-At the moment all projects are visible without authentication.
+At the moment `buildbot-nix` offers two access modes, `public` and
+`fullyPrivate`. `public` is the default and gives read-only access to all of
+buildbot, including builds, logs and builders. For read-write access,
+authentication is still needed, this is controlled by the `authBackend` option.
+
+`fullyPrivate` will hide buildbot behind `oauth2-proxy` which protects the whole
+buildbot instance. buildbot fetches the currently authenticated user from
+`oauth2-proxy` so the same admin, organisation rules apply.
+
+`fullyPrivate` acccess mode is a workaround as buildbot does not support hiding
+information natively as now.
+
+#### Public
 
 For some actions a login is required. This login can either be based on GitHub
 or on Gitea (more logins may follow). The backend is set by the
@@ -92,9 +104,9 @@ We have the following two roles:
   - All member of the organisation where this repository is located
   - They can restart builds
 
-### Integration with GitHub
+##### Integration with GitHub
 
-#### GitHub App
+###### GitHub App
 
 This is the preferred option to setup buildbot-nix for GitHub.
 
@@ -128,7 +140,7 @@ To integrate with GitHub using app authentication:
    changes (new repositories or installations) automatically, it is therefore
    necessary to manually trigger a reload or wait for the next periodic reload.
 
-#### Token Auth
+###### Token Auth
 
 To integrate with GitHub using legacy token authentication:
 
@@ -136,7 +148,7 @@ To integrate with GitHub using legacy token authentication:
    permissions. For GitHub organizations, it's advisable to create a separate
    GitHub user for managing repository webhooks.
 
-### Optional when using GitHub login
+##### Optional when using GitHub login
 
 1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
    authentication on the Buildbot dashboard. (can be the same as for GitHub App
@@ -149,7 +161,7 @@ Afterwards add the configured github topic to every project that should build
 with buildbot-nix. Notice that the buildbot user needs to have admin access to
 this repository because it needs to install a webhook.
 
-### Integration with Gitea
+##### Integration with Gitea
 
 To integrate with Gitea
 
@@ -170,6 +182,22 @@ Afterwards add the configured gitea topic to every project that should build
 with buildbot-nix. Notice that the buildbot user needs to have repository write
 access to this repository because it needs to install a webhook in the
 repository.
+
+#### Fully Private
+
+To enable fully private mode, set `acessMode.fullyPrivate` to an attrset
+containing the required options for fully private use, refer to the examples and
+module implementation (`nix/master.nix`).
+
+This access mode honors the `admins` option in addition to the
+`accessMode.fullyPrivate.organisations` option. To allow access from certain
+organisations, you must explicitly list them.
+
+If you've set `authBackend` previously, unset it, or you will get an error about
+a conflicting definitions. `fullyPrivate` requires the `authBackend` to be set
+to `basichttpauth` to function (this is handled by the module, which is why you
+can leave it unset). For a concrete example please refer to
+[fully-private-github](./examples/fully-private-github.nix)
 
 ## Binary caches
 
