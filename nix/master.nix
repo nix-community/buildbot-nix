@@ -822,9 +822,9 @@ in
           (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
             provider = "github";
             provider-display-name = "Gitea";
-            login-url = "https://${cfg.gitea.instanceUrl}/login/oauth/authorize";
-            redeem-url = "https://${cfg.gitea.instanceUrl}/login/oauth/access_token";
-            validate-url = "https://${cfg.gitea.instanceUrl}/api/v1/user/emails";
+            login-url = "${cfg.gitea.instanceUrl}/login/oauth/authorize";
+            redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
+            validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
           })
         ];
       };
