@@ -53,7 +53,15 @@ from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
 )
-from .models import AuthBackendConfig, BuildbotNixConfig, NixEvalJob, NixEvalJobSuccess, NixEvalJobError, NixEvalJobModel
+from .models import (
+    AuthBackendConfig,
+    BuildbotNixConfig,
+    NixEvalJob,
+    NixEvalJobSuccess,
+    NixEvalJobError,
+    NixEvalJobModel,
+    CacheStatus,
+)
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 
@@ -87,6 +95,7 @@ class BuildTrigger(steps.BuildStep):
         self.drv_info = drv_info
         self.config = None
         self.builds_scheduler = builds_scheduler
+        self.skipped_builds_scheduler = skipped_builds_scheduler
         self._result_list: list[int] = []
         self.ended = False
         self.waitForFinishDeferred: defer.Deferred[tuple[list[int], int]] | None = None
@@ -122,15 +131,11 @@ class BuildTrigger(steps.BuildStep):
         attr = job.attr or "eval-error"
         name = attr
         name = f"hydraJobs.{name}"
-        # error = job.error
+
         props = Properties()
         props.setProperty("virtual_builder_name", name, source)
         props.setProperty("status_name", f"nix-build .#hydraJobs.{attr}", source)
         props.setProperty("virtual_builder_tags", "", source)
-
-        # if error is not None:
-        #     props.setProperty("error", error, source)
-        #     return (self.builds_scheduler, props)
 
         drv_path = job.drvPath
         system = job.system
@@ -145,7 +150,11 @@ class BuildTrigger(steps.BuildStep):
         props.setProperty("out_path", out_path, source)
         props.setProperty("cacheStatus", job.cacheStatus, source)
 
-        return (self.builds_scheduler, props)
+        # TODO: allow to skip if the build is cached?
+        if job.cacheStatus == CacheStatus.notBuilt or job.cacheStatus == CacheStatus.cached:
+            return (self.builds_scheduler, props)
+        else:
+            return (self.skipped_builds_scheduler, props)
 
     @defer.inlineCallbacks
     def _add_results(self, brid: Any) -> Generator[Any, Any, None]:
