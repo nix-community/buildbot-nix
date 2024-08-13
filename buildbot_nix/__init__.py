@@ -35,6 +35,7 @@ from buildbot.process.buildstep import SUCCESS
 from buildbot.process.results import worst_status
 
 if TYPE_CHECKING:
+    from buildbot.master.db.buildrequests import BuildRequestModel
     from buildbot.master.db.builds import BuildModel
     from buildbot.process.log import StreamLog
     from buildbot.process.log import Log
@@ -85,9 +86,9 @@ class BuildTrigger(steps.BuildStep):
         self.drv_info = drv_info
         self.config = None
         self.builds_scheduler = builds_scheduler
-        self._result_list = []
+        self._result_list: list[int] = []
         self.ended = False
-        self.waitForFinishDeferred = None
+        self.waitForFinishDeferred: defer.Deferred[tuple[list[int], int]] | None = None
         super().__init__(**kwargs)
 
     def interrupt(self, reason):
@@ -149,7 +150,9 @@ class BuildTrigger(steps.BuildStep):
     def _add_results(self, brid: Any) -> Generator[Any, object, None]:
         @defer.inlineCallbacks
         def _is_buildrequest_complete(brid: Any) -> Generator[Any, object, bool]:
-            buildrequest: dict[str, Any] = yield self.master.db.buildrequests.getBuildRequest(brid)
+            buildrequest: BuildRequestModel | None = yield self.master.db.buildrequests.getBuildRequest(brid)
+            if buildrequest is None:
+                raise RuntimeError(f"Failed to get build request by its ID")
             return buildrequest['complete']
 
         event = ('buildrequests', str(brid), 'complete')
@@ -159,7 +162,7 @@ class BuildTrigger(steps.BuildStep):
             self._result_list.append(build["results"])
         self.updateSummary()
 
-    def prepareSourcestampListForTrigger(self):
+    def prepareSourcestampListForTrigger(self) -> list[dict[str, Any]]: # TODO: ISourceStamp? its defined but never used anywhere an doesn't include `asDict` method
         ss_for_trigger = {}
         objs_from_build = self.build.getAllSourceStamps()
         for ss in objs_from_build:
@@ -201,7 +204,6 @@ class BuildTrigger(steps.BuildStep):
 
         done = []
         scheduled: list[Tuple[dict[str, Any], dict[int, int], defer.Deferred[list[int]]]] = []
-        failed = []
         all_results = SUCCESS
         ss_for_trigger = self.prepareSourcestampListForTrigger()
         while len(build_schedule_order) > 0 or len(scheduled) > 0:
@@ -235,7 +237,7 @@ class BuildTrigger(steps.BuildStep):
                     _, brids = yield idsDeferred
                 except Exception as e:
                     yield self.addLogWithException(e)
-                    results = EXCEPTION
+                    # results = EXCEPTION
                 scheduled.append((job, brids, resultsDeferred))
 
 
@@ -244,23 +246,24 @@ class BuildTrigger(steps.BuildStep):
                     yield self.addURL(f"{scheduler.name} #{brid}", url)
                     self._add_results(brid)
             print('Waiting..')
-            wait_for_next = defer.DeferredList([results for _, _, results in scheduled], fireOnOneCallback = True, fireOnOneErrback=True)
-            self.waitForFinishDeferred = wait_for_next
-            results, index = yield wait_for_next
+            self.waitForFinishDeferred = defer.DeferredList([results for _, _, results in scheduled], fireOnOneCallback = True, fireOnOneErrback=True)
+            results: list[int]
+            index: int
+            results, index = yield self.waitForFinishDeferred
             job, brids, _ = scheduled[index]
             done.append((job, brids, results))
             del scheduled[index]
             result = results[0]
             print(f'    Found finished build {job.get("attr")}, result {util.Results[result].upper()}')
             if result != SUCCESS:
-                failed_checks = []
-                failed_paths = []
+                failed_checks: list[dict[str, Any]] = []
+                failed_paths: list[str] = []
                 removed = []
                 while True:
                     old_paths = list(failed_paths)
                     print(failed_checks, old_paths)
                     for build in list(build_schedule_order):
-                        deps = all_deps.get(build.get("drvPath"), [])
+                        deps: set[str] = all_deps.get(build.get("drvPath"), set())
                         for path in old_paths:
                             if path in deps:
                                 failed_checks.append(build)
