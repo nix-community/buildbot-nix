@@ -3,7 +3,7 @@ from enum import Enum
 from pathlib import Path
 
 from buildbot.plugins import steps, util
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from .secrets import read_secret_file
 
@@ -202,3 +202,27 @@ class BuildbotNixConfig(BaseModel):
         if self.http_basic_auth_password_file is None:
             raise InternalError
         return read_secret_file(self.http_basic_auth_password_file)
+
+class CacheStatus(str, Enum):
+    cached = "cached"
+    local = "local"
+    notBuilt = "notBuilt"
+
+
+class NixEvalJobError(BaseModel):
+    error: str
+    attr: str
+    attrPath: list[str]
+
+class NixEvalJobSuccess(BaseModel):
+    attr: str
+    attrPath: list[str]
+    cacheStatus: CacheStatus | None = None
+    drvPath: str
+    inputDrvs: dict[str, list[str]]
+    name: str
+    outputs: dict[str, str]
+    system: str
+
+NixEvalJob = NixEvalJobError | NixEvalJobSuccess
+NixEvalJobModel = TypeAdapter(NixEvalJob)

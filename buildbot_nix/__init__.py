@@ -34,15 +34,16 @@ from buildbot.process.buildstep import EXCEPTION
 from buildbot.process.buildstep import SUCCESS
 from buildbot.process.results import worst_status
 
+# from buildbot.db.buildrequests import BuildRequestModel
+# from buildbot.db.builds import BuildModel
 if TYPE_CHECKING:
-    from buildbot.master.db.buildrequests import BuildRequestModel
-    from buildbot.master.db.builds import BuildModel
     from buildbot.process.log import StreamLog
     from buildbot.process.log import Log
     from buildbot.www.auth import AuthBase
 
 from twisted.internet import defer
 from twisted.logger import Logger
+from twisted.python.failure import Failure
 
 from . import models
 from .common import (
@@ -52,7 +53,7 @@ from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
 )
-from .models import AuthBackendConfig, BuildbotNixConfig
+from .models import AuthBackendConfig, BuildbotNixConfig, NixEvalJob, NixEvalJobSuccess, NixEvalJobError, NixEvalJobModel
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 
@@ -75,7 +76,7 @@ class BuildTrigger(steps.BuildStep):
         project: GitProject,
         builds_scheduler: str,
         skipped_builds_scheduler: str,
-        jobs: list[dict[str, Any]],
+        jobs: list[NixEvalJobSuccess],
         report_status: bool,
         drv_info: dict[str, Any],
         **kwargs: Any,
@@ -91,7 +92,7 @@ class BuildTrigger(steps.BuildStep):
         self.waitForFinishDeferred: defer.Deferred[tuple[list[int], int]] | None = None
         super().__init__(**kwargs)
 
-    def interrupt(self, reason):
+    def interrupt(self, reason: str | Failure) -> None:
         # We cancel the buildrequests, as the data api handles
         # both cases:
         # - build started: stop is sent,
@@ -116,24 +117,24 @@ class BuildTrigger(steps.BuildStep):
         # todo: check ITriggerableScheduler
         return sch
 
-    def schedule_one(self, build_props: Properties, job: dict[str, Any]) -> Tuple[BaseScheduler, Properties]:
+    def schedule_one(self, build_props: Properties, job: NixEvalJobSuccess) -> Tuple[BaseScheduler, Properties]:
         source = f"nix-eval-lix"
-        attr = job.get("attr", "eval-error")
+        attr = job.attr or "eval-error"
         name = attr
         name = f"hydraJobs.{name}"
-        error = job.get("error")
+        # error = job.error
         props = Properties()
         props.setProperty("virtual_builder_name", name, source)
         props.setProperty("status_name", f"nix-build .#hydraJobs.{attr}", source)
         props.setProperty("virtual_builder_tags", "", source)
 
-        if error is not None:
-            props.setProperty("error", error, source)
-            return (self.builds_scheduler, props)
+        # if error is not None:
+        #     props.setProperty("error", error, source)
+        #     return (self.builds_scheduler, props)
 
-        drv_path = job.get("drvPath")
-        system = job.get("system")
-        out_path = job.get("outputs", {}).get("out")
+        drv_path = job.drvPath
+        system = job.system
+        out_path = job.outputs["out"] or None
 
         build_props.setProperty(f"{attr}-out_path", out_path, source)
         build_props.setProperty(f"{attr}-drv_path", drv_path, source)
@@ -142,25 +143,26 @@ class BuildTrigger(steps.BuildStep):
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
         props.setProperty("out_path", out_path, source)
-        props.setProperty("isCached", job.get("isCached"), source)
+        props.setProperty("cacheStatus", job.cacheStatus, source)
 
         return (self.builds_scheduler, props)
 
     @defer.inlineCallbacks
-    def _add_results(self, brid: Any) -> Generator[Any, object, None]:
+    def _add_results(self, brid: Any) -> Generator[Any, Any, None]:
         @defer.inlineCallbacks
-        def _is_buildrequest_complete(brid: Any) -> Generator[Any, object, bool]:
-            buildrequest: BuildRequestModel | None = yield self.master.db.buildrequests.getBuildRequest(brid)
+        def _is_buildrequest_complete(brid: Any) -> Generator[Any, Any, bool]:
+            buildrequest: Any = yield self.master.db.buildrequests.getBuildRequest(brid) # TODO: once we bump to 4.1.x use BuildRequestModel | None
             if buildrequest is None:
                 raise RuntimeError(f"Failed to get build request by its ID")
             return buildrequest['complete']
 
         event = ('buildrequests', str(brid), 'complete')
         yield self.master.mq.waitUntilEvent(event, lambda: _is_buildrequest_complete(brid))
-        builds: list[BuildModel] = yield self.master.db.builds.getBuilds(buildrequestid=brid)
+        builds: Any = yield self.master.db.builds.getBuilds(buildrequestid=brid) # TODO: once we bump to 4.1.x use list[BuildModel]
         for build in builds:
             self._result_list.append(build["results"])
         self.updateSummary()
+
 
     def prepareSourcestampListForTrigger(self) -> list[dict[str, Any]]: # TODO: ISourceStamp? its defined but never used anywhere an doesn't include `asDict` method
         ss_for_trigger = {}
@@ -172,7 +174,7 @@ class BuildTrigger(steps.BuildStep):
         return trigger_values
 
     @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, None]:
+    def run(self) -> Generator[Any, Any, None]:
         build_props = self.build.getProperties()
         repo_name = self.project.name
         project_id = slugify_project_name(repo_name)
@@ -187,7 +189,8 @@ class BuildTrigger(steps.BuildStep):
                 size = len(r)
                 r.update(*[ deps[k] for k in r ])
             return r.difference([key])
-        job_set = set(( drv for drv in ( job.get("drvPath") for job in self.jobs ) if drv ))
+        # essentially filters out jobs
+        job_set = set(( drv for drv in ( job.drvPath for job in self.jobs ) if drv ))
 
         all_deps = { k: closure_of(k, all_deps).intersection(job_set) for k in job_set }
         builds_to_schedule = list(self.jobs)
@@ -196,21 +199,21 @@ class BuildTrigger(steps.BuildStep):
         for item in sorter.static_order():
             i = 0
             while i < len(builds_to_schedule):
-                if item == builds_to_schedule[i].get("drvPath"):
+                if item == builds_to_schedule[i].drvPath:
                     build_schedule_order.append(builds_to_schedule[i])
                     del builds_to_schedule[i]
                 else:
                     i += 1
 
         done = []
-        scheduled: list[Tuple[dict[str, Any], dict[int, int], defer.Deferred[list[int]]]] = []
+        scheduled: list[Tuple[NixEvalJobSuccess, dict[int, int], defer.Deferred[list[int]]]] = []
         all_results = SUCCESS
         ss_for_trigger = self.prepareSourcestampListForTrigger()
         while len(build_schedule_order) > 0 or len(scheduled) > 0:
             print('Scheduling..')
             schedule_now = []
             for build in list(build_schedule_order):
-                drv_path = build.get("drvPath")
+                drv_path = build.drvPath
                 if drv_path is None:
                     log.warn("skipping build due to missing drvPath: {build}", build=build)
                     continue
@@ -220,7 +223,7 @@ class BuildTrigger(steps.BuildStep):
             if len(schedule_now) == 0:
                 print('    No builds to schedule found.')
             for job in schedule_now:
-                print(f"    - {job.get('attr')}")
+                print(f"    - {job.attr}")
                 (scheduler, props) = self.schedule_one(build_props, job)
                 scheduler = self.getSchedulerByName(scheduler)
 
@@ -254,32 +257,32 @@ class BuildTrigger(steps.BuildStep):
             done.append((job, brids, results))
             del scheduled[index]
             result = results[0]
-            print(f'    Found finished build {job.get("attr")}, result {util.Results[result].upper()}')
+            print(f'    Found finished build {job.attr}, result {util.Results[result].upper()}')
             if result != SUCCESS:
-                failed_checks: list[dict[str, Any]] = []
+                failed_checks: list[NixEvalJob] = []
                 failed_paths: list[str] = []
                 removed = []
                 while True:
                     old_paths = list(failed_paths)
                     print(failed_checks, old_paths)
                     for build in list(build_schedule_order):
-                        deps: set[str] = all_deps.get(build.get("drvPath"), set())
+                        deps: set[str] = all_deps.get(build.drvPath, set())
                         for path in old_paths:
                             if path in deps:
                                 failed_checks.append(build)
-                                failed_paths.append(build.get("drvPath"))
+                                failed_paths.append(build.drvPath)
                                 build_schedule_order.remove(build)
-                                removed.append(build.get("attr"))
+                                removed.append(build.attr)
 
                                 break
                     if old_paths == failed_paths:
                         break
-                print('    Removed jobs: ' + ', '.join(removed))
+                print('    Removed jobs: ' + ', '.join([ path or "" for path in removed ]))
             all_results = worst_status(result, all_results)
             print(f'    New result: {util.Results[all_results].upper()}')
             for dep in all_deps:
-                if job.get("drvPath") in all_deps[dep]:
-                    all_deps[dep].remove(job.get("drvPath"))
+                if job.drvPath in all_deps[dep]:
+                    all_deps[dep].remove(job.drvPath)
         print('Done!')
         return all_results
 
@@ -302,6 +305,7 @@ class NixBuildCombined(steps.BuildStep):
 
     def run(self) -> Generator[Any, object, Any]:
         return self.build.results
+
 
 
 class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
@@ -336,7 +340,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         result = cmd.results()
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
-            jobs = []
+            jobs: list[NixEvalJob] = []
 
             for line in self.observer.getStdout().split("\n"):
                 if line != "":
@@ -345,16 +349,24 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                     except json.JSONDecodeError as e:
                         msg = f"Failed to parse line: {line}"
                         raise BuildbotNixError(msg) from e
-                    jobs.append(job)
+                    jobs.append(NixEvalJobModel.validate_python(job))
+
             repo_name = self.project.name
             project_id = slugify_project_name(repo_name)
-            filtered_jobs = []
-            for job in jobs:
-                system = job.get("system")
-                if not system or system in self.supported_systems:  # report eval errors
-                    filtered_jobs.append(job)
 
-            self.number_of_jobs = len(filtered_jobs)
+            failed_jobs: list[NixEvalJobError] = []
+            successful_jobs: list[NixEvalJobSuccess] = []
+
+            log.info("jobs: {jobs}", jobs = jobs)
+
+            for job in jobs:
+                if isinstance(job, NixEvalJobError):
+                    failed_jobs.append(job)
+                    continue
+                elif not job.system or job.system in self.supported_systems:  # report unbuildable jobs
+                    successful_jobs.append(job)
+
+            self.number_of_jobs = len(successful_jobs)
 
             drv_show_log: Log = yield self.getLog("stdio")
             drv_show_log.addStdout(f"getting derivation infos\n")
@@ -363,7 +375,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 collectStdout=True,
                 command=(
                     ["nix", "derivation", "show", "--recursive"]
-                    + [ drv for drv in (job.get("drvPath") for job in filtered_jobs) if drv ]
+                    # essentially filters out jobs
+                    + [ job.drvPath for job in successful_jobs ]
                 ),
             )
             yield self.runCommand(cmd)
@@ -381,7 +394,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         builds_scheduler=f"{project_id}-nix-build",
                         skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
                         name="build flake",
-                        jobs=filtered_jobs,
+                        jobs=successful_jobs,
                         report_status=(
                             self.job_report_limit is None
                             or self.number_of_jobs <= self.job_report_limit
