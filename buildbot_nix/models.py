@@ -226,3 +226,12 @@ class NixEvalJobSuccess(BaseModel):
 
 NixEvalJob = NixEvalJobError | NixEvalJobSuccess
 NixEvalJobModel = TypeAdapter(NixEvalJob)
+
+
+class NixDerivation(BaseModel):
+    class InputDerivation(BaseModel):
+        dynamicOutputs: dict[str, str]
+        outputs: list[str]
+
+    inputDrvs: dict[str, InputDerivation]
+    # TODO parse out more information, if needed
