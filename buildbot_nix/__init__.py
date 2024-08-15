@@ -46,9 +46,7 @@ from twisted.logger import Logger
 from twisted.python.failure import Failure
 
 from . import models
-from .common import (
-    slugify_project_name,
-)
+from pydantic import TypeAdapter
 from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
@@ -61,6 +59,7 @@ from .models import (
     NixEvalJobError,
     NixEvalJobModel,
     CacheStatus,
+    NixDerivation,
 )
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
@@ -79,20 +78,32 @@ class BuildTrigger(steps.BuildStep):
 
     project: GitProject
 
+    sucessful_jobs: list[NixEvalJobSuccess]
+    failed_jobs: list[NixEvalJobError]
+    report_status: bool
+    drv_info:dict[str, NixDerivation]
+    builds_scheduler: str
+    skipped_builds_scheduler: str
+    result_list: list[int]
+    ended: bool
+    waitForFinishDeferred: defer.Deferred[tuple[list[int], int]] | None
+
     def __init__(
         self,
         project: GitProject,
         builds_scheduler: str,
         skipped_builds_scheduler: str,
-        jobs: list[NixEvalJobSuccess],
+        successful_jobs: list[NixEvalJobSuccess],
+        failed_jobs: list[NixEvalJobError],
         report_status: bool,
-        drv_info: dict[str, Any],
+        all_derivations: dict[str, NixDerivation],
         **kwargs: Any,
     ) -> None:
         self.project = project
-        self.jobs = jobs
+        self.successful_jobs = successful_jobs
+        self.failed_jobs = failed_jobs
         self.report_status = report_status
-        self.drv_info = drv_info
+        self.all_derivations = all_derivations
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
@@ -127,7 +138,7 @@ class BuildTrigger(steps.BuildStep):
         return sch
 
     def schedule_one(self, build_props: Properties, job: NixEvalJobSuccess) -> Tuple[BaseScheduler, Properties]:
-        source = f"nix-eval-lix"
+        source = f"nix-eval-nix"
         attr = job.attr or "eval-error"
         name = attr
         name = f"hydraJobs.{name}"
@@ -182,54 +193,82 @@ class BuildTrigger(steps.BuildStep):
         trigger_values = [ss_for_trigger[k] for k in sorted(ss_for_trigger.keys())]
         return trigger_values
 
+    @staticmethod
+    def getDerivationClosure(derivation: str, derivations_inputs: dict[str, set[str]]) -> set[str]:
+        r, size = set([derivation]), 0
+        while len(r) != size:
+            size = len(r)
+            r.update(*[ derivations_inputs[k] for k in r ])
+        return r.difference([derivation])
+
+    @staticmethod
+    def sortJobsByClosures(jobs: list[NixEvalJobSuccess], job_closures: dict[str, set[str]]) -> list[NixEvalJobSuccess]:
+        sorted_jobs = []
+        sorter = graphlib.TopologicalSorter(job_closures)
+
+        for item in sorter.static_order():
+            i = 0
+            while i < len(jobs):
+                if item == jobs[i].drvPath:
+                    sorted_jobs.append(jobs[i])
+                    del jobs[i]
+                else:
+                    i += 1
+
+        return sorted_jobs
+
+    @staticmethod
+    def getFailedDependents(job: NixEvalJobSuccess, jobs: list[NixEvalJobSuccess], job_closures: dict[str, set[str]]) -> list[NixEvalJobSuccess]:
+        jobs = list(jobs)
+        failed_checks: list[NixEvalJob] = [job]
+        failed_paths: list[str] = [job.drvPath]
+        removed = []
+        while True:
+            old_paths = list(failed_paths)
+            for build in list(jobs):
+                deps: set[str] = job_closures.get(build.drvPath, set())
+                print("deps: " + str(deps))
+                for path in old_paths:
+                    if path in deps:
+                        failed_checks.append(build)
+                        failed_paths.append(build.drvPath)
+                        jobs.remove(build)
+                        removed.append(build)
+
+                        break
+            if old_paths == failed_paths:
+                break
+
+        return removed
+
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
         build_props = self.build.getProperties()
-        repo_name = self.project.name
-        project_id = slugify_project_name(repo_name)
-        source = f"nix-eval-{project_id}"
 
-        all_deps: dict[str, set[str]] = dict()
-        for drv, info in self.drv_info.items():
-            all_deps[drv] = set(info.get("inputDrvs").keys())
-        def closure_of(key: str, deps: dict[str, set[str]]) -> set[str]:
-            r, size = set([key]), 0
-            while len(r) != size:
-                size = len(r)
-                r.update(*[ deps[k] for k in r ])
-            return r.difference([key])
-        # essentially filters out jobs
-        job_set = set(( drv for drv in ( job.drvPath for job in self.jobs ) if drv ))
+        source = f"nix-eval-{self.project.project_id}"
 
-        all_deps = { k: closure_of(k, all_deps).intersection(job_set) for k in job_set }
-        builds_to_schedule = list(self.jobs)
-        build_schedule_order = []
-        sorter = graphlib.TopologicalSorter(all_deps)
-        for item in sorter.static_order():
-            i = 0
-            while i < len(builds_to_schedule):
-                if item == builds_to_schedule[i].drvPath:
-                    build_schedule_order.append(builds_to_schedule[i])
-                    del builds_to_schedule[i]
-                else:
-                    i += 1
+        derivations_inputs: dict[str, set[str]] = {
+            derivation: set(info.inputDrvs.keys()) for derivation, info in self.all_derivations.items()
+        }
+
+        job_set = set(job.drvPath for job in self.successful_jobs)
+        job_closures = {
+            k: self.getDerivationClosure(k, derivations_inputs).intersection(job_set) for k in job_set
+        }
+        build_schedule_order = self.sortJobsByClosures(self.successful_jobs, job_closures)
 
         done = []
         scheduled: list[Tuple[NixEvalJobSuccess, dict[int, int], defer.Deferred[list[int]]]] = []
         all_results = SUCCESS
         ss_for_trigger = self.prepareSourcestampListForTrigger()
-        while len(build_schedule_order) > 0 or len(scheduled) > 0:
+        while build_schedule_order or scheduled:
             print('Scheduling..')
             schedule_now = []
             for build in list(build_schedule_order):
-                drv_path = build.drvPath
-                if drv_path is None:
-                    log.warn("skipping build due to missing drvPath: {build}", build=build)
-                    continue
-                if not all_deps.get(drv_path, []):
+                if not job_closures.get(build.drvPath, []):
                     build_schedule_order.remove(build)
                     schedule_now.append(build)
-            if len(schedule_now) == 0:
+            if not schedule_now:
                 print('    No builds to schedule found.')
             for job in schedule_now:
                 print(f"    - {job.attr}")
@@ -268,30 +307,15 @@ class BuildTrigger(steps.BuildStep):
             result = results[0]
             print(f'    Found finished build {job.attr}, result {util.Results[result].upper()}')
             if result != SUCCESS:
-                failed_checks: list[NixEvalJob] = []
-                failed_paths: list[str] = []
-                removed = []
-                while True:
-                    old_paths = list(failed_paths)
-                    print(failed_checks, old_paths)
-                    for build in list(build_schedule_order):
-                        deps: set[str] = all_deps.get(build.drvPath, set())
-                        for path in old_paths:
-                            if path in deps:
-                                failed_checks.append(build)
-                                failed_paths.append(build.drvPath)
-                                build_schedule_order.remove(build)
-                                removed.append(build.attr)
-
-                                break
-                    if old_paths == failed_paths:
-                        break
-                print('    Removed jobs: ' + ', '.join([ path or "" for path in removed ]))
+                removed = self.getFailedDependents(job, build_schedule_order, job_closures)
+                for job in removed:
+                    build_schedule_order.remove(job)
+                print('    Removed jobs: ' + ', '.join([ job.drvPath for job in removed ]))
             all_results = worst_status(result, all_results)
             print(f'    New result: {util.Results[all_results].upper()}')
-            for dep in all_deps:
-                if job.drvPath in all_deps[dep]:
-                    all_deps[dep].remove(job.drvPath)
+            for dep in job_closures:
+                if job.drvPath in job_closures[dep]:
+                    job_closures[dep].remove(job.drvPath)
         print('Done!')
         return all_results
 
@@ -360,9 +384,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         raise BuildbotNixError(msg) from e
                     jobs.append(NixEvalJobModel.validate_python(job))
 
-            repo_name = self.project.name
-            project_id = slugify_project_name(repo_name)
-
             failed_jobs: list[NixEvalJobError] = []
             successful_jobs: list[NixEvalJobSuccess] = []
 
@@ -384,14 +405,13 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 collectStdout=True,
                 command=(
                     ["nix", "derivation", "show", "--recursive"]
-                    # essentially filters out jobs
                     + [ job.drvPath for job in successful_jobs ]
                 ),
             )
             yield self.runCommand(cmd)
             drv_show_log.addStdout(f"done\n")
             try:
-                drv_info = json.loads(cmd.stdout)
+                all_derivations: dict[str, NixDerivation] = TypeAdapter(dict[str, NixDerivation]).validate_json(cmd.stdout)
             except json.JSONDecodeError as e:
                 msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
                 raise BuildbotNixError(msg) from e
@@ -400,22 +420,23 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 [
                     BuildTrigger(
                         self.project,
-                        builds_scheduler=f"{project_id}-nix-build",
-                        skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
+                        builds_scheduler=f"{self.project.project_id}-nix-build",
+                        skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
                         name="build flake",
-                        jobs=successful_jobs,
+                        successful_jobs=successful_jobs,
+                        failed_jobs=failed_jobs,
                         report_status=(
                             self.job_report_limit is None
                             or self.number_of_jobs <= self.job_report_limit
                         ),
-                        drv_info=drv_info,
+                        all_derivations=all_derivations,
                     ),
                 ]
                 + (
                     [
                         Trigger(
                             waitForFinish=True,
-                            schedulerNames=[f"{project_id}-nix-build-combined"],
+                            schedulerNames=[f"{self.project.project_id}-nix-build-combined"],
                             haltOnFailure=True,
                             flunkOnFailure=True,
                             sourceStamps=[],
@@ -712,7 +733,7 @@ def nix_build_config(
             name="Register gcroot",
             waitForFinish=True,
             schedulerNames=[
-                f"{slugify_project_name(project.name)}-nix-register-gcroot"
+                f"{project.project_id}-nix-register-gcroot"
             ],
             haltOnFailure=True,
             flunkOnFailure=True,
@@ -777,7 +798,7 @@ def nix_skipped_build_config(
             name="Register gcroot",
             waitForFinish=True,
             schedulerNames=[
-                f"{slugify_project_name(project.name)}-nix-register-gcroot"
+                f"{project.project_id}-nix-register-gcroot"
             ],
             haltOnFailure=True,
             flunkOnFailure=True,
