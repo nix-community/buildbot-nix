@@ -385,7 +385,7 @@ class BuildTrigger(steps.BuildStep):
 
             # check which jobs should be scheduled now
             schedule_now = []
-            for build in build_schedule_order:
+            for build in list(build_schedule_order):
                 if job_closures.get(build.drvPath):
                     pass
                 elif failed_builds.check_build(build.drvPath) and not self.build.reason == "rebuild":
