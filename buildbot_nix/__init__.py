@@ -354,8 +354,10 @@ class BuildTrigger(steps.BuildStep):
 
         # inject failed buildsteps for any failed eval jobs we got
         overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
+        if self.failed_jobs:
+            scheduler_log.addStdout(f'The following jobs failed to evaluate:\n');
         for failed_job in self.failed_jobs:
-            scheduler_log.addStdout(f'{failed_job.attr} failed eval');
+            scheduler_log.addStdout(f'\t- {failed_job.attr} failed eval\n');
             yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(build_props, failed_job))
 
         source = f"nix-eval-{self.project.project_id}"
@@ -379,7 +381,7 @@ class BuildTrigger(steps.BuildStep):
         done: list[BuildTrigger.DoneJob] = []
         scheduled: list[BuildTrigger.ScheduledJob] = []
         while build_schedule_order or scheduled:
-            scheduler_log.addStdout('Scheduling..\n')
+            scheduler_log.addStdout('Scheduling...\n')
 
             # check which jobs should be scheduled now
             schedule_now = []
@@ -415,7 +417,7 @@ class BuildTrigger(steps.BuildStep):
 
                 scheduled.append(BuildTrigger.ScheduledJob(job, brids, resultsDeferred))
 
-            scheduler_log.addStdout('Waiting..\n')
+            scheduler_log.addStdout('Waiting...\n')
 
             # wait for one to complete
             self.waitForFinishDeferred = defer.DeferredList(
@@ -432,7 +434,7 @@ class BuildTrigger(steps.BuildStep):
             done.append(BuildTrigger.DoneJob(job, brids, results))
             del scheduled[index]
             result = results[0]
-            scheduler_log.addStdout(f'    Found finished build {job.attr}, result {util.Results[result].upper()}\n')
+            scheduler_log.addStdout(f'Found finished build {job.attr}, result {util.Results[result].upper()}\n')
 
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
             if result != SUCCESS:
@@ -444,10 +446,10 @@ class BuildTrigger(steps.BuildStep):
                     brids, resultsDeferred = yield self.schedule(ss_for_trigger, scheduler, props)
                     build_schedule_order.remove(removed_job)
                     scheduled.append(BuildTrigger.ScheduledJob(removed_job, brids, resultsDeferred))
-                scheduler_log.addStdout('    Removed jobs: ' + ', '.join([ job.drvPath for job in removed ]) + "\n")
+                scheduler_log.addStdout('\t- removed jobs: ' + ', '.join([ job.drvPath for job in removed ]) + "\n")
 
             overall_result = worst_status(result, overall_result)
-            scheduler_log.addStdout(f'    New result: {util.Results[overall_result].upper()} \n')
+            scheduler_log.addStdout(f'\t- new result: {util.Results[overall_result].upper()} \n')
 
             for dep in job_closures:
                 if job.drvPath in job_closures[dep]:
