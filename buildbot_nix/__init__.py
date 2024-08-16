@@ -84,6 +84,8 @@ class BuildTrigger(steps.BuildStep):
     drv_info:dict[str, NixDerivation]
     builds_scheduler: str
     skipped_builds_scheduler: str
+    failed_eval_scheduler: str
+    dependency_failed_scheduler: str
     result_list: list[int]
     ended: bool
     waitForFinishDeferred: defer.Deferred[tuple[list[int], int]] | None
@@ -93,6 +95,8 @@ class BuildTrigger(steps.BuildStep):
         project: GitProject,
         builds_scheduler: str,
         skipped_builds_scheduler: str,
+        failed_eval_scheduler: str,
+        dependency_failed_scheduler: str,
         successful_jobs: list[NixEvalJobSuccess],
         failed_jobs: list[NixEvalJobError],
         report_status: bool,
@@ -107,6 +111,8 @@ class BuildTrigger(steps.BuildStep):
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
+        self.failed_eval_scheduler = failed_eval_scheduler
+        self.dependency_failed_scheduler = dependency_failed_scheduler
         self._result_list: list[int] = []
         self.ended = False
         self.waitForFinishDeferred: defer.Deferred[tuple[list[int], int]] | None = None
@@ -137,25 +143,51 @@ class BuildTrigger(steps.BuildStep):
         # todo: check ITriggerableScheduler
         return sch
 
-    def schedule_one(self, build_props: Properties, job: NixEvalJobSuccess) -> Tuple[BaseScheduler, Properties]:
+    def schedule_eval_failure(self, build_props: Properties, job: NixEvalJobError) -> Tuple[BaseScheduler, Properties]:
         source = f"nix-eval-nix"
-        attr = job.attr or "eval-error"
-        name = attr
-        name = f"hydraJobs.{name}"
 
         props = Properties()
-        props.setProperty("virtual_builder_name", name, source)
-        props.setProperty("status_name", f"nix-build .#hydraJobs.{attr}", source)
+        props.setProperty("virtual_builder_name", job.attr, source)
+        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
+        props.setProperty("virtual_builder_tags", "", source)
+        props.setProperty("error", job.error, source)
+        props.setProperty("attr", job.attr, source)
+
+        return (self.failed_eval_scheduler, props)
+
+    def schedule_dependency_failed(
+        self,
+        build_props: Properties,
+        job: NixEvalJobSuccess,
+        dependency: NixEvalJobSuccess
+    ) -> Tuple[BaseScheduler, Properties]:
+        source = f"nix-eval-nix"
+
+        props = Properties()
+        props.setProperty("virtual_builder_name", job.attr, source)
+        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
+        props.setProperty("virtual_builder_tags", "", source)
+        props.setProperty("dependency.attr", dependency.attr, source)
+        props.setProperty("attr", job.attr, source)
+
+        return (self.dependency_failed_scheduler, props)
+
+    def schedule_success(self, build_props: Properties, job: NixEvalJobSuccess) -> Tuple[BaseScheduler, Properties]:
+        source = f"nix-eval-nix"
+
+        props = Properties()
+        props.setProperty("virtual_builder_name", f"hydraJobs.{job.attr}", source)
+        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
         props.setProperty("virtual_builder_tags", "", source)
 
         drv_path = job.drvPath
         system = job.system
         out_path = job.outputs["out"] or None
 
-        build_props.setProperty(f"{attr}-out_path", out_path, source)
-        build_props.setProperty(f"{attr}-drv_path", drv_path, source)
+        build_props.setProperty(f"{job.attr}-out_path", out_path, source)
+        build_props.setProperty(f"{job.attr}-drv_path", drv_path, source)
 
-        props.setProperty("attr", attr, source)
+        props.setProperty("attr", job.attr, source)
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
         props.setProperty("out_path", out_path, source)
@@ -166,6 +198,37 @@ class BuildTrigger(steps.BuildStep):
             return (self.builds_scheduler, props)
         else:
             return (self.skipped_builds_scheduler, props)
+
+    @defer.inlineCallbacks
+    def schedule(
+        self,
+        ss_for_trigger: list[dict[str, Any]],
+        scheduler: BaseScheduler,
+        props: Properties
+    ) -> Generator[Any, Any, Tuple[dict[int, int], defer.Deferred[list[int]]]]:
+        scheduler = self.getSchedulerByName(scheduler)
+
+        idsDeferred, resultsDeferred = scheduler.trigger(
+            waited_for = True,
+            sourcestamps = ss_for_trigger,
+            set_props = props,
+            parent_buildid = self.build.buildid,
+            parent_relationship = "Triggered from",
+        )
+
+        brids: dict[int, int]
+        try:
+            _, brids = yield idsDeferred
+        except Exception as e:
+            yield self.addLogWithException(e)
+            # results = EXCEPTION
+
+        for brid in brids.values():
+            url = getURLForBuildrequest(self.master, brid)
+            yield self.addURL(f"{scheduler.name} #{brid}", url)
+            self._add_results(brid)
+
+        return brids, resultsDeferred
 
     @defer.inlineCallbacks
     def _add_results(self, brid: Any) -> Generator[Any, Any, None]:
@@ -244,6 +307,13 @@ class BuildTrigger(steps.BuildStep):
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
         build_props = self.build.getProperties()
+        ss_for_trigger = self.prepareSourcestampListForTrigger()
+        scheduler_log: Log = yield self.addLog("scheduler")
+
+        overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
+        for failed_job in self.failed_jobs:
+            scheduler_log.addStdout(f'{failed_job.attr} failed eval');
+            yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(build_props, failed_job))
 
         source = f"nix-eval-{self.project.project_id}"
 
@@ -259,44 +329,22 @@ class BuildTrigger(steps.BuildStep):
 
         done = []
         scheduled: list[Tuple[NixEvalJobSuccess, dict[int, int], defer.Deferred[list[int]]]] = []
-        all_results = SUCCESS
-        ss_for_trigger = self.prepareSourcestampListForTrigger()
         while build_schedule_order or scheduled:
-            print('Scheduling..')
+            scheduler_log.addStdout('Scheduling..\n')
             schedule_now = []
             for build in list(build_schedule_order):
                 if not job_closures.get(build.drvPath, []):
                     build_schedule_order.remove(build)
                     schedule_now.append(build)
             if not schedule_now:
-                print('    No builds to schedule found.')
+                scheduler_log.addStdout('\tNo builds to schedule found.\n')
             for job in schedule_now:
-                print(f"    - {job.attr}")
-                (scheduler, props) = self.schedule_one(build_props, job)
-                scheduler = self.getSchedulerByName(scheduler)
+                scheduler_log.addStdout(f"\t- {job.attr}\n")
+                (scheduler, props) = self.schedule_success(build_props, job)
+                brids, resultsDeferred = yield self.schedule(ss_for_trigger, scheduler, props)
 
-                idsDeferred, resultsDeferred = scheduler.trigger(
-                    waited_for = True,
-                    sourcestamps = ss_for_trigger,
-                    set_props = props,
-                    parent_buildid = self.build.buildid,
-                    parent_relationship = "Triggered from",
-                )
-
-                brids: dict[int, int]
-                try:
-                    _, brids = yield idsDeferred
-                except Exception as e:
-                    yield self.addLogWithException(e)
-                    # results = EXCEPTION
                 scheduled.append((job, brids, resultsDeferred))
-
-
-                for brid in brids.values():
-                    url = getURLForBuildrequest(self.master, brid)
-                    yield self.addURL(f"{scheduler.name} #{brid}", url)
-                    self._add_results(brid)
-            print('Waiting..')
+            scheduler_log.addStdout('Waiting..\n')
             self.waitForFinishDeferred = defer.DeferredList([results for _, _, results in scheduled], fireOnOneCallback = True, fireOnOneErrback=True)
             results: list[int]
             index: int
@@ -305,19 +353,22 @@ class BuildTrigger(steps.BuildStep):
             done.append((job, brids, results))
             del scheduled[index]
             result = results[0]
-            print(f'    Found finished build {job.attr}, result {util.Results[result].upper()}')
+            scheduler_log.addStdout(f'    Found finished build {job.attr}, result {util.Results[result].upper()}\n')
             if result != SUCCESS:
                 removed = self.getFailedDependents(job, build_schedule_order, job_closures)
-                for job in removed:
-                    build_schedule_order.remove(job)
-                print('    Removed jobs: ' + ', '.join([ job.drvPath for job in removed ]))
-            all_results = worst_status(result, all_results)
-            print(f'    New result: {util.Results[all_results].upper()}')
+                for removed_job in removed:
+                    scheduler, props = self.schedule_dependency_failed(build_props, removed_job, job)
+                    brids, resultsDeferred = yield self.schedule(ss_for_trigger, scheduler, props)
+                    build_schedule_order.remove(removed_job)
+                    scheduled.append((removed_job, brids, resultsDeferred))
+                scheduler_log.addStdout('    Removed jobs: ' + ', '.join([ job.drvPath for job in removed ]) + "\n")
+            overall_result = worst_status(result, overall_result)
+            scheduler_log.addStdout(f'    New result: {util.Results[overall_result].upper()} \n')
             for dep in job_closures:
                 if job.drvPath in job_closures[dep]:
                     job_closures[dep].remove(job.drvPath)
-        print('Done!')
-        return all_results
+        scheduler_log.addStdout('Done!\n')
+        return overall_result
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
         summary = []
@@ -390,10 +441,10 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             log.info("jobs: {jobs}", jobs = jobs)
 
             for job in jobs:
+                # report unbuildable jobs
                 if isinstance(job, NixEvalJobError):
                     failed_jobs.append(job)
-                    continue
-                elif not job.system or job.system in self.supported_systems:  # report unbuildable jobs
+                elif job.system in self.supported_systems and isinstance(job, NixEvalJobSuccess):
                     successful_jobs.append(job)
 
             self.number_of_jobs = len(successful_jobs)
@@ -422,6 +473,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         self.project,
                         builds_scheduler=f"{self.project.project_id}-nix-build",
                         skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
+                        failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
+                        dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
                         name="build flake",
                         successful_jobs=successful_jobs,
                         failed_jobs=failed_jobs,
@@ -475,12 +528,24 @@ class EvalErrorStep(steps.BuildStep):
     """Shows the error message of a failed evaluation."""
 
     @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
+    def run(self) -> Generator[Any, object, int]:
         error = self.getProperty("error")
         attr = self.getProperty("attr")
         # show eval error
         error_log: StreamLog = yield self.addLog("nix_error")
         error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
+        return util.FAILURE
+
+class DependencyFailedStep(steps.BuildStep):
+    """Shows a dependency failure."""
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, object, int]:
+        dependency_attr = self.getProperty("dependency.attr")
+        attr = self.getProperty("attr")
+        # show eval error
+        error_log: StreamLog = yield self.addLog("nix_error")
+        error_log.addStderr(f"{attr} was failed because it depends on a failed build of {dependency_attr}.\n")
         return util.FAILURE
 
 
@@ -768,6 +833,49 @@ def nix_build_config(
         factory=factory,
     )
 
+def nix_failed_eval_config(
+        project: GitProject,
+        worker_names: list[str],
+) -> BuilderConfig:
+    """Dummy builder that is triggered when a build fails to evaluate."""
+    factory = util.BuildFactory()
+    factory.addStep(
+        EvalErrorStep(
+            name="Nix evaluation",
+            doStepIf=lambda _: True, # not done steps cannot fail...
+        ),
+    )
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-failed-eval",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
+
+def nix_dependency_failed_config(
+        project: GitProject,
+        worker_names: list[str],
+) -> BuilderConfig:
+    """Dummy builder that is triggered when a build fails to evaluate."""
+    factory = util.BuildFactory()
+    factory.addStep(
+        DependencyFailedStep(
+            name="Dependency failed",
+            doStepIf=lambda _: True, # not done steps cannot fail...
+        ),
+    )
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-dependency-failed",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
 
 def nix_skipped_build_config(
     project: GitProject,
@@ -775,20 +883,12 @@ def nix_skipped_build_config(
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is skipped."""
     factory = util.BuildFactory()
-    factory.addStep(
-        EvalErrorStep(
-            name="Nix evaluation",
-            doStepIf=lambda s: s.getProperty("error"),
-            hideStepIf=lambda _, s: not s.getProperty("error"),
-        ),
-    )
 
     # This is just a dummy step showing the cached build
     factory.addStep(
         steps.BuildStep(
             name="Nix build (cached)",
             doStepIf=lambda _: False,
-            hideStepIf=lambda _, s: s.getProperty("error"),
         ),
     )
 
@@ -919,10 +1019,20 @@ def config_for_project(
                 name=f"{project.project_id}-nix-build",
                 builderNames=[f"{project.name}/nix-build"],
             ),
-            # this is triggered from `nix-eval` when the build is skipped
+            # this is triggered from `nix-build` when the build is skipped
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-skipped-build",
                 builderNames=[f"{project.name}/nix-skipped-build"],
+            ),
+            # this is triggered from `nix-build` when the build has failed eval
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-failed-eval",
+                builderNames=[f"{project.name}/nix-failed-eval"],
+            ),
+            # this is triggered from `nix-build` when the build has a failed dependency
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-dependency-failed",
+                builderNames=[f"{project.name}/nix-dependency-failed"],
             ),
             # this is triggered from `nix-eval` when the build contains too many outputs
             schedulers.Triggerable(
@@ -969,6 +1079,8 @@ def config_for_project(
                 post_build_steps=post_build_steps,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_failed_eval_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_dependency_failed_config(project, [SKIPPED_BUILDER_NAME]),
             nix_register_gcroot_config(project, worker_names),
             nix_build_combined_config(project, worker_names),
         ],
