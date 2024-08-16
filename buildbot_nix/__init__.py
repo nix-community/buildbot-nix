@@ -5,6 +5,7 @@ import re
 import uuid
 from collections import defaultdict
 from collections.abc import Generator
+from multiprocessing import cpu_count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +22,6 @@ from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
-from multiprocessing import cpu_count
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
@@ -392,6 +392,18 @@ class GitLocalPrMerge(steps.Git):
         return res
 
 
+NIX_EVAL_COMMAND = """
+nix-eval-jobs \
+  --workers "${WORKER_COUNT}" \
+  --max-memory-size "${MAX_MEMORY_SIZE}" \
+  --option accept-flake-config true \
+  --gc-roots-dir "${GCROOTS_DIR}" \
+  --force-recurse \
+  --check-cache-status \
+  --flake .#checks | tee eval-jobs.jsonl
+"""
+
+
 def nix_eval_config(
     project: GitProject,
     worker_names: list[str],
@@ -423,26 +435,15 @@ def nix_eval_config(
     factory.addStep(
         NixEvalCommand(
             project=project,
-            env={},
+            env={
+                "WORKER_COUNT": worker_count,
+                "MAX_MEMORY_SIZE": max_memory_size,
+                "GCROOTS_DIR": drv_gcroots_dir,
+            },
             name="evaluate flake",
             supported_systems=supported_systems,
             job_report_limit=job_report_limit,
-            command=[
-                "nix-eval-jobs",
-                "--workers",
-                str(worker_count),
-                "--max-memory-size",
-                str(max_memory_size),
-                "--option",
-                "accept-flake-config",
-                "true",
-                "--gc-roots-dir",
-                drv_gcroots_dir,
-                "--force-recurse",
-                "--check-cache-status",
-                "--flake",
-                ".#checks",
-            ],
+            command=NIX_EVAL_COMMAND,
             haltOnFailure=True,
             locks=[eval_lock.access("exclusive")],
         ),
