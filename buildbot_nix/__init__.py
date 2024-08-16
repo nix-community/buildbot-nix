@@ -396,6 +396,11 @@ class BuildTrigger(steps.BuildStep):
                         *self.schedule_cached_failure(build_props, build)
                     )
                     scheduled.append(BuildTrigger.ScheduledJob(build, brids, resultsDeferred))
+                elif failed_builds.check_build(build.drvPath) and self.build.reason == "rebuild":
+                    scheduler_log.addStdout(f'\t- not skipping {build.attr} with cached failure due to rebuild\n')
+
+                    build_schedule_order.remove(build)
+                    schedule_now.append(build)
                 else:
                     build_schedule_order.remove(build)
                     schedule_now.append(build)
