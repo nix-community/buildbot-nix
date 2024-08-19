@@ -23,6 +23,11 @@
             oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
             oauthId = "aaaaaaaaaaaaaaaaaaaa";
           };
+          cachix = {
+            enable = true;
+            name = "my-cachix";
+            auth.authToken.file = pkgs.writeText "cachixAuthToken" "00000000000000000000";
+          };
         };
       };
   };
