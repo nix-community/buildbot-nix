@@ -4,7 +4,6 @@ import json
 import multiprocessing
 import os
 import re
-import uuid
 from collections import defaultdict
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -631,24 +630,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         return result
 
 
-# FIXME this leaks memory... but probably not enough that we care
-class RetryCounter:
-    def __init__(self, retries: int) -> None:
-        self.builds: dict[uuid.UUID, int] = defaultdict(lambda: retries)
-
-    def retry_build(self, build_id: uuid.UUID) -> int:
-        retries = self.builds[build_id]
-        if retries > 1:
-            self.builds[build_id] = retries - 1
-            return retries
-        return 0
-
-
-# For now we limit this to two. Often this allows us to make the error log
-# shorter because we won't see the logs for all previous succeeded builds
-RETRY_COUNTER = RetryCounter(retries=2)
-
-
 class EvalErrorStep(steps.BuildStep):
     """Shows the error message of a failed evaluation."""
 
@@ -694,9 +675,8 @@ class CachedFailureStep(steps.BuildStep):
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
     """Builds a nix derivation."""
 
-    def __init__(self, retries: int, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
-        self.retries = retries
         super().__init__(**kwargs)
 
     @defer.inlineCallbacks
@@ -706,10 +686,6 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         yield self.runCommand(cmd)
 
         res = cmd.results()
-        if res == util.FAILURE and self.retries > 0:
-            retries = RETRY_COUNTER.retry_build(self.getProperty("build_uuid"))
-            if retries > self.retries - 1:
-                return util.RETRY
         return res
 
 
@@ -903,7 +879,6 @@ def nix_build_config(
     worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
-    retries: int = 1,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
@@ -929,7 +904,6 @@ def nix_build_config(
             # 3 hours, defaults to 20 minutes
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
-            retries=retries,
             haltOnFailure=True,
         ),
     )
@@ -1146,7 +1120,6 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     outputs_path: Path | None = None,
-    build_retries: int = 1,
 ) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
@@ -1244,7 +1217,6 @@ def config_for_project(
                 project,
                 worker_names,
                 outputs_path=outputs_path,
-                retries=build_retries,
                 post_build_steps=post_build_steps,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
@@ -1459,7 +1431,6 @@ class NixConfigurator(ConfiguratorBase):
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
                 self.config.outputs_path,
-                self.config.build_retries,
             )
 
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
