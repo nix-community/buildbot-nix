@@ -17,6 +17,10 @@ from buildbot.locks import MasterLock
 from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.buildstep import SUCCESS
+
+# from buildbot.db.buildrequests import BuildRequestModel
+# from buildbot.db.builds import BuildModel
+from buildbot.process.log import Log
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, statusToString, worst_status
@@ -27,10 +31,8 @@ from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
-# from buildbot.db.buildrequests import BuildRequestModel
-# from buildbot.db.builds import BuildModel
 if TYPE_CHECKING:
-    from buildbot.process.log import Log, StreamLog
+    from buildbot.process.log import StreamLog
     from buildbot.www.auth import AuthBase
 
 from pydantic import TypeAdapter
@@ -67,7 +69,7 @@ class BuildbotNixError(Exception):
     pass
 
 
-class BuildTrigger(steps.BuildStep):
+class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
 
     project: GitProject
@@ -118,14 +120,12 @@ class BuildTrigger(steps.BuildStep):
         successful_jobs: list[NixEvalJobSuccess],
         failed_jobs: list[NixEvalJobError],
         report_status: bool,
-        all_derivations: dict[str, NixDerivation],
         **kwargs: Any,
     ) -> None:
         self.project = project
         self.successful_jobs = successful_jobs
         self.failed_jobs = failed_jobs
         self.report_status = report_status
-        self.all_derivations = all_derivations
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
@@ -170,7 +170,10 @@ class BuildTrigger(steps.BuildStep):
 
     @staticmethod
     def set_common_properties(
-        props: Properties, source: str, job: NixEvalJob, report_status: bool,
+        props: Properties,
+        source: str,
+        job: NixEvalJob,
+        report_status: bool,
     ) -> Properties:
         props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
         props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
@@ -180,33 +183,49 @@ class BuildTrigger(steps.BuildStep):
 
         return props
 
-    def schedule_eval_failure(self, job: NixEvalJobError, report_status: bool) -> tuple[str, Properties]:
+    def schedule_eval_failure(
+        self, job: NixEvalJobError, report_status: bool
+    ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
         props.setProperty("error", job.error, source)
 
         return (self.failed_eval_scheduler, props)
 
-    def schedule_cached_failure(self, job: NixEvalJobSuccess, report_status: bool) -> tuple[str, Properties]:
+    def schedule_cached_failure(
+        self, job: NixEvalJobSuccess, report_status: bool
+    ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
 
         return (self.cached_failure_scheduler, props)
 
     def schedule_dependency_failed(
-            self, job: NixEvalJobSuccess, dependency: NixEvalJobSuccess, report_status: bool,
+        self,
+        job: NixEvalJobSuccess,
+        dependency: NixEvalJobSuccess,
+        report_status: bool,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
         props.setProperty("dependency.attr", dependency.attr, source)
 
         return (self.dependency_failed_scheduler, props)
 
     def schedule_success(
-            self, build_props: Properties, job: NixEvalJobSuccess, report_status: bool,
+        self,
+        build_props: Properties,
+        job: NixEvalJobSuccess,
+        report_status: bool,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
@@ -214,7 +233,9 @@ class BuildTrigger(steps.BuildStep):
         system = job.system
         out_path = job.outputs["out"] or None
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
         props.setProperty("out_path", out_path, source)
@@ -351,11 +372,35 @@ class BuildTrigger(steps.BuildStep):
         return removed
 
     @defer.inlineCallbacks
+    def get_all_derivations(
+        self, log: Log
+    ) -> Generator[Any, Any, dict[str, NixDerivation]]:
+        log.addStdout("getting derivation infos\n")
+        cmd = yield self.makeRemoteShellCommand(
+            stdioLogName=None,
+            collectStdout=True,
+            command=(
+                ["nix", "derivation", "show", "--recursive"]
+                + [job.drvPath for job in self.successful_jobs]
+            ),
+        )
+        yield self.runCommand(cmd)
+        log.addStdout("done\n")
+
+        try:
+            return TypeAdapter(dict[str, NixDerivation]).validate_json(cmd.stdout)
+        except json.JSONDecodeError as e:
+            msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
+            raise BuildbotNixError(msg) from e
+
+    @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
         self.running = True
         build_props = self.build.getProperties()
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
         scheduler_log: Log = yield self.addLog("scheduler")
+
+        all_derivations = yield self.get_all_derivations(scheduler_log)
 
         # inject failed buildsteps for any failed eval jobs we got
         overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
@@ -363,13 +408,16 @@ class BuildTrigger(steps.BuildStep):
             scheduler_log.addStdout("The following jobs failed to evaluate:\n")
         for failed_job in self.failed_jobs:
             scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
-            brids, _ = yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(failed_job, self.report_status))
+            brids, _ = yield self.schedule(
+                ss_for_trigger,
+                *self.schedule_eval_failure(failed_job, self.report_status),
+            )
             self.brids.extend(brids)
 
         # get all input derivations for every job as a dictionary
         derivations_inputs: dict[str, set[str]] = {
             derivation: set(info.inputDrvs.keys())
-            for derivation, info in self.all_derivations.items()
+            for derivation, info in all_derivations.items()
         }
 
         # get all job derivations
@@ -407,7 +455,8 @@ class BuildTrigger(steps.BuildStep):
                     build_schedule_order.remove(build)
 
                     brids, results_deferred = yield self.schedule(
-                        ss_for_trigger, *self.schedule_cached_failure(build, self.report_status)
+                        ss_for_trigger,
+                        *self.schedule_cached_failure(build, self.report_status),
                     )
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
@@ -434,7 +483,8 @@ class BuildTrigger(steps.BuildStep):
             for job in schedule_now:
                 scheduler_log.addStdout(f"\t- {job.attr}\n")
                 brids, results_deferred = yield self.schedule(
-                    ss_for_trigger, *self.schedule_success(build_props, job, self.report_status)
+                    ss_for_trigger,
+                    *self.schedule_success(build_props, job, self.report_status),
                 )
 
                 scheduled.append(
@@ -472,7 +522,9 @@ class BuildTrigger(steps.BuildStep):
                     job, build_schedule_order, job_closures
                 )
                 for removed_job in removed:
-                    scheduler, props = self.schedule_dependency_failed(removed_job, job, self.report_status)
+                    scheduler, props = self.schedule_dependency_failed(
+                        removed_job, job, self.report_status
+                    )
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger, scheduler, props
                     )
@@ -577,26 +629,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
             self.number_of_jobs = len(successful_jobs)
 
-            drv_show_log: Log = yield self.getLog("stdio")
-            drv_show_log.addStdout("getting derivation infos\n")
-            cmd = yield self.makeRemoteShellCommand(
-                stdioLogName=None,
-                collectStdout=True,
-                command=(
-                    ["nix", "derivation", "show", "--recursive"]
-                    + [job.drvPath for job in successful_jobs]
-                ),
-            )
-            yield self.runCommand(cmd)
-            drv_show_log.addStdout("done\n")
-            try:
-                all_derivations: dict[str, NixDerivation] = TypeAdapter(
-                    dict[str, NixDerivation]
-                ).validate_json(cmd.stdout)
-            except json.JSONDecodeError as e:
-                msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
-                raise BuildbotNixError(msg) from e
-
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
@@ -613,7 +645,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                             self.job_report_limit is None
                             or self.number_of_jobs <= self.job_report_limit
                         ),
-                        all_derivations=all_derivations,
                     ),
                 ]
                 + (
