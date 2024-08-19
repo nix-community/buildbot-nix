@@ -83,7 +83,9 @@ class BuildTrigger(steps.BuildStep):
     dependency_failed_scheduler: str
     result_list: list[int]
     ended: bool
+    running: bool
     wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None
+    brids: list[int]
 
     @dataclass
     class ScheduledJob:
@@ -132,9 +134,11 @@ class BuildTrigger(steps.BuildStep):
         self.dependency_failed_scheduler = dependency_failed_scheduler
         self._result_list: list[int] = []
         self.ended = False
+        self.running = False
         self.wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None = (
             None
         )
+        self.brids = []
         super().__init__(**kwargs)
 
     def interrupt(self, reason: str | Failure) -> None:
@@ -166,42 +170,43 @@ class BuildTrigger(steps.BuildStep):
 
     @staticmethod
     def set_common_properties(
-        props: Properties, source: str, job: NixEvalJob
+        props: Properties, source: str, job: NixEvalJob, report_status: bool,
     ) -> Properties:
         props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
         props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
         props.setProperty("virtual_builder_tags", "", source)
         props.setProperty("attr", job.attr, source)
+        props.setProperty("report_status", report_status, source)
 
         return props
 
-    def schedule_eval_failure(self, job: NixEvalJobError) -> tuple[str, Properties]:
+    def schedule_eval_failure(self, job: NixEvalJobError, report_status: bool) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
         props.setProperty("error", job.error, source)
 
         return (self.failed_eval_scheduler, props)
 
-    def schedule_cached_failure(self, job: NixEvalJobSuccess) -> tuple[str, Properties]:
+    def schedule_cached_failure(self, job: NixEvalJobSuccess, report_status: bool) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
 
         return (self.cached_failure_scheduler, props)
 
     def schedule_dependency_failed(
-        self, job: NixEvalJobSuccess, dependency: NixEvalJobSuccess
+            self, job: NixEvalJobSuccess, dependency: NixEvalJobSuccess, report_status: bool,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
         props.setProperty("dependency.attr", dependency.attr, source)
 
         return (self.dependency_failed_scheduler, props)
 
     def schedule_success(
-        self, build_props: Properties, job: NixEvalJobSuccess
+            self, build_props: Properties, job: NixEvalJobSuccess, report_status: bool,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
@@ -209,7 +214,7 @@ class BuildTrigger(steps.BuildStep):
         system = job.system
         out_path = job.outputs["out"] or None
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(Properties(), source, job, report_status)
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
         props.setProperty("out_path", out_path, source)
@@ -347,6 +352,7 @@ class BuildTrigger(steps.BuildStep):
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
+        self.running = True
         build_props = self.build.getProperties()
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
         scheduler_log: Log = yield self.addLog("scheduler")
@@ -357,7 +363,8 @@ class BuildTrigger(steps.BuildStep):
             scheduler_log.addStdout("The following jobs failed to evaluate:\n")
         for failed_job in self.failed_jobs:
             scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
-            yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(failed_job))
+            brids, _ = yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(failed_job, self.report_status))
+            self.brids.extend(brids)
 
         # get all input derivations for every job as a dictionary
         derivations_inputs: dict[str, set[str]] = {
@@ -400,11 +407,12 @@ class BuildTrigger(steps.BuildStep):
                     build_schedule_order.remove(build)
 
                     brids, results_deferred = yield self.schedule(
-                        ss_for_trigger, *self.schedule_cached_failure(build)
+                        ss_for_trigger, *self.schedule_cached_failure(build, self.report_status)
                     )
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
                     )
+                    self.brids.extend(brids.values())
                 elif (
                     failed_builds.check_build(build.drvPath)
                     and self.build.reason == "rebuild"
@@ -426,12 +434,14 @@ class BuildTrigger(steps.BuildStep):
             for job in schedule_now:
                 scheduler_log.addStdout(f"\t- {job.attr}\n")
                 brids, results_deferred = yield self.schedule(
-                    ss_for_trigger, *self.schedule_success(build_props, job)
+                    ss_for_trigger, *self.schedule_success(build_props, job, self.report_status)
                 )
 
                 scheduled.append(
                     BuildTrigger.ScheduledJob(job, brids, results_deferred)
                 )
+
+                self.brids.extend(brids.values())
 
             scheduler_log.addStdout("Waiting...\n")
 
@@ -462,7 +472,7 @@ class BuildTrigger(steps.BuildStep):
                     job, build_schedule_order, job_closures
                 )
                 for removed_job in removed:
-                    scheduler, props = self.schedule_dependency_failed(removed_job, job)
+                    scheduler, props = self.schedule_dependency_failed(removed_job, job, self.report_status)
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger, scheduler, props
                     )
@@ -470,6 +480,7 @@ class BuildTrigger(steps.BuildStep):
                     scheduled.append(
                         BuildTrigger.ScheduledJob(removed_job, brids, results_deferred)
                     )
+                    self.brids.extend(brids.values())
                 scheduler_log.addStdout(
                     "\t- removed jobs: "
                     + ", ".join([job.drvPath for job in removed])
@@ -554,8 +565,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
             failed_jobs: list[NixEvalJobError] = []
             successful_jobs: list[NixEvalJobSuccess] = []
-
-            log.info("jobs: {jobs}", jobs=jobs)
 
             for job in jobs:
                 # report unbuildable jobs
