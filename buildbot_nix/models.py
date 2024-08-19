@@ -203,26 +203,29 @@ class BuildbotNixConfig(BaseModel):
             raise InternalError
         return read_secret_file(self.http_basic_auth_password_file)
 
+
 class CacheStatus(str, Enum):
     cached = "cached"
     local = "local"
-    notBuilt = "notBuilt"
+    notBuilt = "notBuilt"  # noqa: N815
 
 
 class NixEvalJobError(BaseModel):
     error: str
     attr: str
-    attrPath: list[str]
+    attrPath: list[str]  # noqa: N815
+
 
 class NixEvalJobSuccess(BaseModel):
     attr: str
-    attrPath: list[str]
-    cacheStatus: CacheStatus | None = None
-    drvPath: str
-    inputDrvs: dict[str, list[str]]
+    attrPath: list[str]  # noqa: N815
+    cacheStatus: CacheStatus | None = None  # noqa: N815
+    drvPath: str  # noqa: N815
+    inputDrvs: dict[str, list[str]]  # noqa: N815
     name: str
     outputs: dict[str, str]
     system: str
+
 
 NixEvalJob = NixEvalJobError | NixEvalJobSuccess
 NixEvalJobModel = TypeAdapter(NixEvalJob)
@@ -230,8 +233,8 @@ NixEvalJobModel = TypeAdapter(NixEvalJob)
 
 class NixDerivation(BaseModel):
     class InputDerivation(BaseModel):
-        dynamicOutputs: dict[str, str]
+        dynamicOutputs: dict[str, str]  # noqa: N815
         outputs: list[str]
 
-    inputDrvs: dict[str, InputDerivation]
+    inputDrvs: dict[str, InputDerivation]  # noqa: N815
     # TODO parse out more information, if needed
