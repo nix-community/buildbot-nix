@@ -7,6 +7,7 @@ import re
 from collections import defaultdict
 from collections.abc import Generator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -40,9 +41,7 @@ from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python.failure import Failure
 
-from . import models
-from pydantic import TypeAdapter
-from . import failed_builds
+from . import failed_builds, models
 from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
@@ -196,13 +195,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return (self.failed_eval_scheduler, props)
 
     def schedule_cached_failure(
-        self, job: NixEvalJobSuccess, report_status: bool
+        self, job: NixEvalJobSuccess, report_status: bool, first_failure: datetime
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
             Properties(), source, job, report_status
         )
+        props.setProperty("first_failure", str(first_failure), source)
 
         return (self.cached_failure_scheduler, props)
 
@@ -442,32 +442,29 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             # check which jobs should be scheduled now
             schedule_now = []
             for build in list(build_schedule_order):
+                failed_build = failed_builds.check_build(build.drvPath)
                 if job_closures.get(build.drvPath):
                     pass
-                elif (
-                    failed_builds.check_build(build.drvPath)
-                    and self.build.reason != "rebuild"
-                ):
-                    failed_builds.remove_build(build.drvPath)
+                elif failed_build is not None and self.build.reason != "rebuild":
                     scheduler_log.addStdout(
-                        f"\t- skipping {build.attr} due to cached failure\n"
+                        f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
                     )
                     build_schedule_order.remove(build)
 
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger,
-                        *self.schedule_cached_failure(build, self.report_status),
+                        *self.schedule_cached_failure(
+                            build, self.report_status, failed_build.time
+                        ),
                     )
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
                     )
                     self.brids.extend(brids.values())
-                elif (
-                    failed_builds.check_build(build.drvPath)
-                    and self.build.reason == "rebuild"
-                ):
+                elif failed_build is not None and self.build.reason == "rebuild":
+                    failed_builds.remove_build(build.drvPath)
                     scheduler_log.addStdout(
-                        f"\t- not skipping {build.attr} with cached failure due to rebuild\n"
+                        f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
                     )
 
                     build_schedule_order.remove(build)
@@ -516,7 +513,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
             if result != SUCCESS:
-                failed_builds.add_build(job.drvPath)
+                failed_builds.add_build(job.drvPath, datetime.now(tz=UTC))
 
                 removed = self.get_failed_dependents(
                     job, build_schedule_order, job_closures
@@ -707,7 +704,13 @@ class CachedFailureStep(steps.BuildStep):
         # show eval error
         error_log: StreamLog = yield self.addLog("nix_error")
         error_log.addStderr(
-            f"{attr} was failed because it has failed previous and its failure has been cached.\n"
+            "\n".join(
+                [
+                    f"{attr} was failed because it has failed previously and its failure has been cached.",
+                    f"  first failure time: {self.getProperty('first_failure')}",
+                ]
+            )
+            + "\n"
         )
         return util.FAILURE
 
