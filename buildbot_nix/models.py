@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
 
@@ -22,6 +23,19 @@ class AuthBackendConfig(str, Enum):
     none = "none"
 
 
+# note that serialization isn't correct, as there is no way to *rename* the field `nix_type` to `_type`,
+# one must always specify `by_alias = True`, such as `model_dump(by_alias = True)`, relevant issue:
+# https://github.com/pydantic/pydantic/issues/8379
+class Interpolate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    nix_type: str = Field(alias="_type")
+    value: str
+
+    def __init__(self, value: str) -> None:
+        super().__init__(nix_type="interpolate", value=value)
+
+
 class CachixConfig(BaseModel):
     name: str
 
@@ -42,10 +56,16 @@ class CachixConfig(BaseModel):
 
     # TODO why did the original implementation return an empty env if both files were missing?
     @property
-    def environment(self) -> dict[str, str]:
+    def environment(self) -> Mapping[str, str | Interpolate]:
         environment = {}
-        environment["CACHIX_SIGNING_KEY"] = util.Secret(self.signing_key_file)
-        environment["CACHIX_AUTH_TOKEN"] = util.Secret(self.auth_token_file)
+        if self.signing_key_file is not None:
+            environment["CACHIX_SIGNING_KEY"] = Interpolate(
+                f"%(secret:{self.signing_key_file})s"
+            )
+        if self.auth_token_file is not None:
+            environment["CACHIX_AUTH_TOKEN"] = Interpolate(
+                f"%(secret:{self.auth_token_file})s"
+            )
         return environment
 
     class Config:
@@ -133,19 +153,9 @@ class GitHubConfig(BaseModel):
         return read_secret_file(self.oauth_secret_file)
 
 
-# note that serialization isn't correct, as there is no way to *rename* the field `nix_type` to `_type`,
-# one must always specify `by_alias = True`, such as `model_dump(by_alias = True)`, relevant issue:
-# https://github.com/pydantic/pydantic/issues/8379
-class Interpolate(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    nix_type: str = Field(alias="_type")
-    value: str
-
-
 class PostBuildStep(BaseModel):
     name: str
-    environment: dict[str, str | Interpolate]
+    environment: Mapping[str, str | Interpolate]
     command: list[str | Interpolate]
 
     def to_buildstep(self) -> steps.BuildStep:
@@ -156,7 +166,7 @@ class PostBuildStep(BaseModel):
 
         return steps.ShellCommand(
             name=self.name,
-            env={k: maybe_interpolate(k) for k in self.environment},
+            env={k: maybe_interpolate(self.environment[k]) for k in self.environment},
             command=[maybe_interpolate(x) for x in self.command],
         )
 
