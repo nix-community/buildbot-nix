@@ -170,70 +170,61 @@ class BuildTrigger(steps.BuildStep):
         # todo: check ITriggerableScheduler
         return sch
 
-    def schedule_eval_failure(self, build_props: Properties, job: NixEvalJobError) -> Tuple[BaseScheduler, Properties]:
-        source = f"nix-eval-nix"
-
-        props = Properties()
+    @staticmethod
+    def set_common_properties(props: Properties, source: str, job: NixEvalJob) -> Properties:
         props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
         props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
         props.setProperty("virtual_builder_tags", "", source)
-        props.setProperty("error", job.error, source)
         props.setProperty("attr", job.attr, source)
+
+        return props
+
+    def schedule_eval_failure(self, job: NixEvalJobError) -> Tuple[str, Properties]:
+        source = f"nix-eval-nix"
+
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props.setProperty("error", job.error, source)
 
         return (self.failed_eval_scheduler, props)
 
     def schedule_cached_failure(
         self,
-        build_props: Properties,
         job: NixEvalJobSuccess
-    ) -> Tuple[BaseScheduler, Properties]:
+    ) -> Tuple[str, Properties]:
         source = f"nix-eval-nix"
 
-        props = Properties()
-        props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
-        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
-        props.setProperty("virtual_builder_tags", "", source)
-        props.setProperty("attr", job.attr, source)
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
 
         return (self.cached_failure_scheduler, props)
 
     def schedule_dependency_failed(
         self,
-        build_props: Properties,
         job: NixEvalJobSuccess,
         dependency: NixEvalJobSuccess
-    ) -> Tuple[BaseScheduler, Properties]:
+    ) -> Tuple[str, Properties]:
         source = f"nix-eval-nix"
 
-        props = Properties()
-        props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
-        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
-        props.setProperty("virtual_builder_tags", "", source)
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
         props.setProperty("dependency.attr", dependency.attr, source)
-        props.setProperty("attr", job.attr, source)
 
         return (self.dependency_failed_scheduler, props)
 
-    def schedule_success(self, build_props: Properties, job: NixEvalJobSuccess) -> Tuple[BaseScheduler, Properties]:
+    def schedule_success(self, build_props: Properties, job: NixEvalJobSuccess) -> Tuple[str, Properties]:
         source = f"nix-eval-nix"
-
-        props = Properties()
-        props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
-        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
-        props.setProperty("virtual_builder_tags", "", source)
 
         drv_path = job.drvPath
         system = job.system
         out_path = job.outputs["out"] or None
 
-        build_props.setProperty(f"{job.attr}-out_path", out_path, source)
-        build_props.setProperty(f"{job.attr}-drv_path", drv_path, source)
-
-        props.setProperty("attr", job.attr, source)
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
         props.setProperty("out_path", out_path, source)
         props.setProperty("cacheStatus", job.cacheStatus, source)
+
+        build_props.setProperty(f"{job.attr}-out_path", out_path, source)
+        build_props.setProperty(f"{job.attr}-drv_path", drv_path, source)
+
 
         # TODO: allow to skip if the build is cached?
         if job.cacheStatus == CacheStatus.notBuilt or job.cacheStatus == CacheStatus.cached:
@@ -245,10 +236,10 @@ class BuildTrigger(steps.BuildStep):
     def schedule(
         self,
         ss_for_trigger: list[dict[str, Any]],
-        scheduler: BaseScheduler,
+        scheduler_name: str,
         props: Properties
     ) -> Generator[Any, Any, Tuple[dict[int, int], defer.Deferred[list[int]]]]:
-        scheduler = self.getSchedulerByName(scheduler)
+        scheduler: BaseScheduler = self.getSchedulerByName(scheduler_name)
 
         idsDeferred, resultsDeferred = scheduler.trigger(
             waited_for = True,
@@ -358,7 +349,7 @@ class BuildTrigger(steps.BuildStep):
             scheduler_log.addStdout(f'The following jobs failed to evaluate:\n');
         for failed_job in self.failed_jobs:
             scheduler_log.addStdout(f'\t- {failed_job.attr} failed eval\n');
-            yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(build_props, failed_job))
+            yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(failed_job))
 
         source = f"nix-eval-{self.project.project_id}"
 
@@ -395,7 +386,7 @@ class BuildTrigger(steps.BuildStep):
 
                     brids, resultsDeferred = yield self.schedule(
                         ss_for_trigger,
-                        *self.schedule_cached_failure(build_props, build)
+                        *self.schedule_cached_failure(build)
                     )
                     scheduled.append(BuildTrigger.ScheduledJob(build, brids, resultsDeferred))
                 elif failed_builds.check_build(build.drvPath) and self.build.reason == "rebuild":
@@ -442,7 +433,7 @@ class BuildTrigger(steps.BuildStep):
 
                 removed = self.getFailedDependents(job, build_schedule_order, job_closures)
                 for removed_job in removed:
-                    scheduler, props = self.schedule_dependency_failed(build_props, removed_job, job)
+                    scheduler, props = self.schedule_dependency_failed(removed_job, job)
                     brids, resultsDeferred = yield self.schedule(ss_for_trigger, scheduler, props)
                     build_schedule_order.remove(removed_job)
                     scheduled.append(BuildTrigger.ScheduledJob(removed_job, brids, resultsDeferred))
@@ -1462,7 +1453,6 @@ class NixConfigurator(ConfiguratorBase):
 
         for backend in backends.values():
             avatar_method = backend.create_avatar_method()
-            print(avatar_method)
             if avatar_method is not None:
                 config["www"]["avatar_methods"].append(avatar_method)
 
