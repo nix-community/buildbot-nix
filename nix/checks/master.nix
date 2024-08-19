@@ -36,5 +36,6 @@
     start_all()
     # wait for our service to start
     node1.wait_for_unit("buildbot-master")
+    node1.wait_until_succeeds("curl --fail -s --head localhost:8010", timeout=60)
   '';
 }
