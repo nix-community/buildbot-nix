@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from twisted.internet import defer
 from twisted.logger import Logger
 
+from . import models
 from .common import (
     slugify_project_name,
 )
@@ -944,15 +945,15 @@ class NixConfigurator(ConfiguratorBase):
         eval_lock = util.MasterLock("nix-eval")
 
         if self.config.cachix is not None:
-            self.post_build_steps.append(
-                steps.ShellCommand(
+            self.config.post_build_steps.append(
+                models.PostBuildStep(
                     name="Upload cachix",
-                    env=self.cachix.cachix_env(),
+                    environment=self.config.cachix.environment,
                     command=[
                         "cachix",
                         "push",
-                        self.cachix.name,
-                        util.Interpolate("result-%(prop:attr)s"),
+                        self.config.cachix.name,
+                        models.Interpolate("result-%(prop:attr)s"),
                     ],
                 )
             )
@@ -994,7 +995,7 @@ class NixConfigurator(ConfiguratorBase):
                 ],
             )
             config["services"].append(backend.create_reporter())
-            config.setdefault("secretProviders", [])
+            config.setdefault("secretsProviders", [])
             config["secretsProviders"].extend(backend.create_secret_providers())
 
         systemd_secrets = SecretInAFile(

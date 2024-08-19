@@ -613,8 +613,8 @@ in
                     else
                       {
                         name = cfg.cachix.name;
-                        signing_key_file = if cfg.cachix.auth ? "signingKey" then cfg.cachix.auth.signingKey.file else null;
-                        auth_token_file = if cfg.cachix.auth ? "authToken" then cfg.cachix.authTokenFile else null;
+                        signing_key_file = if cfg.cachix.auth ? "signingKey" then "cachix-signing-key" else null;
+                        auth_token_file = if cfg.cachix.auth ? "authToken" then "cachix-auth-token" else null;
                       };
                   gitea =
                     if !cfg.gitea.enable then
@@ -735,11 +735,11 @@ in
             ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
             ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
             ++ lib.optional (
-              cfg.cachix.enable && cfg.cachix ? "signingKey"
-            ) "cachix-signing-key:${builtins.toString cfg.cachix.signingKeyFile}"
+              cfg.cachix.enable && cfg.cachix.auth ? "signingKey"
+            ) "cachix-signing-key:${builtins.toString cfg.cachix.auth.signingKey.file}"
             ++ lib.optional (
-              cfg.cachix.enable && cfg.cachix ? "authToken"
-            ) "cachix-auth-token:${builtins.toString cfg.cachix.authTokenFile}"
+              cfg.cachix.enable && cfg.cachix.auth ? "authToken"
+            ) "cachix-auth-token:${builtins.toString cfg.cachix.auth.authToken.file}"
             ++ lib.optionals cfg.gitea.enable [
               "gitea-token:${cfg.gitea.tokenFile}"
               "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
