@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+import typing
+import copy
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
@@ -69,11 +71,10 @@ class BuildbotNixError(Exception):
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
 
-    project: GitProject
 
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
-    report_status: bool
+    combined_build: bool
     drv_info: dict[str, NixDerivation]
     builds_scheduler: str
     skipped_builds_scheduler: str
@@ -108,7 +109,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
     def __init__(
         self,
-        project: GitProject,
         builds_scheduler: str,
         skipped_builds_scheduler: str,
         failed_eval_scheduler: str,
@@ -116,13 +116,12 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         cached_failure_scheduler: str,
         successful_jobs: list[NixEvalJobSuccess],
         failed_jobs: list[NixEvalJobError],
-        report_status: bool,
+        combine_builds: bool,
         **kwargs: Any,
     ) -> None:
-        self.project = project
         self.successful_jobs = successful_jobs
         self.failed_jobs = failed_jobs
-        self.report_status = report_status
+        self.combine_builds = combine_builds
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
@@ -170,35 +169,33 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         props: Properties,
         source: str,
         job: NixEvalJob,
-        report_status: bool,
     ) -> Properties:
         props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
         props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
         props.setProperty("virtual_builder_tags", "", source)
         props.setProperty("attr", job.attr, source)
-        props.setProperty("report_status", report_status, source)
 
         return props
 
     def schedule_eval_failure(
-        self, job: NixEvalJobError, report_status: bool
+        self, job: NixEvalJobError
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), source, job, report_status
+            Properties(), source, job
         )
         props.setProperty("error", job.error, source)
 
         return (self.failed_eval_scheduler, props)
 
     def schedule_cached_failure(
-        self, job: NixEvalJobSuccess, report_status: bool, first_failure: datetime
+        self, job: NixEvalJobSuccess, first_failure: datetime
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), source, job, report_status
+            Properties(), source, job
         )
         props.setProperty("first_failure", str(first_failure), source)
 
@@ -208,12 +205,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self,
         job: NixEvalJobSuccess,
         dependency: NixEvalJobSuccess,
-        report_status: bool,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), source, job, report_status
+            Properties(), source, job
         )
         props.setProperty("dependency.attr", dependency.attr, source)
 
@@ -223,7 +219,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self,
         build_props: Properties,
         job: NixEvalJobSuccess,
-        report_status: bool,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
@@ -232,7 +227,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         out_path = job.outputs["out"] or None
 
         props = BuildTrigger.set_common_properties(
-            Properties(), source, job, report_status
+            Properties(), source, job
         )
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
@@ -356,7 +351,32 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return removed
 
     @defer.inlineCallbacks
+    def produceEventForBuilds(
+            self,
+            build_ids: list[int],
+            event: str,
+            result: None | int,
+    ) -> Generator[Any, object, None]:
+        for build_id in build_ids:
+          build = yield self.master.data.get(('builds', str(build_id)))
+          buildT = typing.cast(dict[str, Any], build)
+          if result is not None:
+              buildT["results"] = result
+          self.master.mq.produce(("builds", str(build_id), event), copy.deepcopy(buildT))
+
+    @defer.inlineCallbacks
+    def produceEvent(
+            self,
+            event: str,
+            result: None | int,
+    ) -> Generator[Any, object, None]:
+        yield self.produceEventForBuilds([self.build.buildid], event, result)
+
+    @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
+        if self.combine_builds:
+            self.produceEvent("started-nix-build", None)
+
         self.running = True
         build_props = self.build.getProperties()
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
@@ -370,7 +390,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
             brids, _ = yield self.schedule(
                 ss_for_trigger,
-                *self.schedule_eval_failure(failed_job, self.report_status),
+                *self.schedule_eval_failure(failed_job),
             )
             self.brids.extend(brids)
 
@@ -411,12 +431,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger,
                         *self.schedule_cached_failure(
-                            build, self.report_status, failed_build.time
+                            build, failed_build.time
                         ),
                     )
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
                     )
+                    if not self.combine_builds:
+                        self.produceEventForBuilds(brids.values(), "started-nix-build", None)
                     self.brids.extend(brids.values())
                 elif failed_build is not None and self.build.reason == "rebuild":
                     failed_builds.remove_build(build.drvPath)
@@ -438,13 +460,15 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 scheduler_log.addStdout(f"\t- {job.attr}\n")
                 brids, results_deferred = yield self.schedule(
                     ss_for_trigger,
-                    *self.schedule_success(build_props, job, self.report_status),
+                    *self.schedule_success(build_props, job),
                 )
 
                 scheduled.append(
                     BuildTrigger.ScheduledJob(job, brids, results_deferred)
                 )
 
+                if not self.combine_builds:
+                    self.produceEventForBuilds(brids.values(), "started-nix-build", None)
                 self.brids.extend(brids.values())
 
             scheduler_log.addStdout("Waiting...\n")
@@ -467,6 +491,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduler_log.addStdout(
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
+            if not self.combine_builds:
+                self.produceEventForBuilds(brids.values(), "finished-nix-build", result)
 
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
             if result != SUCCESS:
@@ -477,7 +503,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 )
                 for removed_job in removed:
                     scheduler, props = self.schedule_dependency_failed(
-                        removed_job, job, self.report_status
+                        removed_job, job
                     )
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger, scheduler, props
@@ -486,6 +512,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     scheduled.append(
                         BuildTrigger.ScheduledJob(removed_job, brids, results_deferred)
                     )
+                    if not self.combine_builds:
+                        self.produceEventForBuilds(brids.values(), "started-nix-build", None)
                     self.brids.extend(brids.values())
                 scheduler_log.addStdout(
                     "\t- removed jobs: "
@@ -501,7 +529,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             for dep in job_closures:
                 if job.drvPath in job_closures[dep]:
                     job_closures[dep].remove(job.drvPath)
-
+        if self.combine_builds:
+            self.produceEvent("finished-nix-build", overall_result)
         scheduler_log.addStdout("Done!\n")
         return overall_result
 
@@ -515,15 +544,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         f"{self._result_list.count(status)} {statusToString(status, count)}",
                     )
         return {"step": f"({', '.join(summary)})"}
-
-
-class NixBuildCombined(steps.BuildStep):
-    """Shows the error message of a failed evaluation."""
-
-    name = "nix-build-combined"
-
-    def run(self) -> Generator[Any, object, Any]:
-        return self.build.results
 
 
 class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
@@ -549,13 +569,27 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.job_report_limit = job_report_limit
 
     @defer.inlineCallbacks
+    def produceEvent(
+            self,
+            event: str,
+            result: None | int
+    ) -> Generator[Any, object, None]:
+        build = yield self.master.data.get(('builds', str(self.build.buildid)))
+        buildT = typing.cast(dict[str, Any], build)
+        if result is not None:
+            buildT["results"] = result
+        self.master.mq.produce(("builds", str(self.build.buildid), event), copy.deepcopy(buildT))
+
+    @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
+        self.produceEvent("started-nix-eval", None)
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
         cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
         yield self.runCommand(cmd)
 
         # if the command passes extract the list of stages
         result = cmd.results()
+        self.produceEvent("finished-nix-eval", result)
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
             jobs: list[NixEvalJob] = []
@@ -586,7 +620,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
-                        self.project,
                         builds_scheduler=f"{self.project.project_id}-nix-build",
                         skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
                         failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
@@ -595,30 +628,12 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         name="build flake",
                         successful_jobs=successful_jobs,
                         failed_jobs=failed_jobs,
-                        report_status=(
-                            self.job_report_limit is None
-                            or self.number_of_jobs <= self.job_report_limit
+                        combine_builds=(
+                            self.job_report_limit is not None
+                            and self.number_of_jobs > self.job_report_limit
                         ),
                     ),
                 ]
-                + (
-                    [
-                        Trigger(
-                            waitForFinish=True,
-                            schedulerNames=[
-                                f"{self.project.project_id}-nix-build-combined"
-                            ],
-                            haltOnFailure=True,
-                            flunkOnFailure=True,
-                            sourceStamps=[],
-                            alwaysUseLatest=False,
-                            updateSourceStamp=False,
-                        ),
-                    ]
-                    if self.job_report_limit is not None
-                    and self.number_of_jobs > self.job_report_limit
-                    else []
-                ),
             )
 
         return result
@@ -1091,24 +1106,6 @@ def nix_register_gcroot_config(
     )
 
 
-def nix_build_combined_config(
-    project: GitProject,
-    worker_names: list[str],
-) -> BuilderConfig:
-    factory = util.BuildFactory()
-    factory.addStep(NixBuildCombined())
-
-    return util.BuilderConfig(
-        name=f"{project.name}/nix-build-combined",
-        project=project.name,
-        workernames=worker_names,
-        collapseRequests=False,
-        env={},
-        factory=factory,
-        properties=dict(status_name="nix-build-combined"),
-    )
-
-
 def config_for_project(
     config: dict[str, Any],
     project: GitProject,
@@ -1176,11 +1173,6 @@ def config_for_project(
                 name=f"{project.project_id}-nix-cached-failure",
                 builderNames=[f"{project.name}/nix-cached-failure"],
             ),
-            # this is triggered from `nix-eval` when the build contains too many outputs
-            schedulers.Triggerable(
-                name=f"{project.project_id}-nix-build-combined",
-                builderNames=[f"{project.name}/nix-build-combined"],
-            ),
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-register-gcroot",
                 builderNames=[f"{project.name}/nix-register-gcroot"],
@@ -1224,7 +1216,6 @@ def config_for_project(
             nix_dependency_failed_config(project, [SKIPPED_BUILDER_NAME]),
             nix_cached_failure_config(project, [SKIPPED_BUILDER_NAME]),
             nix_register_gcroot_config(project, worker_names),
-            nix_build_combined_config(project, worker_names),
         ],
     )
 
