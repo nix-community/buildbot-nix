@@ -23,6 +23,11 @@
             oauthSecretFile = pkgs.writeText "oauthSecret" "ffffffffffffffffffffffffffffffffffffffff";
             oauthId = "aaaaaaaaaaaaaaaaaaaa";
           };
+          cachix = {
+            enable = true;
+            name = "my-cachix";
+            auth.authToken.file = pkgs.writeText "cachixAuthToken" "00000000000000000000";
+          };
         };
       };
   };
@@ -31,5 +36,6 @@
     start_all()
     # wait for our service to start
     node1.wait_for_unit("buildbot-master")
+    node1.wait_until_succeeds("curl --fail -s --head localhost:8010", timeout=60)
   '';
 }

@@ -62,10 +62,11 @@
 
     # optional cachix
     #cachix = {
+    #  enabled = true;
     #  name = "my-cachix";
     #  # One of the following is required:
-    #  signingKeyFile = "/var/lib/secrets/cachix-key";
-    #  authTokenFile = "/var/lib/secrets/cachix-token";
+    #  auth.signingKey.file = "/var/lib/secrets/cachix-key";
+    #  auth.authToken.file = "/var/lib/secrets/cachix-token";
     #};
   };
 

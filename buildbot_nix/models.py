@@ -69,7 +69,7 @@ class CachixConfig(BaseModel):
         return environment
 
     class Config:
-        fields = exclude_fields(["singing_key", "auth_token"])
+        fields = exclude_fields(["signing_key", "auth_token"])
 
 
 class GiteaConfig(BaseModel):
