@@ -778,11 +778,7 @@ in
       };
 
       systemd.tmpfiles.rules =
-        [
-          # delete legacy gcroot location, can be dropped after 2024-06-01
-          "R /var/lib/buildbot-worker/gcroot - - - - -"
-        ]
-        ++ lib.optional (cfg.outputsPath != null)
+        lib.optional (cfg.outputsPath != null)
           # Allow buildbot-master to write to this directory
           "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
 
