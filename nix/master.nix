@@ -485,7 +485,7 @@ in
         type = lib.types.nullOr lib.types.path;
         description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
         default = null;
-        example = "/var/www/buildbot/nix-outputs";
+        example = "/var/www/buildbot/nix-outputs/";
       };
 
       jobReportLimit = lib.mkOption {
@@ -774,7 +774,7 @@ in
             # raise the proxy timeout for the websocket
             extraConfig = "proxy_read_timeout 6000s;";
           };
-        } // lib.optionalAttrs (cfg.outputsPath != null) { "/nix-outputs".root = cfg.outputsPath; };
+        } // lib.optionalAttrs (cfg.outputsPath != null) { "/nix-outputs/".alias = cfg.outputsPath; };
       };
 
       systemd.tmpfiles.rules =
