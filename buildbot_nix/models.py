@@ -174,7 +174,6 @@ class PostBuildStep(BaseModel):
 class BuildbotNixConfig(BaseModel):
     db_url: str
     auth_backend: AuthBackendConfig
-    build_retries: int
     cachix: CachixConfig | None
     gitea: GiteaConfig | None
     github: GitHubConfig | None

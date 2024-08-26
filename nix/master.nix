@@ -110,12 +110,6 @@ in
         '';
       };
 
-      buildRetries = lib.mkOption {
-        type = lib.types.int;
-        default = 1;
-        description = "Number of times a build is retried";
-      };
-
       postBuildSteps = lib.mkOption {
         default = [ ];
         description = ''
@@ -606,7 +600,6 @@ in
                 (pkgs.formats.json { }).generate "buildbot-nix-config.json" {
                   db_url = cfg.dbUrl;
                   auth_backend = cfg.authBackend;
-                  build_retries = cfg.buildRetries;
                   cachix =
                     if !cfg.cachix.enable then
                       null
