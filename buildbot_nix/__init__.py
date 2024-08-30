@@ -313,7 +313,7 @@ class BuildTrigger(steps.BuildStep):
 
         overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
         for failed_job in self.failed_jobs:
-            scheduler_log.addStdout(f'{failed_job.attr} failed eval');
+            scheduler_log.addStdout(f"{failed_job.attr} failed eval\n")
             yield self.schedule(ss_for_trigger, *self.schedule_eval_failure(build_props, failed_job))
 
         source = f"nix-eval-{self.project.project_id}"
