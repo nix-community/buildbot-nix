@@ -463,20 +463,27 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             return {}
         drv_show_log: Log = yield self.getLog("stdio")
         drv_show_log.addStdout("getting derivation infos\n")
-        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand(
-            stdioLogName=None,
-            collectStdout=True,
-            command=(
-                ["nix", "derivation", "show", "--recursive"]
-                + [job.drvPath for job in jobs]
-            ),
+        # cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand(
+        #    stdioLogName=None,
+        #    collectStdout=True,
+        #    command=(
+        #        ["nix", "derivation", "show", "--recursive"]
+        #        + [job.drvPath for job in jobs]
+        #    ),
+        # )
+        # yield self.runCommand(cmd)
+        out = subprocess.run(
+            ["nix", "derivation", "show", "--recursive"]
+            + [job.drvPath for job in jobs],
+            stdout=subprocess.PIPE,
+            check=True,
         )
-        yield self.runCommand(cmd)
+
         drv_show_log.addStdout("done\n")
         try:
-            return TypeAdapter(dict[str, NixDerivation]).validate_json(cmd.stdout)
+            return TypeAdapter(dict[str, NixDerivation]).validate_json(out.stdout)
         except json.JSONDecodeError as e:
-            msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
+            msg = "Failed to parse `nix derivation show` output"
             raise BuildbotNixError(msg) from e
 
     @defer.inlineCallbacks
@@ -514,6 +521,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 ):
                     successful_jobs.append(job)
 
+            drv_show_log: Log = yield self.getLog("stdio")
+            drv_show_log.addStdout("getting derivation infos\n")
             all_derivations: dict[
                 str, NixDerivation
             ] = yield from self.list_derivations(successful_jobs)
