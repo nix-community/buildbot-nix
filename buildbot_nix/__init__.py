@@ -329,16 +329,19 @@ class BuildTrigger(steps.BuildStep):
                 ss_for_trigger, *self.schedule_eval_failure(build_props, failed_job)
             )
 
+        scheduler_log.addStdout("Build derivation inputs\n")  # FIXME: remove
         derivations_inputs: dict[str, set[str]] = {
             derivation: set(info.inputDrvs.keys())
             for derivation, info in self.all_derivations.items()
         }
 
+        scheduler_log.addStdout("Get derivation closure\n")  # FIXME: remove
         job_set = {job.drvPath for job in self.successful_jobs}
         job_closures = {
             k: self.get_derivation_closure(k, derivations_inputs).intersection(job_set)
             for k in job_set
         }
+        scheduler_log.addStdout("Sort derivation closure\n")  # FIXME: remove
         build_schedule_order = self.sort_jobs_by_closures(
             self.successful_jobs, job_closures
         )
@@ -347,6 +350,7 @@ class BuildTrigger(steps.BuildStep):
         scheduled: list[
             tuple[NixEvalJobSuccess, dict[int, int], defer.Deferred[list[int]]]
         ] = []
+        scheduler_log.addStdout("Start scheduling\n")  # FIXME: remove
         while build_schedule_order or scheduled:
             scheduler_log.addStdout("Scheduling..\n")
             schedule_now = []
