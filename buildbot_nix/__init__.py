@@ -216,11 +216,7 @@ class BuildTrigger(steps.BuildStep):
         )
 
         brids: dict[int, int]
-        try:
-            _, brids = yield idsDeferred
-        except Exception as e:
-            yield self.addLogWithException(e)
-            # results = EXCEPTION
+        _, brids = yield ids_deferred
 
         for brid in brids.values():
             url = getURLForBuildrequest(self.master, brid)
