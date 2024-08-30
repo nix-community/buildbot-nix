@@ -8,7 +8,7 @@ import graphlib
 from collections import defaultdict
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast, Tuple
+from typing import TYPE_CHECKING, Any, cast, Tuple, Iterator
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
@@ -416,6 +416,28 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.job_report_limit = job_report_limit
 
     @defer.inlineCallbacks
+    def list_derivations(self, jobs: list[NixEvalJobSuccess]) -> Generator[Any, Any, dict[str, NixDerivation]]:
+        if jobs == []:
+            return {}
+        drv_show_log: Log = yield self.getLog("stdio")
+        drv_show_log.addStdout("getting derivation infos\n")
+        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand(
+            stdioLogName=None,
+            collectStdout=True,
+            command=(
+                ["nix", "derivation", "show", "--recursive"]
+                + [ job.drvPath for job in jobs ]
+            ),
+        )
+        yield self.runCommand(cmd)
+        drv_show_log.addStdout("done\n")
+        try:
+            return TypeAdapter(dict[str, NixDerivation]).validate_json(cmd.stdout)
+        except json.JSONDecodeError as e:
+            msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
+            raise BuildbotNixError(msg) from e
+
+    @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
         cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
@@ -448,25 +470,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 elif job.system in self.supported_systems and isinstance(job, NixEvalJobSuccess):
                     successful_jobs.append(job)
 
+
+            all_derivations : dict[str, NixDerivation] = yield from self.list_derivations(successful_jobs)
+
             self.number_of_jobs = len(successful_jobs)
 
-            drv_show_log: Log = yield self.getLog("stdio")
-            drv_show_log.addStdout(f"getting derivation infos\n")
-            cmd = yield self.makeRemoteShellCommand(
-                stdioLogName=None,
-                collectStdout=True,
-                command=(
-                    ["nix", "derivation", "show", "--recursive"]
-                    + [ job.drvPath for job in successful_jobs ]
-                ),
-            )
-            yield self.runCommand(cmd)
-            drv_show_log.addStdout(f"done\n")
-            try:
-                all_derivations: dict[str, NixDerivation] = TypeAdapter(dict[str, NixDerivation]).validate_json(cmd.stdout)
-            except json.JSONDecodeError as e:
-                msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
-                raise BuildbotNixError(msg) from e
 
             self.build.addStepsAfterCurrentStep(
                 [
