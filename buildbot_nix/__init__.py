@@ -267,11 +267,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         )
 
         brids: dict[int, int]
-        try:
-            _, brids = yield ids_deferred
-        except Exception as e:  # noqa: BLE001
-            yield self.addLogWithException(e)
-            # results = EXCEPTION
+        _, brids = yield ids_deferred
 
         for brid in brids.values():
             url = getURLForBuildrequest(self.master, brid)
