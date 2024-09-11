@@ -375,6 +375,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     def get_all_derivations(
         self, log: Log
     ) -> Generator[Any, Any, dict[str, NixDerivation]]:
+        if self.successful_jobs == []:
+            return {}
         log.addStdout("getting derivation infos\n")
         cmd = yield self.makeRemoteShellCommand(
             stdioLogName=None,
