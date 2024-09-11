@@ -339,6 +339,11 @@ class UpdateBuildOutput(steps.BuildStep):
         if not pr and props.getProperty("branch") != self.project.default_branch:
             return util.SKIPPED
 
+        out_path = props.getProperty("out_path")
+
+        if not out_path:  # if, e.g., the build fails and doesn't produce an output
+            return util.SKIPPED
+
         owner = Path(props.getProperty("owner"))
         repo = Path(props.getProperty("repository_name"))
 
@@ -355,7 +360,6 @@ class UpdateBuildOutput(steps.BuildStep):
 
         file.parent.mkdir(parents=True, exist_ok=True)
 
-        out_path = props.getProperty("out_path")
         file.write_text(out_path)
 
         return util.SUCCESS
