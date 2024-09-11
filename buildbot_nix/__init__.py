@@ -9,7 +9,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 import typing
 import copy
 
@@ -86,10 +86,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     running: bool
     wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None
     brids: list[int]
+    consumers: dict[int, Any]
 
     @dataclass
     class ScheduledJob:
-        job: NixEvalJobSuccess
+        job: NixEvalJob
         builder_ids: dict[int, int]
         results: defer.Deferred[list[int]]
 
@@ -135,6 +136,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             None
         )
         self.brids = []
+        self.consumers = {}
         super().__init__(**kwargs)
 
     def interrupt(self, reason: str | Failure) -> None:
@@ -267,6 +269,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             yield self.addURL(f"{scheduler.name} #{brid}", url)
             self._add_results(brid)
 
+        if not self.combine_builds:
+            self.produceEventForBuildRequestsById(brids.values(), "started-nix-build", None)
+
         return brids, results_deferred
 
     @defer.inlineCallbacks
@@ -351,31 +356,72 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return removed
 
     @defer.inlineCallbacks
-    def produceEventForBuilds(
-            self,
-            build_ids: list[int],
-            event: str,
-            result: None | int,
-    ) -> Generator[Any, object, None]:
-        for build_id in build_ids:
-          build = yield self.master.data.get(('builds', str(build_id)))
-          buildT = typing.cast(dict[str, Any], build)
-          if result is not None:
-              buildT["results"] = result
-          self.master.mq.produce(("builds", str(build_id), event), copy.deepcopy(buildT))
 
     @defer.inlineCallbacks
-    def produceEvent(
+    def produceEventForBuildRequestsById(
             self,
+            buildrequest_ids: Iterable[int],
             event: str,
             result: None | int,
     ) -> Generator[Any, object, None]:
-        yield self.produceEventForBuilds([self.build.buildid], event, result)
+        buildrequest_ids = list(buildrequest_ids)
+
+        def gotBuild(key: int, build: Any) -> None:
+            if build['buildrequestid'] in buildrequest_ids:
+              log.info("got build {key} : {build}", key = key, build = build)
+              # we only care about the first started build
+              buildrequest_ids.remove(int(build['buildrequestid']))
+              if not buildrequest_ids:
+                  del self.consumers[build['buildrequestid']]
+              self.produceEventForBuild(event, build, result)
+
+        for buildrequest_id in buildrequest_ids:
+          builds: Any = yield self.master.data.get(('buildrequests', str(buildrequest_id), 'builds'))
+
+          if not builds:
+              # only subscribe to new builds, if there are no existing builds
+              self.consumers[buildrequest_id] = yield self.master.mq.startConsuming(
+                  gotBuild, ('builds', None, None)
+              )
+          # send starts for any exsting builds
+          for build in builds:
+              self.produceEventForBuild(event, build, result)
+
+    @defer.inlineCallbacks
+    def produceEventForBuildById(
+            self,
+            event: str,
+            build_id: int,
+            result: None | int,
+    ) -> Generator[Any, object, None]:
+        build: Any = yield self.master.data.get(('builds', str(build_id)))
+        self.produceEventForBuild(event, build, result)
+
+    def produceEventForBuild(
+            self,
+            event: str,
+            build: Any,
+            result: None | int,
+    ) -> None:
+        if result is not None:
+            build["results"] = result
+        self.master.mq.produce(("builds", str(build['buildid']), event), copy.deepcopy(build))
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
+        """
+        This function implements a relatively simple scheduling algorithm. At the start we compute the
+        interdependencies between each of the jobs we want to run and at every iteration we schedule those
+        who's dependencies have completed successfully. If a job fails, we recursively fail every jobs which
+        depends on it.
+        We also run fake builds for failed evaluations so that they nicely show up in the UI and also Forge
+        reports.
+        """
         if self.combine_builds:
-            self.produceEvent("started-nix-build", None)
+            self.produceEventForBuildById("started-nix-build", self.build.buildid, None)
+
+        done: list[BuildTrigger.DoneJob] = []
+        scheduled: list[BuildTrigger.ScheduledJob] = []
 
         self.running = True
         build_props = self.build.getProperties()
@@ -384,15 +430,19 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         # inject failed buildsteps for any failed eval jobs we got
         overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
+        # inject failed buildsteps for any failed eval jobs we got
         if self.failed_jobs:
             scheduler_log.addStdout("The following jobs failed to evaluate:\n")
-        for failed_job in self.failed_jobs:
-            scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
-            brids, _ = yield self.schedule(
-                ss_for_trigger,
-                *self.schedule_eval_failure(failed_job),
-            )
-            self.brids.extend(brids)
+            for failed_job in self.failed_jobs:
+                scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
+                brids, results_deferred = yield self.schedule(
+                    ss_for_trigger,
+                    *self.schedule_eval_failure(failed_job),
+                )
+                scheduled.append(
+                    BuildTrigger.ScheduledJob(failed_job, brids, results_deferred)
+                )
+                self.brids.extend(brids)
 
         # get all job derivations
         job_set = {job.drvPath for job in self.successful_jobs}
@@ -411,8 +461,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             self.successful_jobs, job_closures
         )
 
-        done: list[BuildTrigger.DoneJob] = []
-        scheduled: list[BuildTrigger.ScheduledJob] = []
         while build_schedule_order or scheduled:
             scheduler_log.addStdout("Scheduling...\n")
 
@@ -437,8 +485,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
                     )
-                    if not self.combine_builds:
-                        self.produceEventForBuilds(brids.values(), "started-nix-build", None)
                     self.brids.extend(brids.values())
                 elif failed_build is not None and self.build.reason == "rebuild":
                     failed_builds.remove_build(build.drvPath)
@@ -467,8 +513,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     BuildTrigger.ScheduledJob(job, brids, results_deferred)
                 )
 
-                if not self.combine_builds:
-                    self.produceEventForBuilds(brids.values(), "started-nix-build", None)
                 self.brids.extend(brids.values())
 
             scheduler_log.addStdout("Waiting...\n")
@@ -491,46 +535,49 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduler_log.addStdout(
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
+            log.info(
+                f"Found finished build {job.attr}, result {util.Results[result].upper()}, brids: {brids}"
+            )
             if not self.combine_builds:
-                self.produceEventForBuilds(brids.values(), "finished-nix-build", result)
+                self.produceEventForBuildRequestsById(brids.values(), "finished-nix-build", result)
 
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
-            if result != SUCCESS:
-                failed_builds.add_build(job.drvPath, datetime.now(tz=UTC))
+            if isinstance(job, NixEvalJobSuccess):
+                if result != SUCCESS:
+                    failed_builds.add_build(job.drvPath, datetime.now(tz=UTC))
 
-                removed = self.get_failed_dependents(
-                    job, build_schedule_order, job_closures
-                )
-                for removed_job in removed:
-                    scheduler, props = self.schedule_dependency_failed(
-                        removed_job, job
+                    removed = self.get_failed_dependents(
+                        job, build_schedule_order, job_closures
                     )
-                    brids, results_deferred = yield self.schedule(
-                        ss_for_trigger, scheduler, props
+                    for removed_job in removed:
+                        scheduler, props = self.schedule_dependency_failed(
+                            removed_job, job
+                        )
+                        brids, results_deferred = yield self.schedule(
+                            ss_for_trigger, scheduler, props
+                        )
+                        build_schedule_order.remove(removed_job)
+                        scheduled.append(
+                            BuildTrigger.ScheduledJob(removed_job, brids, results_deferred)
+                        )
+                        self.brids.extend(brids.values())
+                    scheduler_log.addStdout(
+                        "\t- removed jobs: "
+                        + ", ".join([job.drvPath for job in removed])
+                        + "\n"
                     )
-                    build_schedule_order.remove(removed_job)
-                    scheduled.append(
-                        BuildTrigger.ScheduledJob(removed_job, brids, results_deferred)
-                    )
-                    if not self.combine_builds:
-                        self.produceEventForBuilds(brids.values(), "started-nix-build", None)
-                    self.brids.extend(brids.values())
-                scheduler_log.addStdout(
-                    "\t- removed jobs: "
-                    + ", ".join([job.drvPath for job in removed])
-                    + "\n"
-                )
+
+                for dep in job_closures:
+                    if job.drvPath in job_closures[dep]:
+                        job_closures[dep].remove(job.drvPath)
 
             overall_result = worst_status(result, overall_result)
             scheduler_log.addStdout(
                 f"\t- new result: {util.Results[overall_result].upper()} \n"
             )
 
-            for dep in job_closures:
-                if job.drvPath in job_closures[dep]:
-                    job_closures[dep].remove(job.drvPath)
         if self.combine_builds:
-            self.produceEvent("finished-nix-build", overall_result)
+            self.produceEventForBuildById("finished-nix-build", self.build.buildid, overall_result)
         scheduler_log.addStdout("Done!\n")
         return overall_result
 

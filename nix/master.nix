@@ -657,8 +657,7 @@ in
                   outputs_path = cfg.outputsPath;
                   url = config.services.buildbot-nix.master.webhookBaseUrl;
                   post_build_steps = cfg.postBuildSteps;
-                  job_report_limit =
-                    if cfg.jobReportLimit == null then "None" else builtins.toJSON cfg.jobReportLimit;
+                  job_report_limit = cfg.jobReportLimit;
                   http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
                 }
               }").read_text()))

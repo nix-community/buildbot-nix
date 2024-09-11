@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from buildbot.interfaces import IReportGenerator
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.properties import Interpolate
@@ -29,6 +30,7 @@ from .common import (
     paginated_github_request,
     slugify_project_name,
 )
+from .nix_status_generator import BuildNixEvalStatusGenerator
 from .models import GiteaConfig
 from .projects import GitBackend, GitProject
 
@@ -107,36 +109,6 @@ class GiteaProject(GitProject):
         # TODO Gitea doesn't include this information
         return False  # self.data["owner"]["type"] == "Organization"
 
-
-class ModifyingGiteaStatusPush(GiteaStatusPush):
-    def checkConfig(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        return super().checkConfig(**kwargs)
-
-    def reconfigService(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        return super().reconfigService(**kwargs)
-
-    @defer.inlineCallbacks
-    def sendMessage(self, reports: Any) -> Any:
-        reports = self.modifyingFilter(reports)
-        if reports is None:
-            return
-
-        result = yield super().sendMessage(reports)
-        return result
-
-
 class GiteaBackend(GitBackend):
     config: GiteaConfig
     webhook_secret: str
@@ -165,12 +137,14 @@ class GiteaBackend(GitBackend):
         )
 
     def create_reporter(self) -> ReporterBase:
-        return ModifyingGiteaStatusPush(
+        return GiteaStatusPush(
             baseURL=self.config.instance_url,
             token=Interpolate(self.config.token),
             context=Interpolate("buildbot/%(prop:status_name)s"),
             context_pr=Interpolate("buildbot/%(prop:status_name)s"),
-            modifyingFilter=filter_for_combined_builds,
+            generators = [
+                BuildNixEvalStatusGenerator(),
+            ],
         )
 
     def create_change_hook(self) -> dict[str, Any]:

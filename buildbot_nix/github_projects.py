@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 from datetime import datetime, timezone
 
-from zope.interface import implementer
+from buildbot.interfaces import IReportGenerator
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
@@ -18,20 +18,15 @@ from buildbot.process.properties import Interpolate, Properties, WithProperties
 from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.utils import getDetailsForBuild
 from buildbot.reporters.github import GitHubStatusPush
-from buildbot.reporters.generators.utils import BuildStatusGeneratorMixin
-from buildbot.reporters.generators.build import BuildStartEndStatusGenerator
-from buildbot.reporters.generators.buildrequest import BuildRequestGenerator
 from buildbot.secrets.providers.base import SecretProviderBase
 from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
-from buildbot.master import BuildMaster
 from pydantic import BaseModel, ConfigDict, Field
 from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
-from buildbot.interfaces import IReportGenerator, IRenderable
-from buildbot.reporters.message import MessageFormatterRenderable
+from buildbot.interfaces import IRenderable
 from buildbot.plugins import util
 
 from .common import (
@@ -45,6 +40,7 @@ from .common import (
     paginated_github_request,
     slugify_project_name,
 )
+from .nix_status_generator import BuildNixEvalStatusGenerator
 from .github.installation_token import InstallationToken
 from .github.jwt_token import JWTToken
 from .github.legacy_token import (
@@ -323,116 +319,6 @@ class GithubAuthBackend(ABC):
     ) -> list[BuildStep]:
         pass
 
-@implementer(IReportGenerator)
-class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
-    wanted_event_keys = [
-        ('builds', None, 'started-nix-eval'),
-        ('builds', None, 'finished-nix-eval'),
-        ('builds', None, 'started-nix-build'),
-        ('builds', None, 'finished-nix-build'),
-    ]
-
-    compare_attrs = ['start_formatter', 'end_formatter']
-
-    start_formatter: IRenderable
-    end_formatter: IRenderable
-
-    def __init__(
-        self,
-        tags: None | list[str] = None,
-        builders: None | list[str] = None,
-        schedulers: None | list[str] = None,
-        branches: None | list[str] = None,
-        add_logs: bool | list[str] = False,
-        add_patch: bool = False,
-        start_formatter: None | IRenderable = None,
-        end_formatter: None | IRenderable = None,
-    ):
-        super().__init__('all', tags, builders, schedulers, branches, None, add_logs, add_patch)
-        self.start_formatter = start_formatter
-        if self.start_formatter is None:
-            self.start_formatter = MessageFormatterRenderable('Build started.')
-        self.end_formatter = end_formatter
-        if self.end_formatter is None:
-            self.end_formatter = MessageFormatterRenderable('Build done.')
-
-    @defer.inlineCallbacks
-    def generate(self, master: BuildMaster, reporter: ReporterBase, key: tuple[str, None | Any, str], build: Build) -> defer.Generator[Any, object, Any]:
-        _, _, event = key
-        is_new = event == 'new'
-
-        formatter = self.start_formatter if is_new else self.end_formatter
-
-        yield getDetailsForBuild(
-            master,
-            build,
-            want_properties=formatter.want_properties,
-            want_steps=formatter.want_steps,
-            want_logs=formatter.want_logs,
-            want_logs_content=formatter.want_logs_content,
-        )
-
-        if not self.is_message_needed_by_props(build):
-            return None
-
-        report = yield self.build_message(formatter, master, reporter, build)
-        reportT: dict[str, Any] = cast(dict[str, Any], report)
-
-        if event == "started-nix-eval" or event == "finished-nix-eval":
-            reportT["builds"][0]["properties"]["status_name"] = ("nix-eval", "generator")
-        if (event == "started-nix-build" or event == "finished-nix-build") and reportT["builds"][0]["properties"]["status_name"][0] == "nix-eval":
-            reportT["builds"][0]["properties"]["status_name"] = ("nix-build", "generator")
-        if event == "finished-nix-eval" or event == "finished-nix-build":
-            reportT["builds"][0]["complete"] = True
-            reportT["builds"][0]["complete_at"] = datetime.now(tz=timezone.utc)
-
-        tlog.info("{event}: {build}", event = event, build = reportT["builds"][0])
-
-        return reportT
-
-class ModifyingGitHubStatusPush(GitHubStatusPush):
-    def checkConfig(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        generators: None | list[IReportGenerator] = None,
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        generators = [
-            # BuildRequestGenerator(),
-            # BuildStartEndStatusGenerator(),
-            BuildNixEvalStatusGenerator(),
-        ]
-
-        return super().checkConfig(**kwargs, generators = generators)
-
-    def reconfigService(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        generators: None | list[IReportGenerator] = None,
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        generators = [
-            # BuildRequestGenerator(),
-            # BuildStartEndStatusGenerator(),
-            BuildNixEvalStatusGenerator(),
-        ]
-
-        return super().reconfigService(**kwargs, generators = generators)
-
-    @defer.inlineCallbacks
-    def sendMessage(self, reports: Any) -> Any:
-        reports = self.modifyingFilter(reports)
-        if reports is None:
-            return
-
-        result = yield super().sendMessage(reports)
-        return result
-
-
 class GithubLegacyAuthBackend(GithubAuthBackend):
     auth_type: GitHubLegacyConfig
 
@@ -452,13 +338,15 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
         return [GitHubLegacySecretService(self.token)]
 
     def create_reporter(self) -> ReporterBase:
-        return ModifyingGitHubStatusPush(
+        return GitHubStatusPush(
             token=self.token.get(),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
-            modifyingFilter=filter_for_combined_builds,
+            generators = [
+                BuildNixEvalStatusGenerator(),
+            ],
         )
 
     def create_reload_builder_steps(
@@ -540,13 +428,15 @@ class GithubAppAuthBackend(GithubAuthBackend):
                 self.project_id_map[props["projectname"]]
             ].get()
 
-        return ModifyingGitHubStatusPush(
+        return GitHubStatusPush(
             token=WithProperties("%(github_token)s", github_token=get_github_token),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
-            modifyingFilter=filter_for_combined_builds,
+            generators = [
+                BuildNixEvalStatusGenerator(),
+            ],
         )
 
     def create_reload_builder_steps(
