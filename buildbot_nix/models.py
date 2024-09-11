@@ -219,6 +219,8 @@ class NixEvalJobSuccess(BaseModel):
     attr: str
     attrPath: list[str]  # noqa: N815
     cacheStatus: CacheStatus | None = None  # noqa: N815
+    neededBuilds: list[str]  # noqa: N815
+    neededSubstitutes: list[str]  # noqa: N815
     drvPath: str  # noqa: N815
     inputDrvs: dict[str, list[str]]  # noqa: N815
     name: str

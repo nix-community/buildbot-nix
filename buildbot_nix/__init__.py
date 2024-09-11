@@ -21,7 +21,6 @@ from buildbot.process.buildstep import SUCCESS
 
 # from buildbot.db.buildrequests import BuildRequestModel
 # from buildbot.db.builds import BuildModel
-from buildbot.process.log import Log
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, statusToString, worst_status
@@ -33,10 +32,9 @@ from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
-    from buildbot.process.log import StreamLog
+    from buildbot.process.log import Log, StreamLog
     from buildbot.www.auth import AuthBase
 
-from pydantic import TypeAdapter
 from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python.failure import Failure
@@ -73,7 +71,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
     project: GitProject
 
-    sucessful_jobs: list[NixEvalJobSuccess]
+    successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
     report_status: bool
     drv_info: dict[str, NixDerivation]
@@ -312,16 +310,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return [ss_for_trigger[k] for k in sorted(ss_for_trigger.keys())]
 
     @staticmethod
-    def get_derivation_closure(
-        derivation: str, derivations_inputs: dict[str, set[str]]
-    ) -> set[str]:
-        r, size = {derivation}, 0
-        while len(r) != size:
-            size = len(r)
-            r.update(*[derivations_inputs[k] for k in r])
-        return r.difference([derivation])
-
-    @staticmethod
     def sort_jobs_by_closures(
         jobs: list[NixEvalJobSuccess], job_closures: dict[str, set[str]]
     ) -> list[NixEvalJobSuccess]:
@@ -368,37 +356,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return removed
 
     @defer.inlineCallbacks
-    def get_all_derivations(
-        self, log: Log
-    ) -> Generator[Any, Any, dict[str, NixDerivation]]:
-        if self.successful_jobs == []:
-            return {}
-        log.addStdout("getting derivation infos\n")
-        cmd = yield self.makeRemoteShellCommand(
-            stdioLogName=None,
-            collectStdout=True,
-            command=(
-                ["nix", "derivation", "show", "--recursive"]
-                + [job.drvPath for job in self.successful_jobs]
-            ),
-        )
-        yield self.runCommand(cmd)
-        log.addStdout("done\n")
-
-        try:
-            return TypeAdapter(dict[str, NixDerivation]).validate_json(cmd.stdout)
-        except json.JSONDecodeError as e:
-            msg = f"Failed to parse `nix derivation show` output for {cmd.command}"
-            raise BuildbotNixError(msg) from e
-
-    @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
         self.running = True
         build_props = self.build.getProperties()
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
         scheduler_log: Log = yield self.addLog("scheduler")
-
-        all_derivations = yield self.get_all_derivations(scheduler_log)
 
         # inject failed buildsteps for any failed eval jobs we got
         overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
@@ -412,19 +374,16 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             )
             self.brids.extend(brids)
 
-        # get all input derivations for every job as a dictionary
-        derivations_inputs: dict[str, set[str]] = {
-            derivation: set(info.inputDrvs.keys())
-            for derivation, info in all_derivations.items()
-        }
-
         # get all job derivations
         job_set = {job.drvPath for job in self.successful_jobs}
 
         # restrict the set of input derivations for all jobs to those which themselves are jobs
         job_closures = {
-            k: self.get_derivation_closure(k, derivations_inputs).intersection(job_set)
-            for k in job_set
+            k.drvPath: set(k.neededSubstitutes)
+            .union(set(k.neededBuilds))
+            .intersection(job_set)
+            .difference({k.drvPath})
+            for k in self.successful_jobs
         }
 
         # sort them according to their dependencies
