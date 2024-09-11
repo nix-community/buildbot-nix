@@ -113,7 +113,6 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         data: Build | BuildRequest,
     ) -> defer.Generator[Any, Any, Any]:
         what, _, event = key
-        log.info("{what} produced {event}", what=what, event=event)
         if what == "builds":
             is_new = event == "new"
 
