@@ -2,37 +2,28 @@ import json
 import os
 import signal
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import starmap
 from pathlib import Path
-from typing import Any, cast
-from datetime import datetime, timezone
+from typing import Any
 
-from buildbot.interfaces import IReportGenerator
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
-from buildbot.process.build import Build
 from buildbot.process.properties import Interpolate, Properties, WithProperties
 from buildbot.reporters.base import ReporterBase
-from buildbot.reporters.utils import getDetailsForBuild
 from buildbot.reporters.github import GitHubStatusPush
 from buildbot.secrets.providers.base import SecretProviderBase
 from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
 from pydantic import BaseModel, ConfigDict, Field
-from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
-from buildbot.interfaces import IRenderable
-from buildbot.plugins import util
 
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
-    filter_for_combined_builds,
     filter_repos_by_topic,
     http_request,
     model_dump_project_cache,
@@ -40,7 +31,6 @@ from .common import (
     paginated_github_request,
     slugify_project_name,
 )
-from .nix_status_generator import BuildNixEvalStatusGenerator
 from .github.installation_token import InstallationToken
 from .github.jwt_token import JWTToken
 from .github.legacy_token import (
@@ -54,6 +44,7 @@ from .models import (
     GitHubConfig,
     GitHubLegacyConfig,
 )
+from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
 
 tlog = Logger()
@@ -319,6 +310,7 @@ class GithubAuthBackend(ABC):
     ) -> list[BuildStep]:
         pass
 
+
 class GithubLegacyAuthBackend(GithubAuthBackend):
     auth_type: GitHubLegacyConfig
 
@@ -344,7 +336,7 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
-            generators = [
+            generators=[
                 BuildNixEvalStatusGenerator(),
             ],
         )
@@ -434,7 +426,7 @@ class GithubAppAuthBackend(GithubAuthBackend):
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
-            generators = [
+            generators=[
                 BuildNixEvalStatusGenerator(),
             ],
         )

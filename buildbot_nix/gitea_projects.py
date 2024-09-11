@@ -1,11 +1,9 @@
 import os
 import signal
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from buildbot.interfaces import IReportGenerator
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.properties import Interpolate
@@ -15,14 +13,12 @@ from buildbot.www.avatar import AvatarBase
 from buildbot_gitea.auth import GiteaAuth  # type: ignore[import]
 from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from pydantic import BaseModel
-from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
 
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
-    filter_for_combined_builds,
     filter_repos_by_topic,
     http_request,
     model_dump_project_cache,
@@ -30,8 +26,8 @@ from .common import (
     paginated_github_request,
     slugify_project_name,
 )
-from .nix_status_generator import BuildNixEvalStatusGenerator
 from .models import GiteaConfig
+from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
 
 tlog = Logger()
@@ -109,6 +105,7 @@ class GiteaProject(GitProject):
         # TODO Gitea doesn't include this information
         return False  # self.data["owner"]["type"] == "Organization"
 
+
 class GiteaBackend(GitBackend):
     config: GiteaConfig
     webhook_secret: str
@@ -142,7 +139,7 @@ class GiteaBackend(GitBackend):
             token=Interpolate(self.config.token),
             context=Interpolate("buildbot/%(prop:status_name)s"),
             context_pr=Interpolate("buildbot/%(prop:status_name)s"),
-            generators = [
+            generators=[
                 BuildNixEvalStatusGenerator(),
             ],
         )

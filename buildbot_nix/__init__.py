@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import graphlib
 import json
@@ -5,13 +6,11 @@ import multiprocessing
 import os
 import re
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable
-import typing
-import copy
+from typing import TYPE_CHECKING, Any
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
@@ -70,7 +69,6 @@ class BuildbotNixError(Exception):
 
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
-
 
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
@@ -179,14 +177,10 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         return props
 
-    def schedule_eval_failure(
-        self, job: NixEvalJobError
-    ) -> tuple[str, Properties]:
+    def schedule_eval_failure(self, job: NixEvalJobError) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(
-            Properties(), source, job
-        )
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
         props.setProperty("error", job.error, source)
 
         return (self.failed_eval_scheduler, props)
@@ -196,9 +190,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(
-            Properties(), source, job
-        )
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
         props.setProperty("first_failure", str(first_failure), source)
 
         return (self.cached_failure_scheduler, props)
@@ -210,9 +202,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(
-            Properties(), source, job
-        )
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
         props.setProperty("dependency.attr", dependency.attr, source)
 
         return (self.dependency_failed_scheduler, props)
@@ -228,9 +218,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         system = job.system
         out_path = job.outputs["out"] or None
 
-        props = BuildTrigger.set_common_properties(
-            Properties(), source, job
-        )
+        props = BuildTrigger.set_common_properties(Properties(), source, job)
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
         props.setProperty("out_path", out_path, source)
@@ -270,7 +258,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             self._add_results(brid)
 
         if not self.combine_builds:
-            self.produceEventForBuildRequestsById(brids.values(), "started-nix-build", None)
+            self.produce_event_for_build_requests_by_id(
+                brids.values(), "started-nix-build", None
+            )
 
         return brids, results_deferred
 
@@ -356,46 +346,53 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return removed
 
     @defer.inlineCallbacks
-
-    @defer.inlineCallbacks
-    def produceEventForBuildRequestsById(
-            self,
-            buildrequest_ids: Iterable[int],
-            event: str,
-            result: None | int,
+    def produce_event_for_build_requests_by_id(
+        self,
+        buildrequest_ids: Iterable[int],
+        event: str,
+        result: None | int,
     ) -> Generator[Any, object, None]:
         for buildrequest_id in buildrequest_ids:
-            builds: Any = yield self.master.data.get(('buildrequests', str(buildrequest_id), 'builds'))
+            builds: Any = yield self.master.data.get(
+                ("buildrequests", str(buildrequest_id), "builds")
+            )
 
             # only report with `buildrequets` if there are no builds to report for
             if not builds:
-              buildrequest: Any = yield self.master.data.get(('buildrequests', str(buildrequest_id)))
-              if result is not None:
-                  buildrequest["results"] = result
-              self.master.mq.produce(("buildrequests", str(buildrequest['buildrequestid']), event), copy.deepcopy(buildrequest))
+                buildrequest: Any = yield self.master.data.get(
+                    ("buildrequests", str(buildrequest_id))
+                )
+                if result is not None:
+                    buildrequest["results"] = result
+                self.master.mq.produce(
+                    ("buildrequests", str(buildrequest["buildrequestid"]), event),
+                    copy.deepcopy(buildrequest),
+                )
             else:
                 for build in builds:
-                    self.produceEventForBuild(event, build, result)
+                    self.produce_event_for_build(event, build, result)
 
     @defer.inlineCallbacks
-    def produceEventForBuildById(
-            self,
-            event: str,
-            build_id: int,
-            result: None | int,
+    def produce_event_for_build_by_id(
+        self,
+        event: str,
+        build_id: int,
+        result: None | int,
     ) -> Generator[Any, object, None]:
-        build: Any = yield self.master.data.get(('builds', str(build_id)))
-        self.produceEventForBuild(event, build, result)
+        build: Any = yield self.master.data.get(("builds", str(build_id)))
+        self.produce_event_for_build(event, build, result)
 
-    def produceEventForBuild(
-            self,
-            event: str,
-            build: Any,
-            result: None | int,
+    def produce_event_for_build(
+        self,
+        event: str,
+        build: Any,
+        result: None | int,
     ) -> None:
         if result is not None:
             build["results"] = result
-        self.master.mq.produce(("builds", str(build['buildid']), event), copy.deepcopy(build))
+        self.master.mq.produce(
+            ("builds", str(build["buildid"]), event), copy.deepcopy(build)
+        )
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, Any, None]:
@@ -409,7 +406,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         the receiving side.
         """
         if self.combine_builds:
-            self.produceEventForBuildById("started-nix-build", self.build.buildid, None)
+            self.produce_event_for_build_by_id(
+                "started-nix-build", self.build.buildid, None
+            )
 
         done: list[BuildTrigger.DoneJob] = []
         scheduled: list[BuildTrigger.ScheduledJob] = []
@@ -469,9 +468,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger,
-                        *self.schedule_cached_failure(
-                            build, failed_build.time
-                        ),
+                        *self.schedule_cached_failure(build, failed_build.time),
                     )
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
@@ -527,7 +524,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
             if not self.combine_builds:
-                self.produceEventForBuildRequestsById(brids.values(), "finished-nix-build", result)
+                self.produce_event_for_build_requests_by_id(
+                    brids.values(), "finished-nix-build", result
+                )
 
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
             if isinstance(job, NixEvalJobSuccess):
@@ -546,7 +545,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         )
                         build_schedule_order.remove(removed_job)
                         scheduled.append(
-                            BuildTrigger.ScheduledJob(removed_job, brids, results_deferred)
+                            BuildTrigger.ScheduledJob(
+                                removed_job, brids, results_deferred
+                            )
                         )
                         self.brids.extend(brids.values())
                     scheduler_log.addStdout(
@@ -565,7 +566,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             )
 
         if self.combine_builds:
-            self.produceEventForBuildById("finished-nix-build", self.build.buildid, overall_result)
+            self.produce_event_for_build_by_id(
+                "finished-nix-build", self.build.buildid, overall_result
+            )
         scheduler_log.addStdout("Done!\n")
         return overall_result
 
@@ -604,27 +607,28 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.job_report_limit = job_report_limit
 
     @defer.inlineCallbacks
-    def produceEvent(
-            self,
-            event: str,
-            result: None | int
-    ) -> Generator[Any, object, None]:
-        build = yield self.master.data.get(('builds', str(self.build.buildid)))
-        buildT = typing.cast(dict[str, Any], build)
+    def produce_event(
+        self, event: str, result: None | int
+    ) -> Generator[Any, Any, None]:
+        build: dict[str, Any] = yield self.master.data.get(
+            ("builds", str(self.build.buildid))
+        )
         if result is not None:
-            buildT["results"] = result
-        self.master.mq.produce(("builds", str(self.build.buildid), event), copy.deepcopy(buildT))
+            build["results"] = result
+        self.master.mq.produce(
+            ("builds", str(self.build.buildid), event), copy.deepcopy(build)
+        )
 
     @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
-        self.produceEvent("started-nix-eval", None)
+        self.produce_event("started-nix-eval", None)
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
         cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
         yield self.runCommand(cmd)
 
         # if the command passes extract the list of stages
         result = cmd.results()
-        self.produceEvent("finished-nix-eval", result)
+        self.produce_event("finished-nix-eval", result)
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
             jobs: list[NixEvalJob] = []
