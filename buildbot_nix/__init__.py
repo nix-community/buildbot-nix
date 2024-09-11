@@ -364,28 +364,18 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             event: str,
             result: None | int,
     ) -> Generator[Any, object, None]:
-        buildrequest_ids = list(buildrequest_ids)
-
-        def gotBuild(key: int, build: Any) -> None:
-            if build['buildrequestid'] in buildrequest_ids:
-              log.info("got build {key} : {build}", key = key, build = build)
-              # we only care about the first started build
-              buildrequest_ids.remove(int(build['buildrequestid']))
-              if not buildrequest_ids:
-                  del self.consumers[build['buildrequestid']]
-              self.produceEventForBuild(event, build, result)
-
         for buildrequest_id in buildrequest_ids:
-          builds: Any = yield self.master.data.get(('buildrequests', str(buildrequest_id), 'builds'))
+            builds: Any = yield self.master.data.get(('buildrequests', str(buildrequest_id), 'builds'))
 
-          if not builds:
-              # only subscribe to new builds, if there are no existing builds
-              self.consumers[buildrequest_id] = yield self.master.mq.startConsuming(
-                  gotBuild, ('builds', None, None)
-              )
-          # send starts for any exsting builds
-          for build in builds:
-              self.produceEventForBuild(event, build, result)
+            # only report with `buildrequets` if there are no builds to report for
+            if not builds:
+              buildrequest: Any = yield self.master.data.get(('buildrequests', str(buildrequest_id)))
+              if result is not None:
+                  buildrequest["results"] = result
+              self.master.mq.produce(("buildrequests", str(buildrequest['buildrequestid']), event), copy.deepcopy(buildrequest))
+            else:
+                for build in builds:
+                    self.produceEventForBuild(event, build, result)
 
     @defer.inlineCallbacks
     def produceEventForBuildById(
@@ -415,7 +405,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         who's dependencies have completed successfully. If a job fails, we recursively fail every jobs which
         depends on it.
         We also run fake builds for failed evaluations so that they nicely show up in the UI and also Forge
-        reports.
+        reports. The reporting is based on custom events and logic, see `BuildNixEvalStatusGenerator` for
+        the receiving side.
         """
         if self.combine_builds:
             self.produceEventForBuildById("started-nix-build", self.build.buildid, None)
@@ -534,9 +525,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             result = results[0]
             scheduler_log.addStdout(
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
-            )
-            log.info(
-                f"Found finished build {job.attr}, result {util.Results[result].upper()}, brids: {brids}"
             )
             if not self.combine_builds:
                 self.produceEventForBuildRequestsById(brids.values(), "finished-nix-build", result)
