@@ -1,6 +1,5 @@
 import os
 import signal
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -14,14 +13,12 @@ from buildbot.www.avatar import AvatarBase
 from buildbot_gitea.auth import GiteaAuth  # type: ignore[import]
 from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from pydantic import BaseModel
-from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
 
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
-    filter_for_combined_builds,
     filter_repos_by_topic,
     http_request,
     model_dump_project_cache,
@@ -30,6 +27,7 @@ from .common import (
     slugify_project_name,
 )
 from .models import GiteaConfig
+from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
 
 tlog = Logger()
@@ -108,35 +106,6 @@ class GiteaProject(GitProject):
         return False  # self.data["owner"]["type"] == "Organization"
 
 
-class ModifyingGiteaStatusPush(GiteaStatusPush):
-    def checkConfig(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        return super().checkConfig(**kwargs)
-
-    def reconfigService(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        return super().reconfigService(**kwargs)
-
-    @defer.inlineCallbacks
-    def sendMessage(self, reports: Any) -> Any:
-        reports = self.modifyingFilter(reports)
-        if reports is None:
-            return
-
-        result = yield super().sendMessage(reports)
-        return result
-
-
 class GiteaBackend(GitBackend):
     config: GiteaConfig
     webhook_secret: str
@@ -165,12 +134,14 @@ class GiteaBackend(GitBackend):
         )
 
     def create_reporter(self) -> ReporterBase:
-        return ModifyingGiteaStatusPush(
+        return GiteaStatusPush(
             baseURL=self.config.instance_url,
             token=Interpolate(self.config.token),
             context=Interpolate("buildbot/%(prop:status_name)s"),
             context_pr=Interpolate("buildbot/%(prop:status_name)s"),
-            modifyingFilter=filter_for_combined_builds,
+            generators=[
+                BuildNixEvalStatusGenerator(),
+            ],
         )
 
     def create_change_hook(self) -> dict[str, Any]:

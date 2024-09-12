@@ -2,7 +2,6 @@ import json
 import os
 import signal
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import starmap
 from pathlib import Path
@@ -19,14 +18,12 @@ from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
 from pydantic import BaseModel, ConfigDict, Field
-from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
 
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
-    filter_for_combined_builds,
     filter_repos_by_topic,
     http_request,
     model_dump_project_cache,
@@ -47,6 +44,7 @@ from .models import (
     GitHubConfig,
     GitHubLegacyConfig,
 )
+from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
 
 tlog = Logger()
@@ -313,35 +311,6 @@ class GithubAuthBackend(ABC):
         pass
 
 
-class ModifyingGitHubStatusPush(GitHubStatusPush):
-    def checkConfig(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        return super().checkConfig(**kwargs)
-
-    def reconfigService(
-        self,
-        modifyingFilter: Callable[[Any], Any | None] = lambda x: x,  # noqa: N803
-        **kwargs: Any,
-    ) -> Any:
-        self.modifyingFilter = modifyingFilter
-
-        return super().reconfigService(**kwargs)
-
-    @defer.inlineCallbacks
-    def sendMessage(self, reports: Any) -> Any:
-        reports = self.modifyingFilter(reports)
-        if reports is None:
-            return
-
-        result = yield super().sendMessage(reports)
-        return result
-
-
 class GithubLegacyAuthBackend(GithubAuthBackend):
     auth_type: GitHubLegacyConfig
 
@@ -361,13 +330,15 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
         return [GitHubLegacySecretService(self.token)]
 
     def create_reporter(self) -> ReporterBase:
-        return ModifyingGitHubStatusPush(
+        return GitHubStatusPush(
             token=self.token.get(),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
-            modifyingFilter=filter_for_combined_builds,
+            generators=[
+                BuildNixEvalStatusGenerator(),
+            ],
         )
 
     def create_reload_builder_steps(
@@ -449,13 +420,15 @@ class GithubAppAuthBackend(GithubAuthBackend):
                 self.project_id_map[props["projectname"]]
             ].get()
 
-        return ModifyingGitHubStatusPush(
+        return GitHubStatusPush(
             token=WithProperties("%(github_token)s", github_token=get_github_token),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface
             # so that we distinguish what has beeing build
             context=Interpolate("buildbot/%(prop:status_name)s"),
-            modifyingFilter=filter_for_combined_builds,
+            generators=[
+                BuildNixEvalStatusGenerator(),
+            ],
         )
 
     def create_reload_builder_steps(
