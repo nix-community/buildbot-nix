@@ -20,6 +20,11 @@ in
         default = config.networking.hostName;
         description = "The buildbot worker name.";
       };
+      nixEvalJobs.package = lib.mkOption {
+        type = lib.types.package;
+        default = pkgs.callPackage ./nix-eval-jobs.nix { };
+        description = "nix-eval-jobs to use for evaluation";
+      };
       buildbotNixpkgs = lib.mkOption {
         type = lib.types.raw;
         description = "Nixpkgs to use for buildbot packages";
@@ -72,7 +77,7 @@ in
         pkgs.git
         pkgs.openssh
         pkgs.nix
-        pkgs.nix-eval-jobs
+        cfg.nixEvalJobs.package
       ];
       environment.PYTHONPATH = "${python.withPackages (_: [ cfg.package ])}/${python.sitePackages}";
       environment.MASTER_URL = cfg.masterUrl;

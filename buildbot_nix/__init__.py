@@ -1,10 +1,13 @@
+import dataclasses
+import graphlib
 import json
 import multiprocessing
 import os
 import re
-import uuid
 from collections import defaultdict
 from collections.abc import Generator
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,30 +17,43 @@ from buildbot.interfaces import WorkerSetupError
 from buildbot.locks import MasterLock
 from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
+from buildbot.process.buildstep import SUCCESS
+
+# from buildbot.db.buildrequests import BuildRequestModel
+# from buildbot.db.builds import BuildModel
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
-from buildbot.process.results import ALL_RESULTS, statusToString
+from buildbot.process.results import ALL_RESULTS, statusToString, worst_status
+from buildbot.reporters.utils import getURLForBuildrequest
+from buildbot.schedulers.base import BaseScheduler
 from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
-    from buildbot.process.log import StreamLog
+    from buildbot.process.log import Log, StreamLog
     from buildbot.www.auth import AuthBase
 
 from twisted.internet import defer
 from twisted.logger import Logger
+from twisted.python.failure import Failure
 
-from . import models
-from .common import (
-    slugify_project_name,
-)
+from . import failed_builds, models
 from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
 )
-from .models import AuthBackendConfig, BuildbotNixConfig
+from .models import (
+    AuthBackendConfig,
+    BuildbotNixConfig,
+    CacheStatus,
+    NixDerivation,
+    NixEvalJob,
+    NixEvalJobError,
+    NixEvalJobModel,
+    NixEvalJobSuccess,
+)
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 
@@ -50,95 +66,446 @@ class BuildbotNixError(Exception):
     pass
 
 
-class BuildTrigger(Trigger):
+class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
 
     project: GitProject
+
+    successful_jobs: list[NixEvalJobSuccess]
+    failed_jobs: list[NixEvalJobError]
+    report_status: bool
+    drv_info: dict[str, NixDerivation]
+    builds_scheduler: str
+    skipped_builds_scheduler: str
+    failed_eval_scheduler: str
+    cached_failure_scheduler: str
+    dependency_failed_scheduler: str
+    result_list: list[int]
+    ended: bool
+    running: bool
+    wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None
+    brids: list[int]
+
+    @dataclass
+    class ScheduledJob:
+        job: NixEvalJobSuccess
+        builder_ids: dict[int, int]
+        results: defer.Deferred[list[int]]
+
+        def __iter__(self) -> Generator[Any, None, None]:
+            for field in dataclasses.fields(self):
+                yield getattr(self, field.name)
+
+    @dataclass
+    class DoneJob:
+        job: NixEvalJobSuccess
+        builder_ids: dict[int, int]
+        results: list[int]
+
+        def __iter__(self) -> Generator[Any, None, None]:
+            for field in dataclasses.fields(self):
+                yield getattr(self, field.name)
 
     def __init__(
         self,
         project: GitProject,
         builds_scheduler: str,
         skipped_builds_scheduler: str,
-        jobs: list[dict[str, Any]],
+        failed_eval_scheduler: str,
+        dependency_failed_scheduler: str,
+        cached_failure_scheduler: str,
+        successful_jobs: list[NixEvalJobSuccess],
+        failed_jobs: list[NixEvalJobError],
         report_status: bool,
         **kwargs: Any,
     ) -> None:
-        if "name" not in kwargs:
-            kwargs["name"] = "trigger"
         self.project = project
-        self.jobs = jobs
+        self.successful_jobs = successful_jobs
+        self.failed_jobs = failed_jobs
         self.report_status = report_status
         self.config = None
         self.builds_scheduler = builds_scheduler
         self.skipped_builds_scheduler = skipped_builds_scheduler
-        Trigger.__init__(
-            self,
-            waitForFinish=True,
-            schedulerNames=[builds_scheduler, skipped_builds_scheduler],
-            haltOnFailure=True,
-            flunkOnFailure=True,
-            sourceStamps=[],
-            alwaysUseLatest=False,
-            updateSourceStamp=False,
-            **kwargs,
+        self.failed_eval_scheduler = failed_eval_scheduler
+        self.cached_failure_scheduler = cached_failure_scheduler
+        self.dependency_failed_scheduler = dependency_failed_scheduler
+        self._result_list: list[int] = []
+        self.ended = False
+        self.running = False
+        self.wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None = (
+            None
         )
+        self.brids = []
+        super().__init__(**kwargs)
 
-    def createTriggerProperties(self, props: Any) -> Any:  # noqa: N802
+    def interrupt(self, reason: str | Failure) -> None:
+        # We cancel the buildrequests, as the data api handles
+        # both cases:
+        # - build started: stop is sent,
+        # - build not created yet: related buildrequests are set to CANCELLED.
+        # Note that there is an identified race condition though (more details
+        # are available at buildbot.data.buildrequests).
+        for brid in self.brids:
+            self.master.data.control(
+                "cancel",
+                {"reason": "parent build was interrupted"},
+                ("buildrequests", brid),
+            )
+        if self.running and not self.ended:
+            self.ended = True
+            # if we are interrupted because of a connection lost, we interrupt synchronously
+            if self.build.conn is None and self.wait_for_finish_deferred is not None:
+                self.wait_for_finish_deferred.cancel()
+
+    def get_scheduler_by_name(self, name: str) -> BaseScheduler:
+        schedulers = self.master.scheduler_manager.namedServices
+        if name not in schedulers:
+            message = f"unknown triggered scheduler: {name!r}"
+            raise BuildbotNixError(message)
+        # todo: check ITriggerableScheduler
+        return schedulers[name]
+
+    @staticmethod
+    def set_common_properties(
+        props: Properties,
+        source: str,
+        job: NixEvalJob,
+        report_status: bool,
+    ) -> Properties:
+        props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
+        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
+        props.setProperty("virtual_builder_tags", "", source)
+        props.setProperty("attr", job.attr, source)
+        props.setProperty("report_status", report_status, source)
+
         return props
 
-    def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:  # noqa: N802
+    def schedule_eval_failure(
+        self, job: NixEvalJobError, report_status: bool
+    ) -> tuple[str, Properties]:
+        source = "nix-eval-nix"
+
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
+        props.setProperty("error", job.error, source)
+
+        return (self.failed_eval_scheduler, props)
+
+    def schedule_cached_failure(
+        self, job: NixEvalJobSuccess, report_status: bool, first_failure: datetime
+    ) -> tuple[str, Properties]:
+        source = "nix-eval-nix"
+
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
+        props.setProperty("first_failure", str(first_failure), source)
+
+        return (self.cached_failure_scheduler, props)
+
+    def schedule_dependency_failed(
+        self,
+        job: NixEvalJobSuccess,
+        dependency: NixEvalJobSuccess,
+        report_status: bool,
+    ) -> tuple[str, Properties]:
+        source = "nix-eval-nix"
+
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
+        props.setProperty("dependency.attr", dependency.attr, source)
+
+        return (self.dependency_failed_scheduler, props)
+
+    def schedule_success(
+        self,
+        build_props: Properties,
+        job: NixEvalJobSuccess,
+        report_status: bool,
+    ) -> tuple[str, Properties]:
+        source = "nix-eval-nix"
+
+        drv_path = job.drvPath
+        system = job.system
+        out_path = job.outputs["out"] or None
+
+        props = BuildTrigger.set_common_properties(
+            Properties(), source, job, report_status
+        )
+        props.setProperty("system", system, source)
+        props.setProperty("drv_path", drv_path, source)
+        props.setProperty("out_path", out_path, source)
+        props.setProperty("cacheStatus", job.cacheStatus, source)
+
+        build_props.setProperty(f"{job.attr}-out_path", out_path, source)
+        build_props.setProperty(f"{job.attr}-drv_path", drv_path, source)
+
+        # TODO: allow to skip if the build is cached?
+        if job.cacheStatus in {CacheStatus.notBuilt, CacheStatus.cached}:
+            return (self.builds_scheduler, props)
+        return (self.skipped_builds_scheduler, props)
+
+    @defer.inlineCallbacks
+    def schedule(
+        self,
+        ss_for_trigger: list[dict[str, Any]],
+        scheduler_name: str,
+        props: Properties,
+    ) -> Generator[Any, Any, tuple[dict[int, int], defer.Deferred[list[int]]]]:
+        scheduler: BaseScheduler = self.get_scheduler_by_name(scheduler_name)
+
+        ids_deferred, results_deferred = scheduler.trigger(
+            waited_for=True,
+            sourcestamps=ss_for_trigger,
+            set_props=props,
+            parent_buildid=self.build.buildid,
+            parent_relationship="Triggered from",
+        )
+
+        brids: dict[int, int]
+        _, brids = yield ids_deferred
+
+        for brid in brids.values():
+            url = getURLForBuildrequest(self.master, brid)
+            yield self.addURL(f"{scheduler.name} #{brid}", url)
+            self._add_results(brid)
+
+        return brids, results_deferred
+
+    @defer.inlineCallbacks
+    def _add_results(self, brid: Any) -> Generator[Any, Any, None]:
+        @defer.inlineCallbacks
+        def _is_buildrequest_complete(brid: Any) -> Generator[Any, Any, bool]:
+            buildrequest: Any = yield self.master.db.buildrequests.getBuildRequest(
+                brid
+            )  # TODO: once we bump to 4.1.x use BuildRequestModel | None
+            if buildrequest is None:
+                message = "Failed to get build request by its ID"
+                raise BuildbotNixError(message)
+            return buildrequest["complete"]
+
+        event = ("buildrequests", str(brid), "complete")
+        yield self.master.mq.waitUntilEvent(
+            event, lambda: _is_buildrequest_complete(brid)
+        )
+        builds: Any = yield self.master.db.builds.getBuilds(
+            buildrequestid=brid
+        )  # TODO: once we bump to 4.1.x use list[BuildModel]
+        for build in builds:
+            self._result_list.append(build["results"])
+        self.updateSummary()
+
+    def prepare_sourcestamp_list_for_trigger(
+        self,
+    ) -> list[
+        dict[str, Any]
+    ]:  # TODO: ISourceStamp? its defined but never used anywhere an doesn't include `asDict` method
+        ss_for_trigger = {}
+        objs_from_build = self.build.getAllSourceStamps()
+        for ss in objs_from_build:
+            ss_for_trigger[ss.codebase] = ss.asDict()
+
+        return [ss_for_trigger[k] for k in sorted(ss_for_trigger.keys())]
+
+    @staticmethod
+    def sort_jobs_by_closures(
+        jobs: list[NixEvalJobSuccess], job_closures: dict[str, set[str]]
+    ) -> list[NixEvalJobSuccess]:
+        sorted_jobs = []
+        sorter = graphlib.TopologicalSorter(job_closures)
+
+        for item in sorter.static_order():
+            i = 0
+            while i < len(jobs):
+                if item == jobs[i].drvPath:
+                    sorted_jobs.append(jobs[i])
+                    del jobs[i]
+                else:
+                    i += 1
+
+        return sorted_jobs
+
+    @staticmethod
+    def get_failed_dependents(
+        job: NixEvalJobSuccess,
+        jobs: list[NixEvalJobSuccess],
+        job_closures: dict[str, set[str]],
+    ) -> list[NixEvalJobSuccess]:
+        jobs = list(jobs)
+        failed_checks: list[NixEvalJob] = [job]
+        failed_paths: list[str] = [job.drvPath]
+        removed = []
+        while True:
+            old_paths = list(failed_paths)
+            for build in list(jobs):
+                deps: set[str] = job_closures.get(build.drvPath, set())
+
+                for path in old_paths:
+                    if path in deps:
+                        failed_checks.append(build)
+                        failed_paths.append(build.drvPath)
+                        jobs.remove(build)
+                        removed.append(build)
+
+                        break
+            if old_paths == failed_paths:
+                break
+
+        return removed
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, Any, None]:
+        self.running = True
         build_props = self.build.getProperties()
-        repo_name = self.project.name
-        project_id = slugify_project_name(repo_name)
-        source = f"nix-eval-{project_id}"
+        ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
+        scheduler_log: Log = yield self.addLog("scheduler")
 
-        triggered_schedulers = []
-        for job in self.jobs:
-            attr = job.get("attr", "eval-error")
-            name = attr
-            if repo_name is not None:
-                name = f"github:{repo_name}#checks.{name}"
-            else:
-                name = f"checks.{name}"
-            error = job.get("error")
-            props = Properties()
-            props.setProperty("virtual_builder_name", name, source)
-            props.setProperty("status_name", f"nix-build .#checks.{attr}", source)
-            props.setProperty("virtual_builder_tags", "", source)
-            props.setProperty("report_status", self.report_status, source)
+        # inject failed buildsteps for any failed eval jobs we got
+        overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
+        if self.failed_jobs:
+            scheduler_log.addStdout("The following jobs failed to evaluate:\n")
+        for failed_job in self.failed_jobs:
+            scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
+            brids, _ = yield self.schedule(
+                ss_for_trigger,
+                *self.schedule_eval_failure(failed_job, self.report_status),
+            )
+            self.brids.extend(brids)
 
-            drv_path = job.get("drvPath")
-            system = job.get("system")
-            out_path = job.get("outputs", {}).get("out")
+        # get all job derivations
+        job_set = {job.drvPath for job in self.successful_jobs}
 
-            props.setProperty("attr", attr, source)
-            props.setProperty("system", system, source)
-            props.setProperty("drv_path", drv_path, source)
-            props.setProperty("out_path", out_path, source)
-            props.setProperty("default_branch", self.project.default_branch, source)
-            # we use this to identify builds when running a retry
-            props.setProperty("build_uuid", str(uuid.uuid4()), source)
+        # restrict the set of input derivations for all jobs to those which themselves are jobs
+        job_closures = {
+            k.drvPath: set(k.neededSubstitutes)
+            .union(set(k.neededBuilds))
+            .intersection(job_set)
+            .difference({k.drvPath})
+            for k in self.successful_jobs
+        }
 
-            if error is not None:
-                props.setProperty("error", error, source)
-                triggered_schedulers.append((self.skipped_builds_scheduler, props))
-                continue
+        # sort them according to their dependencies
+        build_schedule_order = self.sort_jobs_by_closures(
+            self.successful_jobs, job_closures
+        )
 
-            if job.get("isCached"):
-                triggered_schedulers.append((self.skipped_builds_scheduler, props))
-                continue
+        done: list[BuildTrigger.DoneJob] = []
+        scheduled: list[BuildTrigger.ScheduledJob] = []
+        while build_schedule_order or scheduled:
+            scheduler_log.addStdout("Scheduling...\n")
 
-            build_props.setProperty(f"{attr}-out_path", out_path, source)
-            build_props.setProperty(f"{attr}-drv_path", drv_path, source)
+            # check which jobs should be scheduled now
+            schedule_now = []
+            for build in list(build_schedule_order):
+                failed_build = failed_builds.check_build(build.drvPath)
+                if job_closures.get(build.drvPath):
+                    pass
+                elif failed_build is not None and self.build.reason != "rebuild":
+                    scheduler_log.addStdout(
+                        f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
+                    )
+                    build_schedule_order.remove(build)
 
-            triggered_schedulers.append((self.builds_scheduler, props))
-        return triggered_schedulers
+                    brids, results_deferred = yield self.schedule(
+                        ss_for_trigger,
+                        *self.schedule_cached_failure(
+                            build, self.report_status, failed_build.time
+                        ),
+                    )
+                    scheduled.append(
+                        BuildTrigger.ScheduledJob(build, brids, results_deferred)
+                    )
+                    self.brids.extend(brids.values())
+                elif failed_build is not None and self.build.reason == "rebuild":
+                    failed_builds.remove_build(build.drvPath)
+                    scheduler_log.addStdout(
+                        f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
+                    )
+
+                    build_schedule_order.remove(build)
+                    schedule_now.append(build)
+                else:
+                    build_schedule_order.remove(build)
+                    schedule_now.append(build)
+
+            if not schedule_now:
+                scheduler_log.addStdout("\tNo builds to schedule found.\n")
+
+            # schedule said jobs
+            for job in schedule_now:
+                scheduler_log.addStdout(f"\t- {job.attr}\n")
+                brids, results_deferred = yield self.schedule(
+                    ss_for_trigger,
+                    *self.schedule_success(build_props, job, self.report_status),
+                )
+
+                scheduled.append(
+                    BuildTrigger.ScheduledJob(job, brids, results_deferred)
+                )
+
+                self.brids.extend(brids.values())
+
+            scheduler_log.addStdout("Waiting...\n")
+
+            # wait for one to complete
+            self.wait_for_finish_deferred = defer.DeferredList(
+                [job.results for job in scheduled],
+                fireOnOneCallback=True,
+                fireOnOneErrback=True,
+            )
+
+            results: list[int]
+            index: int
+            results, index = yield self.wait_for_finish_deferred
+
+            job, brids, _ = scheduled[index]
+            done.append(BuildTrigger.DoneJob(job, brids, results))
+            del scheduled[index]
+            result = results[0]
+            scheduler_log.addStdout(
+                f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
+            )
+
+            # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
+            if result != SUCCESS:
+                failed_builds.add_build(job.drvPath, datetime.now(tz=UTC))
+
+                removed = self.get_failed_dependents(
+                    job, build_schedule_order, job_closures
+                )
+                for removed_job in removed:
+                    scheduler, props = self.schedule_dependency_failed(
+                        removed_job, job, self.report_status
+                    )
+                    brids, results_deferred = yield self.schedule(
+                        ss_for_trigger, scheduler, props
+                    )
+                    build_schedule_order.remove(removed_job)
+                    scheduled.append(
+                        BuildTrigger.ScheduledJob(removed_job, brids, results_deferred)
+                    )
+                    self.brids.extend(brids.values())
+                scheduler_log.addStdout(
+                    "\t- removed jobs: "
+                    + ", ".join([job.drvPath for job in removed])
+                    + "\n"
+                )
+
+            overall_result = worst_status(result, overall_result)
+            scheduler_log.addStdout(
+                f"\t- new result: {util.Results[overall_result].upper()} \n"
+            )
+
+            for dep in job_closures:
+                if job.drvPath in job_closures[dep]:
+                    job_closures[dep].remove(job.drvPath)
+
+        scheduler_log.addStdout("Done!\n")
+        return overall_result
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
-        """The original build trigger will the generic builder name `nix-build` in this case, which is not helpful"""
-        if not self.triggeredNames:
-            return {"step": "running"}
         summary = []
         if self._result_list:
             for status in ALL_RESULTS:
@@ -191,7 +558,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         result = cmd.results()
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
-            jobs = []
+            jobs: list[NixEvalJob] = []
 
             for line in self.observer.getStdout().split("\n"):
                 if line != "":
@@ -200,25 +567,34 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                     except json.JSONDecodeError as e:
                         msg = f"Failed to parse line: {line}"
                         raise BuildbotNixError(msg) from e
-                    jobs.append(job)
-            repo_name = self.project.name
-            project_id = slugify_project_name(repo_name)
-            filtered_jobs = []
-            for job in jobs:
-                system = job.get("system")
-                if not system or system in self.supported_systems:  # report eval errors
-                    filtered_jobs.append(job)
+                    jobs.append(NixEvalJobModel.validate_python(job))
 
-            self.number_of_jobs = len(filtered_jobs)
+            failed_jobs: list[NixEvalJobError] = []
+            successful_jobs: list[NixEvalJobSuccess] = []
+
+            for job in jobs:
+                # report unbuildable jobs
+                if isinstance(job, NixEvalJobError):
+                    failed_jobs.append(job)
+                elif job.system in self.supported_systems and isinstance(
+                    job, NixEvalJobSuccess
+                ):
+                    successful_jobs.append(job)
+
+            self.number_of_jobs = len(successful_jobs)
 
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
                         self.project,
-                        builds_scheduler=f"{project_id}-nix-build",
-                        skipped_builds_scheduler=f"{project_id}-nix-skipped-build",
+                        builds_scheduler=f"{self.project.project_id}-nix-build",
+                        skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
+                        failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
+                        dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
+                        cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
                         name="build flake",
-                        jobs=filtered_jobs,
+                        successful_jobs=successful_jobs,
+                        failed_jobs=failed_jobs,
                         report_status=(
                             self.job_report_limit is None
                             or self.number_of_jobs <= self.job_report_limit
@@ -229,7 +605,9 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                     [
                         Trigger(
                             waitForFinish=True,
-                            schedulerNames=[f"{project_id}-nix-build-combined"],
+                            schedulerNames=[
+                                f"{self.project.project_id}-nix-build-combined"
+                            ],
                             haltOnFailure=True,
                             flunkOnFailure=True,
                             sourceStamps=[],
@@ -246,29 +624,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         return result
 
 
-# FIXME this leaks memory... but probably not enough that we care
-class RetryCounter:
-    def __init__(self, retries: int) -> None:
-        self.builds: dict[uuid.UUID, int] = defaultdict(lambda: retries)
-
-    def retry_build(self, build_id: uuid.UUID) -> int:
-        retries = self.builds[build_id]
-        if retries > 1:
-            self.builds[build_id] = retries - 1
-            return retries
-        return 0
-
-
-# For now we limit this to two. Often this allows us to make the error log
-# shorter because we won't see the logs for all previous succeeded builds
-RETRY_COUNTER = RetryCounter(retries=2)
-
-
 class EvalErrorStep(steps.BuildStep):
     """Shows the error message of a failed evaluation."""
 
     @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
+    def run(self) -> Generator[Any, object, int]:
         error = self.getProperty("error")
         attr = self.getProperty("attr")
         # show eval error
@@ -277,12 +637,46 @@ class EvalErrorStep(steps.BuildStep):
         return util.FAILURE
 
 
+class DependencyFailedStep(steps.BuildStep):
+    """Shows a dependency failure."""
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, object, int]:
+        dependency_attr = self.getProperty("dependency.attr")
+        attr = self.getProperty("attr")
+        # show eval error
+        error_log: StreamLog = yield self.addLog("nix_error")
+        error_log.addStderr(
+            f"{attr} was failed because it depends on a failed build of {dependency_attr}.\n"
+        )
+        return util.FAILURE
+
+
+class CachedFailureStep(steps.BuildStep):
+    """Shows a dependency failure."""
+
+    @defer.inlineCallbacks
+    def run(self) -> Generator[Any, object, int]:
+        attr = self.getProperty("attr")
+        # show eval error
+        error_log: StreamLog = yield self.addLog("nix_error")
+        error_log.addStderr(
+            "\n".join(
+                [
+                    f"{attr} was failed because it has failed previously and its failure has been cached.",
+                    f"  first failure time: {self.getProperty('first_failure')}",
+                ]
+            )
+            + "\n"
+        )
+        return util.FAILURE
+
+
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
     """Builds a nix derivation."""
 
-    def __init__(self, retries: int, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
-        self.retries = retries
         super().__init__(**kwargs)
 
     @defer.inlineCallbacks
@@ -292,10 +686,6 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         yield self.runCommand(cmd)
 
         res = cmd.results()
-        if res == util.FAILURE and self.retries > 0:
-            retries = RETRY_COUNTER.retry_build(self.getProperty("build_uuid"))
-            if retries > self.retries - 1:
-                return util.RETRY
         return res
 
 
@@ -489,7 +879,6 @@ def nix_build_config(
     worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
-    retries: int = 1,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
@@ -515,7 +904,6 @@ def nix_build_config(
             # 3 hours, defaults to 20 minutes
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
-            retries=retries,
             haltOnFailure=True,
         ),
     )
@@ -525,9 +913,7 @@ def nix_build_config(
         Trigger(
             name="Register gcroot",
             waitForFinish=True,
-            schedulerNames=[
-                f"{slugify_project_name(project.name)}-nix-register-gcroot"
-            ],
+            schedulerNames=[f"{project.project_id}-nix-register-gcroot"],
             haltOnFailure=True,
             flunkOnFailure=True,
             sourceStamps=[],
@@ -562,26 +948,87 @@ def nix_build_config(
     )
 
 
+def nix_failed_eval_config(
+    project: GitProject,
+    worker_names: list[str],
+) -> BuilderConfig:
+    """Dummy builder that is triggered when a build fails to evaluate."""
+    factory = util.BuildFactory()
+    factory.addStep(
+        EvalErrorStep(
+            name="Nix evaluation",
+            doStepIf=lambda _: True,  # not done steps cannot fail...
+        ),
+    )
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-failed-eval",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
+
+
+def nix_dependency_failed_config(
+    project: GitProject,
+    worker_names: list[str],
+) -> BuilderConfig:
+    """Dummy builder that is triggered when a build fails to evaluate."""
+    factory = util.BuildFactory()
+    factory.addStep(
+        DependencyFailedStep(
+            name="Dependency failed",
+            doStepIf=lambda _: True,  # not done steps cannot fail...
+        ),
+    )
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-dependency-failed",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
+
+
+def nix_cached_failure_config(
+    project: GitProject,
+    worker_names: list[str],
+) -> BuilderConfig:
+    """Dummy builder that is triggered when a build is cached as failed."""
+    factory = util.BuildFactory()
+    factory.addStep(
+        CachedFailureStep(
+            name="Cached failure",
+            doStepIf=lambda _: True,  # not done steps cannot fail...
+        ),
+    )
+
+    return util.BuilderConfig(
+        name=f"{project.name}/nix-cached-failure",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
+
+
 def nix_skipped_build_config(
     project: GitProject,
     worker_names: list[str],
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is skipped."""
     factory = util.BuildFactory()
-    factory.addStep(
-        EvalErrorStep(
-            name="Nix evaluation",
-            doStepIf=lambda s: s.getProperty("error"),
-            hideStepIf=lambda _, s: not s.getProperty("error"),
-        ),
-    )
 
     # This is just a dummy step showing the cached build
     factory.addStep(
         steps.BuildStep(
             name="Nix build (cached)",
             doStepIf=lambda _: False,
-            hideStepIf=lambda _, s: s.getProperty("error"),
         ),
     )
 
@@ -590,9 +1037,7 @@ def nix_skipped_build_config(
         Trigger(
             name="Register gcroot",
             waitForFinish=True,
-            schedulerNames=[
-                f"{slugify_project_name(project.name)}-nix-register-gcroot"
-            ],
+            schedulerNames=[f"{project.project_id}-nix-register-gcroot"],
             haltOnFailure=True,
             flunkOnFailure=True,
             sourceStamps=[],
@@ -675,7 +1120,6 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     outputs_path: Path | None = None,
-    build_retries: int = 1,
 ) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
@@ -712,10 +1156,25 @@ def config_for_project(
                 name=f"{project.project_id}-nix-build",
                 builderNames=[f"{project.name}/nix-build"],
             ),
-            # this is triggered from `nix-eval` when the build is skipped
+            # this is triggered from `nix-build` when the build is skipped
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-skipped-build",
                 builderNames=[f"{project.name}/nix-skipped-build"],
+            ),
+            # this is triggered from `nix-build` when the build has failed eval
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-failed-eval",
+                builderNames=[f"{project.name}/nix-failed-eval"],
+            ),
+            # this is triggered from `nix-build` when the build has a failed dependency
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-dependency-failed",
+                builderNames=[f"{project.name}/nix-dependency-failed"],
+            ),
+            # this is triggered from `nix-build` when the build has a failed dependency
+            schedulers.Triggerable(
+                name=f"{project.project_id}-nix-cached-failure",
+                builderNames=[f"{project.name}/nix-cached-failure"],
             ),
             # this is triggered from `nix-eval` when the build contains too many outputs
             schedulers.Triggerable(
@@ -758,10 +1217,12 @@ def config_for_project(
                 project,
                 worker_names,
                 outputs_path=outputs_path,
-                retries=build_retries,
                 post_build_steps=post_build_steps,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_failed_eval_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_dependency_failed_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_cached_failure_config(project, [SKIPPED_BUILDER_NAME]),
             nix_register_gcroot_config(project, worker_names),
             nix_build_combined_config(project, worker_names),
         ],
@@ -970,7 +1431,6 @@ class NixConfigurator(ConfiguratorBase):
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
                 self.config.outputs_path,
-                self.config.build_retries,
             )
 
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
@@ -1015,7 +1475,6 @@ class NixConfigurator(ConfiguratorBase):
 
         for backend in backends.values():
             avatar_method = backend.create_avatar_method()
-            print(avatar_method)
             if avatar_method is not None:
                 config["www"]["avatar_methods"].append(avatar_method)
 
@@ -1029,3 +1488,5 @@ class NixConfigurator(ConfiguratorBase):
                 backends=list(backends.values()),
                 projects=projects,
             )
+
+        failed_builds.initialize_database(Path("failed_builds.dbm"))
