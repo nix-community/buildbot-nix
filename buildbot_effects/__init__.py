@@ -96,7 +96,16 @@ def effect_function(opts: EffectsOptions) -> str:
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
     url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
-    return f"""(((builtins.getFlake {url}).outputs.herculesCI (builtins.fromJSON {escaped_args})).onPush.default.outputs.effects)"""
+    return f"""
+      let
+        flake = builtins.getFlake {url};
+        effects = flake.outputs.herculesCI (builtins.fromJSON {escaped_args});
+      in
+        if flake.outputs ? herculesCI then
+          effects.onPush.default.outputs.effects or {{}}
+        else
+          {{}}
+    """
 
 
 def list_effects(opts: EffectsOptions) -> list[str]:
@@ -104,7 +113,7 @@ def list_effects(opts: EffectsOptions) -> list[str]:
         "eval",
         "--json",
         "--expr",
-        f"builtins.attrNames {effect_function(opts)}",
+        f"builtins.attrNames ({effect_function(opts)})",
     )
     proc = run(cmd, stdout=subprocess.PIPE)
     return json.loads(proc.stdout)
@@ -114,7 +123,7 @@ def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
     cmd = [
         "nix-instantiate",
         "--expr",
-        f"({effect_function(opts)}.{effect}).run or []",
+        f"(({effect_function(opts)}).{effect}).run or []",
     ]
     proc = run(cmd, stdout=subprocess.PIPE)
     return proc.stdout.rstrip()
