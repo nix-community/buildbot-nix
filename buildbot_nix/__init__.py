@@ -98,9 +98,7 @@ class BuildbotEffectsTrigger(Trigger):
         return props
 
     def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:  # noqa: N802
-        repo_name = self.project.name
-        project_id = slugify_project_name(repo_name)
-        source = f"buildbot-run-effect-{project_id}"
+        source = f"buildbot-run-effect-{self.project.project_id}"
 
         triggered_schedulers = []
         for effect in self.effects:
@@ -746,14 +744,12 @@ class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
             effects = json.loads(self.observer.getStdout())
-            repo_name = self.project.name
-            project_id = slugify_project_name(repo_name)
 
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildbotEffectsTrigger(
                         project=self.project,
-                        effects_scheduler=f"{project_id}-run-effect",
+                        effects_scheduler=f"{self.project.project_id}-run-effect",
                         name="Buildbot effect",
                         effects=effects,
                     ),
