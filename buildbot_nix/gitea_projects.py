@@ -71,6 +71,10 @@ class GiteaProject(GitProject):
         return "gitea"
 
     @property
+    def nix_ref_type(self) -> str:
+        return "gitea"
+
+    @property
     def repo(self) -> str:
         return self.data.name
 

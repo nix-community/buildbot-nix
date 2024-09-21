@@ -83,6 +83,11 @@ class GitProject(ABC):
 
     @property
     @abstractmethod
+    def nix_ref_type(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
     def owner(self) -> str:
         pass
 
