@@ -70,6 +70,7 @@ class BuildbotNixError(Exception):
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
 
+    project: GitProject
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
     combined_build: bool
@@ -108,6 +109,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
     def __init__(
         self,
+        project: GitProject,
         builds_scheduler: str,
         skipped_builds_scheduler: str,
         failed_eval_scheduler: str,
@@ -118,6 +120,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         combine_builds: bool,
         **kwargs: Any,
     ) -> None:
+        self.project = project
         self.successful_jobs = successful_jobs
         self.failed_jobs = failed_jobs
         self.combine_builds = combine_builds
@@ -167,11 +170,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     @staticmethod
     def set_common_properties(
         props: Properties,
+        project: Project,
         source: str,
         job: NixEvalJob,
     ) -> Properties:
-        props.setProperty("virtual_builder_name", f".#checks.{job.attr}", source)
-        props.setProperty("status_name", f"nix-build .#checks.{job.attr}", source)
+        name = f"{project.nix_ref_type}:{project.name}#checks.{job.attr}"
+        props.setProperty("virtual_builder_name", name, source)
+        props.setProperty("status_name", f"nix-build {name}", source)
         props.setProperty("virtual_builder_tags", "", source)
         props.setProperty("attr", job.attr, source)
 
@@ -180,7 +185,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     def schedule_eval_failure(self, job: NixEvalJobError) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(
+            Properties(), self.project, source, job
+        )
         props.setProperty("error", job.error, source)
 
         return (self.failed_eval_scheduler, props)
@@ -190,7 +197,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(
+            Properties(), self.project, source, job
+        )
         props.setProperty("first_failure", str(first_failure), source)
 
         return (self.cached_failure_scheduler, props)
@@ -202,7 +211,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(
+            Properties(), self.project, source, job
+        )
         props.setProperty("dependency.attr", dependency.attr, source)
 
         return (self.dependency_failed_scheduler, props)
@@ -218,7 +229,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         system = job.system
         out_path = job.outputs["out"] or None
 
-        props = BuildTrigger.set_common_properties(Properties(), source, job)
+        props = BuildTrigger.set_common_properties(
+            Properties(), self.project, source, job
+        )
         props.setProperty("system", system, source)
         props.setProperty("drv_path", drv_path, source)
         props.setProperty("out_path", out_path, source)
@@ -657,6 +670,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             self.build.addStepsAfterCurrentStep(
                 [
                     BuildTrigger(
+                        project=self.project,
                         builds_scheduler=f"{self.project.project_id}-nix-build",
                         skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
                         failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
