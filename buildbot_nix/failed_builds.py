@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     database: None | dbm._Database = None
@@ -18,6 +18,7 @@ class FailedBuildsError(Exception):
 class FailedBuild(BaseModel):
     derivation: str
     time: datetime
+    url: str = Field(default="unknown")
 
 
 DB_NOT_INIT_MSG = "Database not initialized"
@@ -30,12 +31,12 @@ def initialize_database(db_path: Path) -> None:
         database = dbm.open(str(db_path), "c")
 
 
-def add_build(derivation: str, time: datetime) -> None:
+def add_build(derivation: str, time: datetime, url: str) -> None:
     global database  # noqa: PLW0602
 
     if database is not None:
         database[derivation] = FailedBuild(
-            derivation=derivation, time=time
+            derivation=derivation, time=time, url=url
         ).model_dump_json()
     else:
         raise FailedBuildsError(DB_NOT_INIT_MSG)

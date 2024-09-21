@@ -186,12 +186,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return (self.failed_eval_scheduler, props)
 
     def schedule_cached_failure(
-        self, job: NixEvalJobSuccess, first_failure: datetime
+        self, job: NixEvalJobSuccess, first_failure: datetime, first_failure_url: str,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(Properties(), source, job)
         props.setProperty("first_failure", str(first_failure), source)
+        props.setProperty("first_failure_url", first_failure_url, source)
 
         return (self.cached_failure_scheduler, props)
 
@@ -463,12 +464,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 elif failed_build is not None and self.build.reason != "rebuild":
                     scheduler_log.addStdout(
                         f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
+                        + f"\t  see build at {failed_build.url}\n"
                     )
                     build_schedule_order.remove(build)
 
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger,
-                        *self.schedule_cached_failure(build, failed_build.time),
+                        *self.schedule_cached_failure(build, failed_build.time, failed_build.url),
                     )
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
@@ -531,7 +533,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
             if isinstance(job, NixEvalJobSuccess):
                 if result != SUCCESS:
-                    failed_builds.add_build(job.drvPath, datetime.now(tz=UTC))
+                    if self.build.reason == "rebuild" or not failed_builds.check_build(job.drvPath):
+                      url = yield self.build.getUrl()
+                      failed_builds.add_build(job.drvPath, datetime.now(tz=UTC), url)
 
                     removed = self.get_failed_dependents(
                         job, build_schedule_order, job_closures
@@ -719,6 +723,7 @@ class CachedFailureStep(steps.BuildStep):
                 [
                     f"{attr} was failed because it has failed previously and its failure has been cached.",
                     f"  first failure time: {self.getProperty('first_failure')}",
+                    f"  first failure url: {self.getProperty('first_failure_url')}",
                 ]
             )
             + "\n"
