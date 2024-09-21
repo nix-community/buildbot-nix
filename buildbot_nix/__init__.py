@@ -418,10 +418,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         reports. The reporting is based on custom events and logic, see `BuildNixEvalStatusGenerator` for
         the receiving side.
         """
-        if self.combine_builds:
-            self.produce_event_for_build_by_id(
-                "started-nix-build", self.build.buildid, None
-            )
+        self.produce_event_for_build_by_id(
+            "started-nix-build", self.build.buildid, None
+        )
 
         done: list[BuildTrigger.DoneJob] = []
         scheduled: list[BuildTrigger.ScheduledJob] = []
@@ -578,10 +577,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 f"\t- new result: {util.Results[overall_result].upper()} \n"
             )
 
-        if self.combine_builds:
-            self.produce_event_for_build_by_id(
-                "finished-nix-build", self.build.buildid, overall_result
-            )
+        self.produce_event_for_build_by_id(
+            "finished-nix-build", self.build.buildid, overall_result
+        )
         scheduler_log.addStdout("Done!\n")
         return overall_result
 
