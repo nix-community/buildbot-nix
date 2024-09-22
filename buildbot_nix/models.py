@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from buildbot.plugins import steps, util
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -32,7 +33,7 @@ class Interpolate(BaseModel):
     nix_type: str = Field(alias="_type")
     value: str
 
-    def __init__(self, value: str) -> None:
+    def __init__(self, value: str, **kwargs: Any) -> None:
         super().__init__(nix_type="interpolate", value=value)
 
 
