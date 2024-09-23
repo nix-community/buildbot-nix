@@ -753,20 +753,30 @@ in
 
       services.nginx.enable = true;
       services.nginx.virtualHosts.${cfg.domain} = {
-        locations = {
-          "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
-          "/sse" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
-            # proxy buffering will prevent sse to work
-            extraConfig = "proxy_buffering off;";
+        locations =
+          {
+            "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
+            "/sse" = {
+              proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
+              # proxy buffering will prevent sse to work
+              extraConfig = "proxy_buffering off;";
+            };
+            "/ws" = {
+              proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
+              proxyWebsockets = true;
+              # raise the proxy timeout for the websocket
+              extraConfig = "proxy_read_timeout 6000s;";
+            };
+          }
+          // lib.optionalAttrs (cfg.outputsPath != null) {
+            "/nix-outputs/" = {
+              alias = cfg.outputsPath;
+              extraConfig = ''
+                charset utf-8;
+                autoindex on;
+              '';
+            };
           };
-          "/ws" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
-            proxyWebsockets = true;
-            # raise the proxy timeout for the websocket
-            extraConfig = "proxy_read_timeout 6000s;";
-          };
-        } // lib.optionalAttrs (cfg.outputsPath != null) { "/nix-outputs/".alias = cfg.outputsPath; };
       };
 
       systemd.tmpfiles.rules =
