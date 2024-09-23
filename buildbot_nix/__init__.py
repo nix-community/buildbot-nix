@@ -808,9 +808,7 @@ class UpdateBuildOutput(steps.BuildStep):
     def run(self) -> Generator[Any, object, Any]:
         props = self.build.getProperties()
 
-        pr = props.getProperty("pr_number")
-
-        if not pr and props.getProperty("branch") != self.project.default_branch:
+        if props.getProperty("branch") != self.project.default_branch:
             return util.SKIPPED
 
         out_path = props.getProperty("out_path")
@@ -820,7 +818,7 @@ class UpdateBuildOutput(steps.BuildStep):
 
         project_name = Path(props.getProperty("projectname"))
 
-        target = Path(f"pulls/{pr}") if pr else Path(props.getProperty("branch"))
+        target = Path(props.getProperty("branch"))
 
         attr = Path(props.getProperty("attr"))
 
