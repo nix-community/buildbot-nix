@@ -207,8 +207,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         props = BuildTrigger.set_common_properties(
             Properties(), self.project, source, job
         )
-        props.setProperty("first_failure", str(first_failure), source)
-        props.setProperty("first_failure_url", first_failure_url, source)
+        props.setProperty("first_failure_url", first_failure.url, source)
 
         return (self.cached_failure_scheduler, props)
 
@@ -483,7 +482,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 elif failed_build is not None and self.build.reason != "rebuild":
                     scheduler_log.addStdout(
                         f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
-                        + f"\t  see build at {failed_build.url}\n"
+                        f"\t  see build at {failed_build.url}\n"
                     )
                     build_schedule_order.remove(build)
 
@@ -747,11 +746,10 @@ class CachedFailureStep(steps.BuildStep):
         error_log: StreamLog = yield self.addLog("nix_error")
         msg = [
             f"{attr} was failed because it has failed previously and its failure has been cached.",
-            f"  first failure time: {self.getProperty('first_failure')}",
         ]
         url = self.getProperty("first_failure_url")
         if url:
-            msg.append(f"  first failure url: {url}")
+            msg.append(f"  failed build: {url}")
         error_log.addStderr("\n".join(msg) + "\n")
         return util.FAILURE
 
