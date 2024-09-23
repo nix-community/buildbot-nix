@@ -6,6 +6,7 @@ import json
 import multiprocessing
 import os
 import re
+import urllib.parse
 from collections import defaultdict
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
@@ -798,9 +799,9 @@ class UpdateBuildOutput(steps.BuildStep):
 
         return root
 
-    def join_all_traversalsafe(self, root: Path, *paths: Path) -> Path:
+    def join_all_traversalsafe(self, root: Path, *paths: str) -> Path:
         for path in paths:
-            root = self.join_traversalsafe(root, path)
+            root = self.join_traversalsafe(root, Path(path))
 
         return root
 
@@ -816,14 +817,13 @@ class UpdateBuildOutput(steps.BuildStep):
         if not out_path:  # if, e.g., the build fails and doesn't produce an output
             return util.SKIPPED
 
-        project_name = Path(props.getProperty("projectname"))
-
-        target = Path(props.getProperty("branch"))
-
-        attr = Path(props.getProperty("attr"))
+        owner = urllib.parse.quote_plus(self.project.owner)
+        repo = urllib.parse.quote_plus(self.project.repo)
+        target = urllib.parse.quote_plus(props.getProperty("branch"))
+        attr = urllib.parse.quote_plus(props.getProperty("attr"))
 
         try:
-            file = self.join_all_traversalsafe(self.path, project_name, target, attr)
+            file = self.join_all_traversalsafe(self.path, owner, repo, target, attr)
         except ValueError as e:
             error_log: StreamLog = yield self.addLog("path_error")
             error_log.addStderr(f"Path traversal prevented ... skipping update: {e}")
