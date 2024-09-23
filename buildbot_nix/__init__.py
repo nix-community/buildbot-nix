@@ -730,16 +730,14 @@ class CachedFailureStep(steps.BuildStep):
         attr = self.getProperty("attr")
         # show eval error
         error_log: StreamLog = yield self.addLog("nix_error")
-        error_log.addStderr(
-            "\n".join(
-                [
-                    f"{attr} was failed because it has failed previously and its failure has been cached.",
-                    f"  first failure time: {self.getProperty('first_failure')}",
-                    f"  first failure url: {self.getProperty('first_failure_url')}",
-                ]
-            )
-            + "\n"
-        )
+        msg = [
+            f"{attr} was failed because it has failed previously and its failure has been cached.",
+            f"  first failure time: {self.getProperty('first_failure')}",
+        ]
+        url = self.getProperty("first_failure_url")
+        if url:
+            msg.append(f"  first failure url: {url}")
+        error_log.addStderr("\n".join(msg) + "\n")
         return util.FAILURE
 
 
