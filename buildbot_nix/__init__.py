@@ -784,16 +784,57 @@ class UpdateBuildOutput(steps.BuildStep):
         self.project = project
         self.path = path
 
+    def join_traversalsafe(self, root: Path, joined: Path) -> Path:
+        root = root.resolve()
+
+        for part in joined.parts:
+            new_root = (root / part).resolve()
+
+            if not new_root.is_relative_to(root):
+                msg = f"Joined path attempted to traverse upwards when processing {root} against {part} (gave {new_root})"
+                raise ValueError(msg)
+
+            root = new_root
+
+        return root
+
+    def join_all_traversalsafe(self, root: Path, *paths: Path) -> Path:
+        for path in paths:
+            root = self.join_traversalsafe(root, path)
+
+        return root
+
+    @defer.inlineCallbacks
     def run(self) -> Generator[Any, object, Any]:
         props = self.build.getProperties()
-        if props.getProperty("branch") != self.project.default_branch:
+
+        pr = props.getProperty("pr_number")
+
+        if not pr and props.getProperty("branch") != self.project.default_branch:
             return util.SKIPPED
 
-        attr = Path(props.getProperty("attr")).name
         out_path = props.getProperty("out_path")
-        # XXX don't hardcode this
-        self.path.mkdir(parents=True, exist_ok=True)
-        (self.path / attr).write_text(out_path)
+
+        if not out_path:  # if, e.g., the build fails and doesn't produce an output
+            return util.SKIPPED
+
+        project_name = Path(props.getProperty("projectname"))
+
+        target = Path(f"pulls/{pr}") if pr else Path(props.getProperty("branch"))
+
+        attr = Path(props.getProperty("attr"))
+
+        try:
+            file = self.join_all_traversalsafe(self.path, project_name, target, attr)
+        except ValueError as e:
+            error_log: StreamLog = yield self.addLog("path_error")
+            error_log.addStderr(f"Path traversal prevented ... skipping update: {e}")
+            return util.FAILURE
+
+        file.parent.mkdir(parents=True, exist_ok=True)
+
+        file.write_text(out_path)
+
         return util.SUCCESS
 
 
@@ -1104,6 +1145,7 @@ def nix_cached_failure_config(
 def nix_skipped_build_config(
     project: GitProject,
     worker_names: list[str],
+    outputs_path: Path | None = None,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is skipped."""
     factory = util.BuildFactory()
@@ -1132,6 +1174,14 @@ def nix_skipped_build_config(
             set_properties={"report_status": False},
         ),
     )
+    if outputs_path is not None:
+        factory.addStep(
+            UpdateBuildOutput(
+                project=project,
+                name="Update build output",
+                path=outputs_path,
+            ),
+        )
     return util.BuilderConfig(
         name=f"{project.name}/nix-skipped-build",
         project=project.name,
@@ -1282,7 +1332,7 @@ def config_for_project(
                 outputs_path=outputs_path,
                 post_build_steps=post_build_steps,
             ),
-            nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
+            nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME], outputs_path),
             nix_failed_eval_config(project, [SKIPPED_BUILDER_NAME]),
             nix_dependency_failed_config(project, [SKIPPED_BUILDER_NAME]),
             nix_cached_failure_config(project, [SKIPPED_BUILDER_NAME]),
