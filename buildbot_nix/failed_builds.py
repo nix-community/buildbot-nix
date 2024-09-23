@@ -1,14 +1,8 @@
 import dbm
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    database: None | dbm._Database = None
-else:
-    database: Any = None
+from pydantic import BaseModel, Field
 
 
 class FailedBuildsError(Exception):
@@ -18,44 +12,28 @@ class FailedBuildsError(Exception):
 class FailedBuild(BaseModel):
     derivation: str
     time: datetime
+    url: str = Field(
+        default=f"build unknown. Please delete {Path("failed_builds.dbm").resolve()} to get a build url"
+    )
 
 
-DB_NOT_INIT_MSG = "Database not initialized"
+class FailedBuildDB:
+    def __init__(self, db_path: Path) -> None:
+        self.database = dbm.open(str(db_path), "c")
 
+    def close(self) -> None:
+        self.database.close()
 
-def initialize_database(db_path: Path) -> None:
-    global database  # noqa: PLW0603
-
-    if not database:
-        database = dbm.open(str(db_path), "c")
-
-
-def add_build(derivation: str, time: datetime) -> None:
-    global database  # noqa: PLW0602
-
-    if database is not None:
-        database[derivation] = FailedBuild(
-            derivation=derivation, time=time
+    def add_build(self, derivation: str, time: datetime, url: str) -> None:
+        self.database[derivation] = FailedBuild(
+            derivation=derivation, time=time, url=url
         ).model_dump_json()
-    else:
-        raise FailedBuildsError(DB_NOT_INIT_MSG)
 
-
-def check_build(derivation: str) -> FailedBuild | None:
-    global database  # noqa: PLW0602
-
-    if database is not None:
-        if derivation in database:
+    def check_build(self, derivation: str) -> FailedBuild | None:
+        if derivation in self.database:
             # TODO create dummy if deser fails?
-            return FailedBuild.model_validate_json(database[derivation])
+            return FailedBuild.model_validate_json(self.database[derivation])
         return None
-    raise FailedBuildsError(DB_NOT_INIT_MSG)
 
-
-def remove_build(derivation: str) -> None:
-    global database  # noqa: PLW0602
-
-    if database is not None:
-        del database[derivation]
-    else:
-        raise FailedBuildsError(DB_NOT_INIT_MSG)
+    def remove_build(self, derivation: str) -> None:
+        del self.database[derivation]

@@ -1,3 +1,4 @@
+import atexit
 import copy
 import dataclasses
 import graphlib
@@ -40,7 +41,8 @@ from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python.failure import Failure
 
-from . import failed_builds, models
+from . import models
+from .failed_builds import FailedBuild, FailedBuildDB
 from .gitea_projects import GiteaBackend
 from .github_projects import (
     GithubBackend,
@@ -86,6 +88,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None
     brids: list[int]
     consumers: dict[int, Any]
+    failed_builds_db: FailedBuildDB
 
     @dataclass
     class ScheduledJob:
@@ -118,6 +121,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         successful_jobs: list[NixEvalJobSuccess],
         failed_jobs: list[NixEvalJobError],
         combine_builds: bool,
+        failed_builds_db: FailedBuildDB,
         **kwargs: Any,
     ) -> None:
         self.project = project
@@ -130,6 +134,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.failed_eval_scheduler = failed_eval_scheduler
         self.cached_failure_scheduler = cached_failure_scheduler
         self.dependency_failed_scheduler = dependency_failed_scheduler
+        self.failed_builds_db = failed_builds_db
         self._result_list: list[int] = []
         self.ended = False
         self.running = False
@@ -193,14 +198,16 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return (self.failed_eval_scheduler, props)
 
     def schedule_cached_failure(
-        self, job: NixEvalJobSuccess, first_failure: datetime
+        self,
+        job: NixEvalJobSuccess,
+        first_failure: FailedBuild,
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
             Properties(), self.project, source, job
         )
-        props.setProperty("first_failure", str(first_failure), source)
+        props.setProperty("first_failure_url", first_failure.url, source)
 
         return (self.cached_failure_scheduler, props)
 
@@ -469,25 +476,26 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             # check which jobs should be scheduled now
             schedule_now = []
             for build in list(build_schedule_order):
-                failed_build = failed_builds.check_build(build.drvPath)
+                failed_build = self.failed_builds_db.check_build(build.drvPath)
                 if job_closures.get(build.drvPath):
                     pass
                 elif failed_build is not None and self.build.reason != "rebuild":
                     scheduler_log.addStdout(
                         f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
+                        f"\t  see build at {failed_build.url}\n"
                     )
                     build_schedule_order.remove(build)
 
                     brids, results_deferred = yield self.schedule(
                         ss_for_trigger,
-                        *self.schedule_cached_failure(build, failed_build.time),
+                        *self.schedule_cached_failure(build, failed_build),
                     )
                     scheduled.append(
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
                     )
                     self.brids.extend(brids.values())
                 elif failed_build is not None and self.build.reason == "rebuild":
-                    failed_builds.remove_build(build.drvPath)
+                    self.failed_builds_db.remove_build(build.drvPath)
                     scheduler_log.addStdout(
                         f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
                     )
@@ -543,7 +551,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
             if isinstance(job, NixEvalJobSuccess):
                 if result != SUCCESS:
-                    failed_builds.add_build(job.drvPath, datetime.now(tz=UTC))
+                    if (
+                        self.build.reason == "rebuild"
+                        or not self.failed_builds_db.check_build(job.drvPath)
+                    ):
+                        url = yield self.build.getUrl()
+                        self.failed_builds_db.add_build(
+                            job.drvPath, datetime.now(tz=UTC), url
+                        )
 
                     removed = self.get_failed_dependents(
                         job, build_schedule_order, job_closures
@@ -607,6 +622,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         project: GitProject,
         supported_systems: list[str],
         job_report_limit: int | None,
+        failed_builds_db: FailedBuildDB,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
@@ -616,6 +632,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.addLogObserver("stdio", self.observer)
         self.supported_systems = supported_systems
         self.job_report_limit = job_report_limit
+        self.failed_builds_db = failed_builds_db
 
     @defer.inlineCallbacks
     def produce_event(
@@ -683,6 +700,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                             self.job_report_limit is not None
                             and self.number_of_jobs > self.job_report_limit
                         ),
+                        failed_builds_db=self.failed_builds_db,
                     ),
                 ]
             )
@@ -726,15 +744,13 @@ class CachedFailureStep(steps.BuildStep):
         attr = self.getProperty("attr")
         # show eval error
         error_log: StreamLog = yield self.addLog("nix_error")
-        error_log.addStderr(
-            "\n".join(
-                [
-                    f"{attr} was failed because it has failed previously and its failure has been cached.",
-                    f"  first failure time: {self.getProperty('first_failure')}",
-                ]
-            )
-            + "\n"
-        )
+        msg = [
+            f"{attr} was failed because it has failed previously and its failure has been cached.",
+        ]
+        url = self.getProperty("first_failure_url")
+        if url:
+            msg.append(f"  failed build: {url}")
+        error_log.addStderr("\n".join(msg) + "\n")
         return util.FAILURE
 
 
@@ -858,6 +874,7 @@ def nix_eval_config(
     worker_count: int,
     max_memory_size: int,
     job_report_limit: int | None,
+    failed_builds_db: FailedBuildDB,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -884,6 +901,7 @@ def nix_eval_config(
             name="evaluate flake",
             supported_systems=supported_systems,
             job_report_limit=job_report_limit,
+            failed_builds_db=failed_builds_db,
             command=[
                 "nix-eval-jobs",
                 "--workers",
@@ -1167,6 +1185,7 @@ def config_for_project(
     eval_lock: MasterLock,
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
+    failed_builds_db: FailedBuildDB,
     outputs_path: Path | None = None,
 ) -> None:
     config["projects"].append(Project(project.name))
@@ -1255,6 +1274,7 @@ def config_for_project(
                 worker_count=nix_eval_worker_count,
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
+                failed_builds_db=failed_builds_db,
             ),
             nix_build_config(
                 project,
@@ -1461,6 +1481,10 @@ class NixConfigurator(ConfiguratorBase):
                 )
             )
 
+        db = FailedBuildDB(Path("failed_builds.dbm"))
+        # Hacky but we have no other hooks just now to run code on shutdown.
+        atexit.register(lambda: db.close())
+
         for project in projects:
             config_for_project(
                 config,
@@ -1472,7 +1496,8 @@ class NixConfigurator(ConfiguratorBase):
                 eval_lock,
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
-                self.config.outputs_path,
+                failed_builds_db=db,
+                outputs_path=self.config.outputs_path,
             )
 
         config["workers"].append(worker.LocalWorker(SKIPPED_BUILDER_NAME))
@@ -1530,5 +1555,3 @@ class NixConfigurator(ConfiguratorBase):
                 backends=list(backends.values()),
                 projects=projects,
             )
-
-        failed_builds.initialize_database(Path("failed_builds.dbm"))
