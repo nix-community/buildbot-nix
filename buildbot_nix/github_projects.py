@@ -744,6 +744,10 @@ class GithubProject(GitProject):
         return slugify_project_name(self.data.full_name)
 
     @property
+    def nix_ref_type(self) -> str:
+        return "github"
+
+    @property
     def default_branch(self) -> str:
         return self.data.default_branch
 
