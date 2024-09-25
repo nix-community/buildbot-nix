@@ -556,7 +556,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     if (
                         self.build.reason == "rebuild"
                         or not self.failed_builds_db.check_build(job.drvPath)
-                    ):
+                    ) and result == util.FAILURE:
                         url = yield self.build.getUrl()
                         self.failed_builds_db.add_build(
                             job.drvPath, datetime.now(tz=UTC), url
