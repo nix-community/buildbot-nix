@@ -674,7 +674,6 @@ in
 
         package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
           patches = old.patches ++ [
-            ./0001-master-reporters-github-render-token-for-each-reques.patch
             (pkgs.fetchpatch {
               name = "give-access-to-full-name-in-the-git-hub-hook-properties.patch";
               url = "https://github.com/buildbot/buildbot/commit/27eb8c311c0beeb35c9b0c21be437684744dce21.patch";
