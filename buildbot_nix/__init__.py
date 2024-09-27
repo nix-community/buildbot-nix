@@ -1470,6 +1470,9 @@ class PeriodicWithStartup(schedulers.Periodic):
         yield super().activate()
 
 
+DB = None
+
+
 class NixConfigurator(ConfiguratorBase):
     """Janitor is a configurator which create a Janitor Builder with all needed Janitor steps"""
 
@@ -1530,9 +1533,11 @@ class NixConfigurator(ConfiguratorBase):
                 )
             )
 
-        db = FailedBuildDB(Path("failed_builds.dbm"))
-        # Hacky but we have no other hooks just now to run code on shutdown.
-        atexit.register(lambda: db.close())
+        global DB  # noqa: PLW0603
+        if DB is None:
+            DB = FailedBuildDB(Path("failed_builds.dbm"))
+            # Hacky but we have no other hooks just now to run code on shutdown.
+            atexit.register(lambda: DB.close() if DB is not None else None)
 
         for project in projects:
             config_for_project(
@@ -1545,7 +1550,7 @@ class NixConfigurator(ConfiguratorBase):
                 eval_lock,
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
-                failed_builds_db=db,
+                failed_builds_db=DB,
                 outputs_path=self.config.outputs_path,
             )
 
