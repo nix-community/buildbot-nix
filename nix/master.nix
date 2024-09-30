@@ -26,6 +26,19 @@ let
     else
       builtins.toJSON value;
 
+  cleanUpRepoName =
+    name:
+    builtins.replaceStrings
+      [
+        "/"
+        ":"
+      ]
+      [
+        "_slash_"
+        "_colon_"
+      ]
+      name;
+
   backendPort =
     if (cfg.accessMode ? "fullyPrivate") then
       cfg.accessMode.fullyPrivate.port
@@ -492,6 +505,13 @@ in
         '';
         default = 50;
       };
+
+      effects.perRepoSecretFiles = lib.mkOption {
+        type = lib.types.attrsOf lib.types.path;
+        description = "Per-repository secrets files for buildbot effects. The attribute name is of the form \"github:owner/repo\". The secrets themselves need to be valid JSON files.";
+        default = { };
+        example = ''{ "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects-secrets.path; }'';
+      };
     };
   };
   config = lib.mkMerge [
@@ -659,6 +679,10 @@ in
                   post_build_steps = cfg.postBuildSteps;
                   job_report_limit = cfg.jobReportLimit;
                   http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
+                  effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
+                    inherit name;
+                    value = "effects-secret__${cleanUpRepoName name}";
+                  }) cfg.effects.perRepoSecretFiles;
                 }
               }").read_text()))
             )
@@ -726,7 +750,10 @@ in
             ++ lib.optionals cfg.gitea.enable [
               "gitea-token:${cfg.gitea.tokenFile}"
               "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
-            ];
+            ]
+            ++ (lib.mapAttrsToList (
+              repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
+            ) cfg.effects.perRepoSecretFiles);
           RuntimeDirectory = "buildbot-master";
         };
       };
