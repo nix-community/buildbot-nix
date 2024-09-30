@@ -723,6 +723,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         return result
 
+
 class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
     """Evaluate the effects of a flake and run them on the default branch."""
 
@@ -757,6 +758,7 @@ class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
             )
 
         return result
+
 
 class EvalErrorStep(steps.BuildStep):
     """Shows the error message of a failed evaluation."""
@@ -1246,8 +1248,9 @@ def nix_register_gcroot_config(
         factory=factory,
     )
 
+
 def buildbot_effects_config(
-    project: Project, git_url: str, worker_names: list[str]
+    project: Project, git_url: str, worker_names: list[str], secrets: str | None
 ) -> util.BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
@@ -1260,26 +1263,33 @@ def buildbot_effects_config(
             haltOnFailure=True,
         ),
     )
-    factory.addStep(
-        steps.ShellCommand(
-            name="Run effects",
-            command=[
-                # fmt: off
-                "buildbot-effects",
-                # TODO:
-                # "--secrets", util.Secret(""),
-                "--rev",
-                util.Property("revision"),
-                "--branch",
-                util.Property("branch"),
-                "--repo",
-                # TODO: gittea
-                util.Property("github.base.repo.full_name"),
-                "run",
-                util.Property("command"),
-                # fmt: on
-            ],
-        ),
+    secrets_list = []
+    secrets_args = []
+    if secrets is not None:
+        secrets_list = [("../secrets.json", util.Secret(secrets))]
+        secrets_args = ["--secrets", "../secrets.json"]
+    factory.addSteps(
+        [
+            steps.ShellCommand(
+                name="Run effects",
+                command=[
+                    # fmt: off
+                    "buildbot-effects",
+                    "--rev",
+                    util.Property("revision"),
+                    "--branch",
+                    util.Property("branch"),
+                    "--repo",
+                    # TODO: gittea
+                    util.Property("github.base.repo.full_name"),
+                    *secrets_args,
+                    "run",
+                    util.Property("command"),
+                    # fmt: on
+                ],
+            ),
+        ],
+        withSecrets=secrets_list,
     )
     return util.BuilderConfig(
         name=f"{project.name}/run-effect",
@@ -1301,6 +1311,7 @@ def config_for_project(
     eval_lock: MasterLock,
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
+    per_repo_effects_secrets: dict[str, str],
     outputs_path: Path | None = None,
 ) -> None:
     config["projects"].append(Project(project.name))
@@ -1380,6 +1391,9 @@ def config_for_project(
             ),
         ],
     )
+    key = f"{project.type}:{project.owner}/{project.repo}"
+    effects_secrets_cred = per_repo_effects_secrets.get(key)
+
     config["builders"].extend(
         [
             # Since all workers run on the same machine, we only assign one of them to do the evaluation.
@@ -1404,6 +1418,7 @@ def config_for_project(
                 project,
                 git_url=project.get_project_url(),
                 worker_names=worker_names,
+                secrets=effects_secrets_cred,
             ),
             nix_skipped_build_config(project, [SKIPPED_BUILDER_NAME]),
             nix_failed_eval_config(project, [SKIPPED_BUILDER_NAME]),
@@ -1615,6 +1630,7 @@ class NixConfigurator(ConfiguratorBase):
                 eval_lock,
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
+                self.config.effects_per_repo_secrets,
                 self.config.outputs_path,
             )
 
