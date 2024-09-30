@@ -1,4 +1,10 @@
-{ lib, python3, bubblewrap, setuptools, buildPythonApplication }:
+{
+  lib,
+  python3,
+  bubblewrap,
+  setuptools,
+  buildPythonApplication,
+}:
 buildPythonApplication {
   name = "buildbot-effects";
   format = "pyproject";
