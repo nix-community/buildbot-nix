@@ -223,6 +223,7 @@ def run_effects(
         secrets = secrets.copy()
         secrets["hercules-ci"] = {"data": {"token": "dummy"}}
         tmp.write(json.dumps(secrets).encode())
+        tmp.flush()
         bubblewrap_cmd.extend(
             [
                 "--ro-bind",
