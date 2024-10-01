@@ -20,7 +20,10 @@
         imports = [
           ./nix/checks/flake-module.nix
         ] ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix;
-        systems = [ "x86_64-linux" ];
+        systems = [
+          "x86_64-linux"
+          "aarch64-darwin"
+        ];
         flake = {
           nixosModules.buildbot-master.imports = [
             ./nix/master.nix
