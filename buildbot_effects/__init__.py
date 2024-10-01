@@ -142,12 +142,15 @@ def parse_derivation(path: str) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
-def env_args(env: dict[str, str]) -> list[str]:
+def env_args(env: dict[str, str], clear_env: set[str]) -> list[str]:
     result = []
     for k, v in env.items():
         result.append("--setenv")
         result.append(f"{k}")
         result.append(f"{v}")
+    for k in clear_env:
+        result.append("--unsetenv")
+        result.append(f"{k}")
     return result
 
 
@@ -180,6 +183,11 @@ def run_effects(
     env["IN_HERCULES_CI_EFFECT"] = "true"
     env["HERCULES_CI_SECRETS_JSON"] = "/run/secrets.json"
     env["NIX_BUILD_TOP"] = "/build"
+    env["TMPDIR"] = "/tmp"  # noqa: S108
+    clear_env = set()
+    clear_env.add("TMP")
+    clear_env.add("TEMP")
+    clear_env.add("TEMPDIR")
     bwrap = shutil.which("bwrap")
     if bwrap is None:
         msg = "bwrap' executable not found"
@@ -231,7 +239,7 @@ def run_effects(
                 "/run/secrets.json",
             ],
         )
-        bubblewrap_cmd.extend(env_args(env))
+        bubblewrap_cmd.extend(env_args(env, clear_env))
         bubblewrap_cmd.append("--")
         bubblewrap_cmd.extend(sandboxed_cmd)
         with pipe() as (r_file, w_file):
