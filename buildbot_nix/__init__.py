@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
@@ -982,15 +982,14 @@ async def do_register_gcroot_if(s: steps.BuildStep) -> bool:
     )
 
 
-def nix_build_config(
+def nix_build_steps(
     project: GitProject,
     worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
-) -> BuilderConfig:
-    """Builds one nix flake attribute."""
-    factory = util.BuildFactory()
-    factory.addStep(
+    global_do_step_if: Callable[[steps.BuildStep], bool] | bool = True,
+) -> list[steps.BuildStep]:
+    out_steps = [
         NixBuildCommand(
             env={},
             name="Build flake attr",
@@ -1013,11 +1012,9 @@ def nix_build_config(
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
             haltOnFailure=True,
+            doStepIf=global_do_step_if,
         ),
-    )
-    factory.addSteps(post_build_steps)
-
-    factory.addStep(
+        *post_build_steps,
         Trigger(
             name="Register gcroot",
             waitForFinish=True,
@@ -1027,25 +1024,39 @@ def nix_build_config(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=do_register_gcroot_if,
+            doStepIf=lambda buildstep: (global_do_step_if if isinstance(global_do_step_if, bool) else global_do_step_if(buildstep)) and do_register_gcroot_if(buildstep),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
-    )
-    factory.addStep(
         steps.ShellCommand(
             name="Delete temporary gcroots",
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
+            doStepIf=global_do_step_if,
         ),
-    )
+    ]
+
     if outputs_path is not None:
-        factory.addStep(
+        out_steps.append(
             UpdateBuildOutput(
                 project=project,
                 name="Update build output",
                 path=outputs_path,
+                doStepIf=global_do_step_if,
             ),
         )
+
+    return out_steps
+
+def nix_build_config(
+    project: GitProject,
+    worker_names: list[str],
+    post_build_steps: list[steps.BuildStep],
+    outputs_path: Path | None = None,
+) -> BuilderConfig:
+    """Builds one nix flake attribute."""
+    factory = util.BuildFactory()
+    factory.addSteps(nix_build_steps(project, worker_names, post_build_steps, outputs_path))
+
     return util.BuilderConfig(
         name=f"{project.name}/nix-build",
         project=project.name,
@@ -1105,20 +1116,31 @@ def nix_dependency_failed_config(
 def nix_cached_failure_config(
     project: GitProject,
     worker_names: list[str],
+    skipped_worker_names: list[str],
+    post_build_steps: list[steps.BuildStep],
+    outputs_path: Path | None = None,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is cached as failed."""
     factory = util.BuildFactory()
     factory.addStep(
         CachedFailureStep(
             name="Cached failure",
-            doStepIf=lambda _: True,  # not done steps cannot fail...
+            doStepIf=lambda buildstep: buildstep.build.reason != "rebuild",
         ),
     )
+
+    factory.addSteps(nix_build_steps(
+        project,
+        worker_names,
+        post_build_steps,
+        outputs_path,
+        global_do_step_if=lambda buildstep: buildstep.build.reason == "rebuild"
+    ))
 
     return util.BuilderConfig(
         name=f"{project.name}/nix-cached-failure",
         project=project.name,
-        workernames=worker_names,
+        workernames=skipped_worker_names,
         collapseRequests=False,
         env={},
         factory=factory,
@@ -1318,7 +1340,7 @@ def config_for_project(
             nix_skipped_build_config(project, SKIPPED_BUILDER_NAMES, outputs_path),
             nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
             nix_dependency_failed_config(project, SKIPPED_BUILDER_NAMES),
-            nix_cached_failure_config(project, SKIPPED_BUILDER_NAMES),
+            nix_cached_failure_config(project, worker_names, SKIPPED_BUILDER_NAMES, post_build_steps, outputs_path),
             nix_register_gcroot_config(project, worker_names),
         ],
     )
