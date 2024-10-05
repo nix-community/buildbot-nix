@@ -22,6 +22,7 @@
         ] ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix;
         systems = [
           "x86_64-linux"
+          "aarch64-linux"
           "aarch64-darwin"
         ];
         flake = {
