@@ -254,13 +254,12 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             return (self.builds_scheduler, props)
         return (self.skipped_builds_scheduler, props)
 
-    @defer.inlineCallbacks
-    def schedule(
+    async def schedule(
         self,
         ss_for_trigger: list[dict[str, Any]],
         scheduler_name: str,
         props: Properties,
-    ) -> Generator[Any, Any, tuple[dict[int, int], defer.Deferred[list[int]]]]:
+    ) -> tuple[dict[int, int], defer.Deferred[list[int]]]:
         scheduler: BaseScheduler = self.get_scheduler_by_name(scheduler_name)
 
         ids_deferred, results_deferred = scheduler.trigger(
@@ -272,11 +271,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         )
 
         brids: dict[int, int]
-        _, brids = yield ids_deferred
+        _, brids = await ids_deferred
 
         for brid in brids.values():
             url = getURLForBuildrequest(self.master, brid)
-            yield self.addURL(f"{scheduler.name} #{brid}", url)
+            await self.addURL(f"{scheduler.name} #{brid}", url)
             self._add_results(brid)
 
         if not self.combine_builds:
@@ -286,11 +285,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         return brids, results_deferred
 
-    @defer.inlineCallbacks
-    def _add_results(self, brid: Any) -> Generator[Any, Any, None]:
-        @defer.inlineCallbacks
-        def _is_buildrequest_complete(brid: Any) -> Generator[Any, Any, bool]:
-            buildrequest: Any = yield self.master.db.buildrequests.getBuildRequest(
+    async def _add_results(self, brid: Any) -> None:
+        async def _is_buildrequest_complete(brid: Any) -> Generator[Any, Any, bool]:
+            buildrequest: Any = await self.master.db.buildrequests.getBuildRequest(
                 brid
             )  # TODO: once we bump to 4.1.x use BuildRequestModel | None
             if buildrequest is None:
@@ -299,10 +296,10 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             return buildrequest["complete"]
 
         event = ("buildrequests", str(brid), "complete")
-        yield self.master.mq.waitUntilEvent(
+        await self.master.mq.waitUntilEvent(
             event, lambda: _is_buildrequest_complete(brid)
         )
-        builds: Any = yield self.master.db.builds.getBuilds(
+        builds: Any = await self.master.db.builds.getBuilds(
             buildrequestid=brid
         )  # TODO: once we bump to 4.1.x use list[BuildModel]
         for build in builds:
@@ -367,21 +364,20 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         return removed
 
-    @defer.inlineCallbacks
-    def produce_event_for_build_requests_by_id(
+    async def produce_event_for_build_requests_by_id(
         self,
         buildrequest_ids: Iterable[int],
         event: str,
         result: None | int,
-    ) -> Generator[Any, object, None]:
+    ) -> None:
         for buildrequest_id in buildrequest_ids:
-            builds: Any = yield self.master.data.get(
+            builds: Any = await self.master.data.get(
                 ("buildrequests", str(buildrequest_id), "builds")
             )
 
             # only report with `buildrequets` if there are no builds to report for
             if not builds:
-                buildrequest: Any = yield self.master.data.get(
+                buildrequest: Any = await self.master.data.get(
                     ("buildrequests", str(buildrequest_id))
                 )
                 if result is not None:
@@ -394,14 +390,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 for build in builds:
                     self.produce_event_for_build(event, build, result)
 
-    @defer.inlineCallbacks
-    def produce_event_for_build_by_id(
+    async def produce_event_for_build_by_id(
         self,
         event: str,
         build_id: int,
         result: None | int,
-    ) -> Generator[Any, object, None]:
-        build: Any = yield self.master.data.get(("builds", str(build_id)))
+    ) -> None:
+        build: Any = await self.master.data.get(("builds", str(build_id)))
         self.produce_event_for_build(event, build, result)
 
     def produce_event_for_build(
@@ -416,8 +411,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             ("builds", str(build["buildid"]), event), copy.deepcopy(build)
         )
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, Any, None]:
+    async def run(self) -> None:
         """
         This function implements a relatively simple scheduling algorithm. At the start we compute the
         interdependencies between each of the jobs we want to run and at every iteration we schedule those
@@ -427,7 +421,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         reports. The reporting is based on custom events and logic, see `BuildNixEvalStatusGenerator` for
         the receiving side.
         """
-        self.produce_event_for_build_by_id(
+        await self.produce_event_for_build_by_id(
             "started-nix-build", self.build.buildid, None
         )
 
@@ -437,7 +431,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.running = True
         build_props = self.build.getProperties()
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
-        scheduler_log: Log = yield self.addLog("scheduler")
+        scheduler_log: Log = await self.addLog("scheduler")
 
         # inject failed buildsteps for any failed eval jobs we got
         overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
@@ -446,7 +440,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduler_log.addStdout("The following jobs failed to evaluate:\n")
             for failed_job in self.failed_jobs:
                 scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
-                brids, results_deferred = yield self.schedule(
+                brids, results_deferred = await self.schedule(
                     ss_for_trigger,
                     *self.schedule_eval_failure(failed_job),
                 )
@@ -488,7 +482,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     )
                     build_schedule_order.remove(build)
 
-                    brids, results_deferred = yield self.schedule(
+                    brids, results_deferred = await self.schedule(
                         ss_for_trigger,
                         *self.schedule_cached_failure(build, failed_build),
                     )
@@ -514,7 +508,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             # schedule said jobs
             for job in schedule_now:
                 scheduler_log.addStdout(f"\t- {job.attr}\n")
-                brids, results_deferred = yield self.schedule(
+                brids, results_deferred = await self.schedule(
                     ss_for_trigger,
                     *self.schedule_success(build_props, job),
                 )
@@ -536,7 +530,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
             results: list[int]
             index: int
-            results, index = yield self.wait_for_finish_deferred
+            results, index = await self.wait_for_finish_deferred
 
             job, brids, _ = scheduled[index]
             done.append(BuildTrigger.DoneJob(job, brids, results))
@@ -546,7 +540,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
             if not self.combine_builds:
-                self.produce_event_for_build_requests_by_id(
+                await self.produce_event_for_build_requests_by_id(
                     brids.values(), "finished-nix-build", result
                 )
 
@@ -557,7 +551,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         self.build.reason == "rebuild"
                         or not self.failed_builds_db.check_build(job.drvPath)
                     ) and result == util.FAILURE:
-                        url = yield self.build.getUrl()
+                        url = await self.build.getUrl()
                         self.failed_builds_db.add_build(
                             job.drvPath, datetime.now(tz=UTC), url
                         )
@@ -569,7 +563,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         scheduler, props = self.schedule_dependency_failed(
                             removed_job, job
                         )
-                        brids, results_deferred = yield self.schedule(
+                        brids, results_deferred = await self.schedule(
                             ss_for_trigger, scheduler, props
                         )
                         build_schedule_order.remove(removed_job)
@@ -594,7 +588,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 f"\t- new result: {util.Results[overall_result].upper()} \n"
             )
 
-        self.produce_event_for_build_by_id(
+        await self.produce_event_for_build_by_id(
             "finished-nix-build", self.build.buildid, overall_result
         )
         scheduler_log.addStdout("Done!\n")
@@ -636,11 +630,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.job_report_limit = job_report_limit
         self.failed_builds_db = failed_builds_db
 
-    @defer.inlineCallbacks
-    def produce_event(
-        self, event: str, result: None | int
-    ) -> Generator[Any, Any, None]:
-        build: dict[str, Any] = yield self.master.data.get(
+    async def produce_event(self, event: str, result: None | int) -> None:
+        build: dict[str, Any] = await self.master.data.get(
             ("builds", str(self.build.buildid))
         )
         if result is not None:
@@ -649,16 +640,15 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             ("builds", str(self.build.buildid), event), copy.deepcopy(build)
         )
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
-        self.produce_event("started-nix-eval", None)
+    async def run(self) -> Generator[Any, object, Any]:
+        await self.produce_event("started-nix-eval", None)
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
-        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
-        yield self.runCommand(cmd)
+        cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
+        await self.runCommand(cmd)
 
         # if the command passes extract the list of stages
         result = cmd.results()
-        self.produce_event("finished-nix-eval", result)
+        await self.produce_event("finished-nix-eval", result)
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
             jobs: list[NixEvalJob] = []
@@ -713,12 +703,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 class EvalErrorStep(steps.BuildStep):
     """Shows the error message of a failed evaluation."""
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, int]:
+    async def run(self) -> int:
         error = self.getProperty("error")
         attr = self.getProperty("attr")
         # show eval error
-        error_log: StreamLog = yield self.addLog("nix_error")
+        error_log: StreamLog = await self.addLog("nix_error")
         error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
         return util.FAILURE
 
@@ -726,12 +715,11 @@ class EvalErrorStep(steps.BuildStep):
 class DependencyFailedStep(steps.BuildStep):
     """Shows a dependency failure."""
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, int]:
+    async def run(self) -> int:
         dependency_attr = self.getProperty("dependency.attr")
         attr = self.getProperty("attr")
         # show eval error
-        error_log: StreamLog = yield self.addLog("nix_error")
+        error_log: StreamLog = await self.addLog("nix_error")
         error_log.addStderr(
             f"{attr} was failed because it depends on a failed build of {dependency_attr}.\n"
         )
@@ -741,11 +729,10 @@ class DependencyFailedStep(steps.BuildStep):
 class CachedFailureStep(steps.BuildStep):
     """Shows a dependency failure."""
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, int]:
+    async def run(self) -> int:
         attr = self.getProperty("attr")
         # show eval error
-        error_log: StreamLog = yield self.addLog("nix_error")
+        error_log: StreamLog = await self.addLog("nix_error")
         msg = [
             f"{attr} was failed because it has failed previously and its failure has been cached.",
         ]
@@ -763,14 +750,12 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
+    async def run(self) -> int:
         # run `nix build`
-        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
-        yield self.runCommand(cmd)
+        cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
+        await self.runCommand(cmd)
 
-        res = cmd.results()
-        return res
+        return cmd.results()
 
 
 class UpdateBuildOutput(steps.BuildStep):
@@ -806,8 +791,7 @@ class UpdateBuildOutput(steps.BuildStep):
 
         return root
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
+    async def run(self) -> int:
         props = self.build.getProperties()
 
         if props.getProperty("branch") != self.project.default_branch:
@@ -826,7 +810,7 @@ class UpdateBuildOutput(steps.BuildStep):
         try:
             file = self.join_all_traversalsafe(self.path, owner, repo, target, attr)
         except ValueError as e:
-            error_log: StreamLog = yield self.addLog("path_error")
+            error_log: StreamLog = await self.addLog("path_error")
             error_log.addStderr(f"Path traversal prevented ... skipping update: {e}")
             return util.FAILURE
 
@@ -840,13 +824,12 @@ class UpdateBuildOutput(steps.BuildStep):
 # GitHub somtimes fires the PR webhook before it has computed the merge commit
 # This is a workaround to fetch the merge commit and checkout the PR branch in CI
 class GitLocalPrMerge(steps.Git):
-    @defer.inlineCallbacks
-    def run_vc(
+    async def run_vc(
         self,
         branch: str,
         revision: str,
         patch: str,
-    ) -> Generator[Any, object, Any]:
+    ) -> int:
         build_props = self.build.getProperties()
         # TODO: abstract this into an interface as well
         merge_base = build_props.getProperty(
@@ -858,36 +841,35 @@ class GitLocalPrMerge(steps.Git):
 
         # Not a PR, fallback to default behavior
         if merge_base is None or pr_head is None:
-            res = yield super().run_vc(branch, revision, patch)
-            return res
+            return await super().run_vc(branch, revision, patch)
 
         # The code below is a modified version of Git.run_vc
-        self.stdio_log: StreamLog = yield self.addLogForRemoteCommands("stdio")
+        self.stdio_log: StreamLog = await self.addLogForRemoteCommands("stdio")
         self.stdio_log.addStdout(f"Merging {merge_base} into {pr_head}\n")
 
-        git_installed = yield self.checkFeatureSupport()
+        git_installed = await self.checkFeatureSupport()
 
         if not git_installed:
             msg = "git is not installed on worker"
             raise WorkerSetupError(msg)
 
-        has_git = yield self.pathExists(
+        has_git = await self.pathExists(
             self.build.path_module.join(self.workdir, ".git")
         )
 
         if not has_git:
-            yield self._dovccmd(["clone", "--recurse-submodules", self.repourl, "."])
+            await self._dovccmd(["clone", "--recurse-submodules", self.repourl, "."])
 
-        patched = yield self.sourcedirIsPatched()
+        patched = await self.sourcedirIsPatched()
 
         if patched:
-            yield self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
+            await self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
 
-        yield self._dovccmd(["fetch", "-f", "-t", self.repourl, merge_base, pr_head])
+        await self._dovccmd(["fetch", "-f", "-t", self.repourl, merge_base, pr_head])
 
-        yield self._dovccmd(["checkout", "--detach", "-f", pr_head])
+        await self._dovccmd(["checkout", "--detach", "-f", pr_head])
 
-        yield self._dovccmd(
+        await self._dovccmd(
             [
                 "-c",
                 "user.email=buildbot@example.com",
@@ -901,8 +883,7 @@ class GitLocalPrMerge(steps.Git):
             ]
         )
         self.updateSourceProperty("got_revision", pr_head)
-        res = yield self.parseCommitDescription()
-        return res
+        return await self.parseCommitDescription()
 
 
 def nix_eval_config(
@@ -983,13 +964,12 @@ def nix_eval_config(
     )
 
 
-@defer.inlineCallbacks
-def do_register_gcroot_if(s: steps.BuildStep) -> Generator[Any, object, Any]:
-    gc_root = yield util.Interpolate(
+async def do_register_gcroot_if(s: steps.BuildStep) -> bool:
+    gc_root = await util.Interpolate(
         "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
     ).getRenderingFor(s.getProperties())
-    out_path = yield util.Property("out_path").getRenderingFor(s.getProperties())
-    default_branch = yield util.Property("default_branch").getRenderingFor(
+    out_path = await util.Property("out_path").getRenderingFor(s.getProperties())
+    default_branch = await util.Property("default_branch").getRenderingFor(
         s.getProperties()
     )
 
@@ -1357,14 +1337,13 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         self.builders = builders
         super().__init__(**kwargs)
 
-    @defer.inlineCallbacks
-    def check_builder(
+    async def check_builder(
         self,
         endpoint_object: Any,
         endpoint_dict: dict[str, Any],
         object_type: str,
-    ) -> Generator[defer.Deferred[Match], Any, Any]:
-        res = yield endpoint_object.get({}, endpoint_dict)
+    ) -> Match | None:
+        res = await endpoint_object.get({}, endpoint_dict)
         if res is None:
             return None
 
@@ -1372,7 +1351,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         if builderid is None:
             builder_name = res["builder_names"][0]
         else:
-            builder = yield self.master.data.get(("builders", builderid))
+            builder = await self.master.data.get(("builders", builderid))
             builder_name = builder["name"]
 
         builder_name = normalize_virtual_builder_name(builder_name)
@@ -1384,45 +1363,42 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
                 builders=self.builders,
             )
             return Match(self.master, **{object_type: res})
-        else:
-            log.warn(
-                "Builder {builder} not allowed by {role}: {builders}",
-                builder=builder_name,
-                role=self.role,
-                builders=self.builders,
-            )
+        log.warn(
+            "Builder {builder} not allowed by {role}: {builders}",
+            builder=builder_name,
+            role=self.role,
+            builders=self.builders,
+        )
+        return None
 
-    def match_ForceSchedulerEndpoint_force(  # noqa: N802
+    async def match_ForceSchedulerEndpoint_force(  # noqa: N802
         self,
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> defer.Deferred[Match]:
-        return self.check_builder(epobject, epdict, "build")
+    ) -> Match | None:
+        return await self.check_builder(epobject, epdict, "build")
 
-    def match_BuildEndpoint_rebuild(  # noqa: N802
+    async def match_BuildEndpoint_rebuild(  # noqa: N802
+        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+    ) -> Match | None:
+        return await self.check_builder(epobject, epdict, "build")
+
+    async def match_BuildEndpoint_stop(  # noqa: N802
         self,
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> defer.Deferred[Match]:
-        return self.check_builder(epobject, epdict, "build")
+    ) -> Match:
+        return await self.check_builder(epobject, epdict, "build")
 
-    def match_BuildEndpoint_stop(  # noqa: N802
+    async def match_BuildRequestEndpoint_stop(  # noqa: N802
         self,
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> defer.Deferred[Match]:
-        return self.check_builder(epobject, epdict, "build")
-
-    def match_BuildRequestEndpoint_stop(  # noqa: N802
-        self,
-        epobject: Any,
-        epdict: dict[str, Any],
-        options: dict[str, Any],
-    ) -> defer.Deferred[Match]:
-        return self.check_builder(epobject, epdict, "buildrequest")
+    ) -> Match:
+        return await self.check_builder(epobject, epdict, "buildrequest")
 
 
 def setup_authz(
@@ -1463,11 +1439,10 @@ class PeriodicWithStartup(schedulers.Periodic):
         super().__init__(*args, **kwargs)
         self.run_on_startup = run_on_startup
 
-    @defer.inlineCallbacks
-    def activate(self) -> Generator[Any, object, Any]:
+    async def activate(self) -> None:
         if self.run_on_startup:
-            yield self.setState("last_build", None)
-        yield super().activate()
+            await self.setState("last_build", None)
+        await super().activate()
 
 
 DB = None
