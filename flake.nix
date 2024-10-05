@@ -20,7 +20,11 @@
         imports = [
           ./nix/checks/flake-module.nix
         ] ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix;
-        systems = [ "x86_64-linux" ];
+        systems = [
+          "x86_64-linux"
+          "aarch64-linux"
+          "aarch64-darwin"
+        ];
         flake = {
           nixosModules.buildbot-master.imports = [
             ./nix/master.nix
@@ -84,7 +88,7 @@
               let
                 nixosMachines = lib.mapAttrs' (
                   name: config: lib.nameValuePair "nixos-${name}" config.config.system.build.toplevel
-                ) ((lib.filterAttrs (_: config: config.pkgs.system == system)) self.nixosConfigurations);
+                ) ((lib.filterAttrs (name: _: lib.hasSuffix system name)) self.nixosConfigurations);
                 packages = lib.mapAttrs' (n: lib.nameValuePair "package-${n}") self'.packages;
                 devShells = lib.mapAttrs' (n: lib.nameValuePair "devShell-${n}") self'.devShells;
               in

@@ -1,7 +1,7 @@
 { self, ... }:
 {
   perSystem =
-    { pkgs, ... }:
+    { pkgs, lib, ... }:
     {
       checks =
         let
@@ -10,7 +10,7 @@
             inherit self pkgs;
           };
         in
-        {
+        lib.mkIf (pkgs.hostPlatform.isLinux) {
           master = import ./master.nix checkArgs;
           worker = import ./worker.nix checkArgs;
         };
