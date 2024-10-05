@@ -9,12 +9,15 @@ class FailedBuildsError(Exception):
     pass
 
 
+def default_url() -> str:
+    db_path = Path("failed_builds.dbm").resolve()
+    return f"build unknown. Please delete {db_path} to get a build url"
+
+
 class FailedBuild(BaseModel):
     derivation: str
     time: datetime
-    url: str = Field(
-        default=f"build unknown. Please delete {Path("failed_builds.dbm").resolve()} to get a build url"
-    )
+    url: str = Field(default_factory=default_url)
 
 
 class FailedBuildDB:
