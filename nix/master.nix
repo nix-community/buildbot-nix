@@ -492,6 +492,23 @@ in
         '';
         default = 50;
       };
+
+      branches = {
+        build_prs = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+        };
+
+        primary = lib.mkOption {
+          type = lib.types.str;
+          default = "";
+        };
+
+        secondary = lib.mkOption {
+          type = lib.types.str;
+          default = "";
+        };
+      };
     };
   };
   config = lib.mkMerge [
@@ -659,6 +676,7 @@ in
                   post_build_steps = cfg.postBuildSteps;
                   job_report_limit = cfg.jobReportLimit;
                   http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
+                  branches = cfg.branches;
                 }
               }").read_text()))
             )

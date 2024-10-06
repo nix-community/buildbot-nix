@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
@@ -172,6 +173,22 @@ class PostBuildStep(BaseModel):
         )
 
 
+class BranchConfig(BaseModel):
+    build_prs: bool
+    primary: re.Pattern
+    secondary: re.Pattern
+
+    def do_run(self, default_branch: str, branch: str) -> bool:
+        return (
+            branch == default_branch
+            or self.primary.fullmatch(branch) is not None
+            or self.secondary.fullmatch(branch) is not None
+        )
+
+    def do_register_gcroot(self, default_branch: str, branch: str) -> bool:
+        return branch == default_branch or self.primary.fullmatch(branch) is not None
+
+
 class BuildbotNixConfig(BaseModel):
     db_url: str
     auth_backend: AuthBackendConfig
@@ -192,6 +209,7 @@ class BuildbotNixConfig(BaseModel):
     post_build_steps: list[PostBuildStep]
     job_report_limit: int | None
     http_basic_auth_password_file: Path | None
+    branches: BranchConfig
 
     @property
     def nix_workers_secret(self) -> str:
