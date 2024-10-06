@@ -765,8 +765,16 @@ class UpdateBuildOutput(steps.BuildStep):
     """
 
     project: GitProject
+    path: Path
+    branch_config: models.BranchConfig
 
-    def __init__(self, project: GitProject, path: Path, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        project: GitProject,
+        path: Path,
+        branch_config: models.BranchConfig,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self.project = project
         self.path = path
@@ -794,7 +802,9 @@ class UpdateBuildOutput(steps.BuildStep):
     async def run(self) -> int:
         props = self.build.getProperties()
 
-        if props.getProperty("branch") != self.project.default_branch:
+        if self.branch_config.do_register_gcroot(
+            self.project.default_branch, props.getProperty("branch")
+        ):
             return util.SKIPPED
 
         out_path = props.getProperty("out_path")
@@ -964,16 +974,17 @@ def nix_eval_config(
     )
 
 
-async def do_register_gcroot_if(s: steps.BuildStep) -> bool:
+async def do_register_gcroot_if(
+    s: steps.BuildStep, branch_config: models.BranchConfig
+) -> bool:
     gc_root = await util.Interpolate(
         "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
     ).getRenderingFor(s.getProperties())
     out_path = await util.Property("out_path").getRenderingFor(s.getProperties())
-    default_branch = await util.Property("default_branch").getRenderingFor(
-        s.getProperties()
-    )
 
-    return s.getProperty("branch") == str(default_branch) and not (
+    return branch_config.do_register_gcroot(
+        s.getProperty("default_branch"), s.getProperty("branch")
+    ) and not (
         Path(str(gc_root)).exists() and Path(str(gc_root)).readlink() == str(out_path)
     )
 
@@ -982,6 +993,7 @@ def nix_build_config(
     project: GitProject,
     worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
+    branch_config: models.BranchConfig,
     outputs_path: Path | None = None,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
@@ -1023,7 +1035,7 @@ def nix_build_config(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=do_register_gcroot_if,
+            doStepIf=lambda s: do_register_gcroot_if(s, branch_config),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
@@ -1040,6 +1052,7 @@ def nix_build_config(
                 project=project,
                 name="Update build output",
                 path=outputs_path,
+                branch_config=branch_config,
             ),
         )
     return util.BuilderConfig(
@@ -1124,6 +1137,7 @@ def nix_cached_failure_config(
 def nix_skipped_build_config(
     project: GitProject,
     worker_names: list[str],
+    branch_config: models.BranchConfig,
     outputs_path: Path | None = None,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is skipped."""
@@ -1148,7 +1162,7 @@ def nix_skipped_build_config(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=do_register_gcroot_if,
+            doStepIf=lambda s: do_register_gcroot_if(s, branch_config),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
@@ -1159,6 +1173,7 @@ def nix_skipped_build_config(
                 project=project,
                 name="Update build output",
                 path=outputs_path,
+                branch_config=branch_config,
             ),
         )
     return util.BuilderConfig(
@@ -1215,38 +1230,50 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
+    branch_config: models.BranchConfig,
     outputs_path: Path | None = None,
 ) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
         [
             schedulers.SingleBranchScheduler(
-                name=f"{project.project_id}-default-branch",
+                name=f"{project.project_id}-primary",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
-                    filter_fn=lambda c: c.branch == project.default_branch,
+                    filter_fn=lambda c: branch_config.do_run(
+                        project.default_branch, c.branch
+                    ),
                 ),
                 builderNames=[f"{project.name}/nix-eval"],
                 treeStableTimer=5,
-            ),
-            # this is compatible with bors or github's merge queue
-            schedulers.SingleBranchScheduler(
-                name=f"{project.project_id}-merge-queue",
-                change_filter=util.ChangeFilter(
-                    repository=project.url,
-                    branch_re="(gh-readonly-queue/.*|staging|trying)",
+            )
+        ]
+    )
+    if branch_config.build_prs:
+        config["schedulers"].extend(
+            [
+                # this is compatible with bors or github's merge queue
+                schedulers.SingleBranchScheduler(
+                    name=f"{project.project_id}-merge-queue",
+                    change_filter=util.ChangeFilter(
+                        repository=project.url,
+                        branch_re="(gh-readonly-queue/.*|staging|trying)",
+                    ),
+                    builderNames=[f"{project.name}/nix-eval"],
                 ),
-                builderNames=[f"{project.name}/nix-eval"],
-            ),
-            # build all pull requests
-            schedulers.SingleBranchScheduler(
-                name=f"{project.project_id}-prs",
-                change_filter=util.ChangeFilter(
-                    repository=project.url,
-                    category="pull",
+                # build all pull requests
+                schedulers.SingleBranchScheduler(
+                    name=f"{project.project_id}-prs",
+                    change_filter=util.ChangeFilter(
+                        repository=project.url,
+                        category="pull",
+                    ),
+                    builderNames=[f"{project.name}/nix-eval"],
                 ),
-                builderNames=[f"{project.name}/nix-eval"],
-            ),
+            ]
+        )
+    config["schedulers"].extend(
+        [
             # this is triggered from `nix-eval`
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-build",
@@ -1309,9 +1336,15 @@ def config_for_project(
                 project,
                 worker_names,
                 outputs_path=outputs_path,
+                branch_config=branch_config,
                 post_build_steps=post_build_steps,
             ),
-            nix_skipped_build_config(project, SKIPPED_BUILDER_NAMES, outputs_path),
+            nix_skipped_build_config(
+                project=project,
+                worker_names=SKIPPED_BUILDER_NAMES,
+                branch_config=branch_config,
+                outputs_path=outputs_path,
+            ),
             nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
             nix_dependency_failed_config(project, SKIPPED_BUILDER_NAMES),
             nix_cached_failure_config(project, SKIPPED_BUILDER_NAMES),
@@ -1526,6 +1559,7 @@ class NixConfigurator(ConfiguratorBase):
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
                 failed_builds_db=DB,
+                branch_config=self.config.branches,
                 outputs_path=self.config.outputs_path,
             )
 
