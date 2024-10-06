@@ -1,4 +1,7 @@
+import copy
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any, ClassVar
 
 from buildbot.interfaces import IRenderable, IReportGenerator
@@ -12,22 +15,78 @@ from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.generators.utils import BuildStatusGeneratorMixin
 from buildbot.reporters.message import MessageFormatterRenderable
 from buildbot.reporters.utils import getDetailsForBuild
-from twisted.internet import defer
 from twisted.logger import Logger
 from zope.interface import implementer
 
 log = Logger()
 
 
+class CombinedBuildEvent(Enum):
+    STARTED_NIX_EVAL = "started-nix-eval"
+    FINISHED_NIX_EVAL = "finished-nix-eval"
+    STARTED_NIX_BUILD = "started-nix-build"
+    FINISHED_NIX_BUILD = "finished-nix-build"
+
+    @staticmethod
+    async def produce_event_for_build_requests_by_id(
+        master: BuildMaster,
+        buildrequest_ids: Iterable[int],
+        event: "CombinedBuildEvent",
+        result: None | int,
+    ) -> None:
+        for buildrequest_id in buildrequest_ids:
+            builds: Any = await master.data.get(
+                ("buildrequests", str(buildrequest_id), "builds")
+            )
+
+            # only report with `buildrequets` if there are no builds to report for
+            if not builds:
+                buildrequest: Any = await master.data.get(
+                    ("buildrequests", str(buildrequest_id))
+                )
+                if result is not None:
+                    buildrequest["results"] = result
+                master.mq.produce(
+                    ("buildrequests", str(buildrequest["buildrequestid"]), str(event)),
+                    copy.deepcopy(buildrequest),
+                )
+            else:
+                for build in builds:
+                    CombinedBuildEvent.produce_event_for_build(
+                        master, event, build, result
+                    )
+
+    @staticmethod
+    async def produce_event_for_build(
+        master: BuildMaster,
+        event: "CombinedBuildEvent",
+        build: Build | dict[str, Any],
+        result: None | int,
+    ) -> None:
+        if isinstance(build, Build):
+            build_db: Any = await master.data.get(("builds", str(build.buildid)))
+            if result is not None:
+                build_db["results"] = result
+            master.mq.produce(
+                ("builds", str(build.buildid), str(event)), copy.deepcopy(build_db)
+            )
+        elif isinstance(build, dict):
+            if result is not None:
+                build["results"] = result
+            master.mq.produce(
+                ("builds", str(build["buildid"]), str(event)), copy.deepcopy(build)
+            )
+
+
 @implementer(IReportGenerator)
 class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
     wanted_event_keys: ClassVar[list[Any]] = [
-        ("builds", None, "started-nix-eval"),
-        ("builds", None, "finished-nix-eval"),
-        ("builds", None, "started-nix-build"),
-        ("builds", None, "finished-nix-build"),
-        ("buildrequests", None, "started-nix-build"),
-        ("buildrequests", None, "canceled-nix-build"),
+        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_EVAL)),
+        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_EVAL)),
+        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_BUILD)),
+        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD)),
+        ("buildrequests", None, str(CombinedBuildEvent.STARTED_NIX_BUILD)),
+        ("buildrequests", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD)),
     ]
 
     compare_attrs: ClassVar[list[str]] = ["start_formatter", "end_formatter"]
@@ -60,7 +119,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
     @staticmethod
     async def partial_build_dict(
         master: BuildMaster, buildrequest: BuildRequest
-    ) -> defer.Generator[Any, object, dict[str, Any]]:
+    ) -> dict[str, Any]:
         brdict: Any = await master.db.buildrequests.getBuildRequest(
             buildrequest["buildrequestid"]
         )
@@ -131,19 +190,29 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                 formatter, master, reporter, data
             )
 
-            if event in {"started-nix-eval", "finished-nix-eval"}:
+            if event in {
+                str(CombinedBuildEvent.STARTED_NIX_EVAL),
+                str(CombinedBuildEvent.FINISHED_NIX_EVAL),
+            }:
                 report["builds"][0]["properties"]["status_name"] = (
                     "nix-eval",
                     "generator",
                 )
-            if (event in {"started-nix-build", "finished-nix-build"}) and report[
-                "builds"
-            ][0]["properties"]["status_name"][0] == "nix-eval":
+            if (
+                event
+                in {
+                    str(CombinedBuildEvent.STARTED_NIX_BUILD),
+                    str(CombinedBuildEvent.FINISHED_NIX_BUILD),
+                }
+            ) and report["builds"][0]["properties"]["status_name"][0] == "nix-eval":
                 report["builds"][0]["properties"]["status_name"] = (
                     "nix-build",
                     "generator",
                 )
-            if event in {"finished-nix-eval", "finished-nix-build"}:
+            if event in {
+                str(CombinedBuildEvent.FINISHED_NIX_EVAL),
+                str(CombinedBuildEvent.FINISHED_NIX_BUILD),
+            }:
                 report["builds"][0]["complete"] = True
                 report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
 
@@ -151,6 +220,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         if what == "buildrequests":
             build: dict[str, Any] = await self.partial_build_dict(master, data)
 
+            # TODO: figure out when do we trigger this
             if event == "canceled-nix-build":
                 build["complete"] = True
                 build["results"] = CANCELLED
