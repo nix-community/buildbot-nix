@@ -1,5 +1,4 @@
 import atexit
-import copy
 import dataclasses
 import graphlib
 import json
@@ -8,12 +7,12 @@ import os
 import re
 import urllib.parse
 from collections import defaultdict
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
@@ -59,6 +58,7 @@ from .models import (
     NixEvalJobModel,
     NixEvalJobSuccess,
 )
+from .nix_status_generator import CombinedBuildEvent
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 
@@ -77,7 +77,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     project: GitProject
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
-    combined_build: bool
+    combine_builds: bool
     drv_info: dict[str, NixDerivation]
     builds_scheduler: str
     skipped_builds_scheduler: str
@@ -280,8 +280,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             self.update_result_futures.append(self._add_results(brid))
 
         if not self.combine_builds:
-            await self.produce_event_for_build_requests_by_id(
-                brids.values(), "started-nix-build", None
+            await CombinedBuildEvent.produce_event_for_build_requests_by_id(
+                self.master, brids.values(), CombinedBuildEvent.STARTED_NIX_BUILD, None
             )
 
         return brids, results_deferred
@@ -365,53 +365,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         return removed
 
-    async def produce_event_for_build_requests_by_id(
-        self,
-        buildrequest_ids: Iterable[int],
-        event: str,
-        result: None | int,
-    ) -> None:
-        for buildrequest_id in buildrequest_ids:
-            builds: Any = await self.master.data.get(
-                ("buildrequests", str(buildrequest_id), "builds")
-            )
-
-            # only report with `buildrequets` if there are no builds to report for
-            if not builds:
-                buildrequest: Any = await self.master.data.get(
-                    ("buildrequests", str(buildrequest_id))
-                )
-                if result is not None:
-                    buildrequest["results"] = result
-                self.master.mq.produce(
-                    ("buildrequests", str(buildrequest["buildrequestid"]), event),
-                    copy.deepcopy(buildrequest),
-                )
-            else:
-                for build in builds:
-                    self.produce_event_for_build(event, build, result)
-
-    async def produce_event_for_build_by_id(
-        self,
-        event: str,
-        build_id: int,
-        result: None | int,
-    ) -> None:
-        build: Any = await self.master.data.get(("builds", str(build_id)))
-        self.produce_event_for_build(event, build, result)
-
-    def produce_event_for_build(
-        self,
-        event: str,
-        build: Any,
-        result: None | int,
-    ) -> None:
-        if result is not None:
-            build["results"] = result
-        self.master.mq.produce(
-            ("builds", str(build["buildid"]), event), copy.deepcopy(build)
-        )
-
     async def run(self) -> None:
         """
         This function implements a relatively simple scheduling algorithm. At the start we compute the
@@ -422,8 +375,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         reports. The reporting is based on custom events and logic, see `BuildNixEvalStatusGenerator` for
         the receiving side.
         """
-        await self.produce_event_for_build_by_id(
-            "started-nix-build", self.build.buildid, None
+        await CombinedBuildEvent.produce_event_for_build(
+            self.master, CombinedBuildEvent.STARTED_NIX_BUILD, self.build, None
         )
 
         done: list[BuildTrigger.DoneJob] = []
@@ -541,8 +494,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
             if not self.combine_builds:
-                await self.produce_event_for_build_requests_by_id(
-                    brids.values(), "finished-nix-build", result
+                await CombinedBuildEvent.produce_event_for_build_requests_by_id(
+                    self.master,
+                    brids.values(),
+                    CombinedBuildEvent.FINISHED_NIX_BUILD,
+                    result,
                 )
 
             # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
@@ -592,8 +548,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         while self.update_result_futures:
             await self.update_result_futures.pop()
 
-        await self.produce_event_for_build_by_id(
-            "finished-nix-build", self.build.buildid, overall_result
+        await CombinedBuildEvent.produce_event_for_build(
+            self.master, CombinedBuildEvent.FINISHED_NIX_BUILD, self.build, result
         )
         scheduler_log.addStdout("Done!\n")
         return overall_result
@@ -634,25 +590,19 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.job_report_limit = job_report_limit
         self.failed_builds_db = failed_builds_db
 
-    async def produce_event(self, event: str, result: None | int) -> None:
-        build: dict[str, Any] = await self.master.data.get(
-            ("builds", str(self.build.buildid))
-        )
-        if result is not None:
-            build["results"] = result
-        self.master.mq.produce(
-            ("builds", str(self.build.buildid), event), copy.deepcopy(build)
-        )
-
     async def run(self) -> Generator[Any, object, Any]:
-        await self.produce_event("started-nix-eval", None)
+        CombinedBuildEvent.produce_event_for_build(
+            self.master, CombinedBuildEvent.STARTED_NIX_EVAL, self.build, None
+        )
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
         await self.runCommand(cmd)
 
         # if the command passes extract the list of stages
         result = cmd.results()
-        await self.produce_event("finished-nix-eval", result)
+        await CombinedBuildEvent.produce_event_for_build(
+            self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result
+        )
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
             jobs: list[NixEvalJob] = []
@@ -1024,7 +974,12 @@ def nix_build_steps(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=lambda buildstep: (global_do_step_if if isinstance(global_do_step_if, bool) else global_do_step_if(buildstep)) and do_register_gcroot_if(buildstep),
+            doStepIf=lambda buildstep: (
+                global_do_step_if
+                if isinstance(global_do_step_if, bool)
+                else global_do_step_if(buildstep)
+            )
+            and do_register_gcroot_if(buildstep),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
@@ -1047,6 +1002,7 @@ def nix_build_steps(
 
     return out_steps
 
+
 def nix_build_config(
     project: GitProject,
     worker_names: list[str],
@@ -1055,7 +1011,9 @@ def nix_build_config(
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
-    factory.addSteps(nix_build_steps(project, worker_names, post_build_steps, outputs_path))
+    factory.addSteps(
+        nix_build_steps(project, worker_names, post_build_steps, outputs_path)
+    )
 
     return util.BuilderConfig(
         name=f"{project.name}/nix-build",
@@ -1129,13 +1087,15 @@ def nix_cached_failure_config(
         ),
     )
 
-    factory.addSteps(nix_build_steps(
-        project,
-        worker_names,
-        post_build_steps,
-        outputs_path,
-        global_do_step_if=lambda buildstep: buildstep.build.reason == "rebuild"
-    ))
+    factory.addSteps(
+        nix_build_steps(
+            project,
+            worker_names,
+            post_build_steps,
+            outputs_path,
+            global_do_step_if=lambda buildstep: buildstep.build.reason == "rebuild",
+        )
+    )
 
     return util.BuilderConfig(
         name=f"{project.name}/nix-cached-failure",
@@ -1340,7 +1300,13 @@ def config_for_project(
             nix_skipped_build_config(project, SKIPPED_BUILDER_NAMES, outputs_path),
             nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
             nix_dependency_failed_config(project, SKIPPED_BUILDER_NAMES),
-            nix_cached_failure_config(project, worker_names, SKIPPED_BUILDER_NAMES, post_build_steps, outputs_path),
+            nix_cached_failure_config(
+                project,
+                worker_names,
+                SKIPPED_BUILDER_NAMES,
+                post_build_steps,
+                outputs_path,
+            ),
             nix_register_gcroot_config(project, worker_names),
         ],
     )
