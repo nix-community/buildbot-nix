@@ -180,6 +180,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         props: Properties,
         project: Project,
         source: str,
+        combine_builds: bool,
         job: NixEvalJob,
     ) -> Properties:
         name = f"{project.nix_ref_type}:{project.name}#checks.{job.attr}"
@@ -187,6 +188,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         props.setProperty("status_name", f"nix-build {name}", source)
         props.setProperty("virtual_builder_tags", "", source)
         props.setProperty("attr", job.attr, source)
+        props.setProperty("combine_builds", combine_builds, source)
+
+        if isinstance(job, NixEvalJobSuccess):
+            props.setProperty("drv_path", job.drvPath, source)
+            props.setProperty("system", job.system, source)
+            props.setProperty("out_path", job.outputs["out"] or None, source)
+            props.setProperty("cacheStatus", job.cacheStatus, source)
 
         return props
 
@@ -194,7 +202,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, job
+            Properties(), self.project, source, self.combine_builds, job
         )
         props.setProperty("error", job.error, source)
 
@@ -208,7 +216,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, job
+            Properties(), self.project, source, self.combine_builds, job
         )
         props.setProperty("first_failure_url", first_failure.url, source)
 
@@ -222,7 +230,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, job
+            Properties(), self.project, source, self.combine_builds, job
         )
         props.setProperty("dependency.attr", dependency.attr, source)
 
@@ -236,16 +244,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         source = "nix-eval-nix"
 
         drv_path = job.drvPath
-        system = job.system
         out_path = job.outputs["out"] or None
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, job
+            Properties(), self.project, source, self.combine_builds, job
         )
-        props.setProperty("system", system, source)
-        props.setProperty("drv_path", drv_path, source)
-        props.setProperty("out_path", out_path, source)
-        props.setProperty("cacheStatus", job.cacheStatus, source)
 
         build_props.setProperty(f"{job.attr}-out_path", out_path, source)
         build_props.setProperty(f"{job.attr}-drv_path", drv_path, source)
@@ -591,7 +594,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.failed_builds_db = failed_builds_db
 
     async def run(self) -> Generator[Any, object, Any]:
-        CombinedBuildEvent.produce_event_for_build(
+        await CombinedBuildEvent.produce_event_for_build(
             self.master, CombinedBuildEvent.STARTED_NIX_EVAL, self.build, None
         )
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
@@ -705,11 +708,25 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         super().__init__(**kwargs)
 
     async def run(self) -> int:
+        if self.build.reason == "rebuild" and not self.getProperty("combine_builds"):
+            print("SENDING COMBINED BUILD")
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master, CombinedBuildEvent.STARTED_NIX_BUILD, self.build, None
+            )
+
         # run `nix build`
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
         await self.runCommand(cmd)
 
-        return cmd.results()
+        res = cmd.results()
+
+        if self.build.reason == "rebuild" and not self.getProperty("combine_builds"):
+            print("SENDING COMBINED BUILD")
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master, CombinedBuildEvent.FINISHED_NIX_BUILD, self.build, res
+            )
+
+        return res
 
 
 class UpdateBuildOutput(steps.BuildStep):
