@@ -12,11 +12,10 @@ if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
     from pydantic import BaseModel
 
-from collections.abc import Generator
 
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
-from twisted.internet import defer, threads
+from twisted.internet import threads
 from twisted.python.failure import Failure
 
 
@@ -141,8 +140,7 @@ class ThreadDeferredBuildStep(BuildStep, ABC):
     def run_post(self) -> Any:
         pass
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
+    async def run(self) -> int:
         d = threads.deferToThread(self.run_deferred)  # type: ignore[no-untyped-call]
 
         self.error_msg = ""
@@ -152,13 +150,12 @@ class ThreadDeferredBuildStep(BuildStep, ABC):
             return util.FAILURE
 
         d.addCallbacks(lambda _: util.SUCCESS, error_cb)
-        res = yield d
+        res = await d
         if res == util.SUCCESS:
             return self.run_post()
-        else:
-            log: StreamLog = yield self.addLog("log")
-            log.addStderr(f"Failed to reload project list: {self.error_msg}")
-            return util.FAILURE
+        log: StreamLog = await self.addLog("log")
+        log.addStderr(f"Failed to reload project list: {self.error_msg}")
+        return util.FAILURE
 
 
 _T = TypeVar("_T", bound="BaseModel")

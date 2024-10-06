@@ -4,8 +4,6 @@ from typing import Any, ClassVar
 
 from buildbot.util import bytes2unicode, unicode2bytes
 from buildbot.www.auth import AuthBase, UserInfoProviderBase
-from twisted.internet import defer
-from twisted.internet.defer import Generator
 from twisted.logger import Logger
 from twisted.web.error import Error
 from twisted.web.pages import forbidden
@@ -34,10 +32,9 @@ class OAuth2ProxyAuth(AuthBase):
     def getLogoutResource(self) -> IResource:  # noqa: N802
         return typing.cast(IResource, Redirect(b"/oauth2/sign_out"))
 
-    @defer.inlineCallbacks
-    def maybeAutoLogin(  # noqa: N802
+    async def maybeAutoLogin(  # noqa: N802
         self, request: Request
-    ) -> Generator[defer.Deferred[None], object, None]:
+    ) -> None:
         header = request.getHeader(self.header)
         if header is None:
             msg = (
@@ -65,4 +62,4 @@ class OAuth2ProxyAuth(AuthBase):
         user_info = {"username": username}
         if session.user_info != user_info:
             session.user_info = user_info
-            yield self.updateUserInfo(request)
+            await self.updateUserInfo(request)
