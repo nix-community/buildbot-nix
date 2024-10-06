@@ -520,6 +520,77 @@ in
         default = { };
         example = ''{ "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects-secrets.path; }'';
       };
+
+      branches = lib.mkOption {
+        type = lib.types.attrsOf (
+          lib.types.submodule {
+            options = {
+              matchGlob = lib.mkOption {
+                type = lib.types.str;
+                description = ''
+                  A glob specifying which branches to apply this rule to.
+                '';
+              };
+
+              registerGCRoots = lib.mkOption {
+                type = lib.types.bool;
+                description = ''
+                  Whether to register gcroots for branches matching this glob.
+                '';
+                default = true;
+              };
+
+              updateOutputs = lib.mkOption {
+                type = lib.types.bool;
+                description = ''
+                  Whether to update outputs for branches matching this glob.
+                '';
+                default = false;
+              };
+            };
+          }
+        );
+        default = { };
+        description = ''
+          An attrset of branch rules, each rule specifies which branches it should apply to using the
+          `matchGlob` option and then the corresponding settings are applied to the matched branches.
+          If multiple rules match a given branch, the rules are `or`-ed together, by `or`-ing each
+          individual boolean option of all matching rules. Take the following as example:
+          ```
+             {
+               rule1 = {
+                 matchGlob = "f*";
+                 registerGCRroots = false;
+                 updateOutputs = false;
+               }
+               rule2 = {
+                 matchGlob = "foo";
+                 registerGCRroots = true;
+                 updateOutputs = false;
+               }
+             }
+          ```
+          This example will result in `registerGCRoots` both being considered `true`,
+          but `updateOutputs` being `false` for the branch `foo`.
+
+          The default branches of all repos are considered to be matching of a rule setting all the options
+          to `true`.
+        '';
+        example = lib.literalExpression ''
+          {
+            rule1 = {
+              matchGlob = "f*";
+              registerGCRroots = false;
+              updateOutputs = false;
+            }
+            rule2 = {
+              matchGlob = "foo";
+              registerGCRroots = true;
+              updateOutputs = false;
+            }
+          }
+        '';
+      };
     };
   };
   config = lib.mkMerge [
@@ -691,6 +762,7 @@ in
                     inherit name;
                     value = "effects-secret__${cleanUpRepoName name}";
                   }) cfg.effects.perRepoSecretFiles;
+                  branches = cfg.branches;
                 }
               }").read_text()))
             )
