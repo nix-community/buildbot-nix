@@ -33,6 +33,7 @@ packages = [
 [tool.ruff]
 target-version = "py311"
 line-length = 88
+[tool.ruff.lint]
 select = ["ALL"]
 ignore = [
   # pydocstyle
