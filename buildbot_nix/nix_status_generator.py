@@ -58,36 +58,34 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
 
     # TODO: copy pasted from buildbot, make it static upstream and reuse
     @staticmethod
-    @defer.inlineCallbacks
-    def partial_build_dict(
+    async def partial_build_dict(
         master: BuildMaster, buildrequest: BuildRequest
     ) -> defer.Generator[Any, object, dict[str, Any]]:
-        brdict: Any = yield master.db.buildrequests.getBuildRequest(
+        brdict: Any = await master.db.buildrequests.getBuildRequest(
             buildrequest["buildrequestid"]
         )
         bdict = {}
 
         props = Properties()
-        buildrequest = yield BuildRequest.fromBrdict(master, brdict)
-        builder = yield master.botmaster.getBuilderById(brdict["builderid"])
+        buildrequest = await BuildRequest.fromBrdict(master, brdict)
+        builder = await master.botmaster.getBuilderById(brdict["builderid"])
 
-        yield Build.setup_properties_known_before_build_starts(
+        await Build.setup_properties_known_before_build_starts(
             props, [buildrequest], builder
         )
         Build.setupBuildProperties(props, [buildrequest])
 
         bdict["properties"] = props.asDict()
-        yield utils.get_details_for_buildrequest(master, brdict, bdict)
+        await utils.get_details_for_buildrequest(master, brdict, bdict)
         return bdict
 
     # TODO: copy pasted from buildbot, somehow reuse
-    @defer.inlineCallbacks
-    def buildrequest_message(
+    async def buildrequest_message(
         self, master: BuildMaster, build: dict[str, Any]
-    ) -> defer.Generator[Any, Any, dict[str, Any]]:
+    ) -> dict[str, Any]:
         patches = self._get_patches_for_build(build)
         users: list[str] = []
-        buildmsg = yield self.start_formatter.format_message_for_build(
+        buildmsg = await self.start_formatter.format_message_for_build(
             master, build, is_buildset=True, mode=self.mode, users=users
         )
 
@@ -104,21 +102,20 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
             "extra_info": buildmsg["extra_info"],
         }
 
-    @defer.inlineCallbacks
-    def generate(
+    async def generate(
         self,
         master: BuildMaster,
         reporter: ReporterBase,
         key: tuple[str, None | Any, str],
         data: Build | BuildRequest,
-    ) -> defer.Generator[Any, Any, Any]:
+    ) -> None | dict[str, Any]:
         what, _, event = key
         if what == "builds":
             is_new = event == "new"
 
             formatter = self.start_formatter if is_new else self.end_formatter
 
-            yield getDetailsForBuild(
+            await getDetailsForBuild(
                 master,
                 data,
                 want_properties=formatter.want_properties,
@@ -130,7 +127,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
             if not self.is_message_needed_by_props(data):
                 return None
 
-            report: dict[str, Any] = yield self.build_message(
+            report: dict[str, Any] = await self.build_message(
                 formatter, master, reporter, data
             )
 
@@ -151,8 +148,8 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                 report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
 
             return report
-        elif what == "buildrequests":
-            build: dict[str, Any] = yield self.partial_build_dict(master, data)
+        if what == "buildrequests":
+            build: dict[str, Any] = await self.partial_build_dict(master, data)
 
             if event == "canceled-nix-build":
                 build["complete"] = True
@@ -161,5 +158,5 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
             if not self.is_message_needed_by_props(build):
                 return None
 
-            report = yield self.buildrequest_message(master, build)
-            return report
+            return await self.buildrequest_message(master, build)
+        return None
