@@ -16,7 +16,7 @@ from buildbot.reporters.generators.utils import BuildStatusGeneratorMixin
 from buildbot.reporters.message import MessageFormatterRenderable
 from buildbot.reporters.utils import getDetailsForBuild
 from twisted.logger import Logger
-from zope.interface import implementer
+from zope.interface import implementer  # type: ignore[import]
 
 log = Logger()
 
