@@ -496,16 +496,31 @@ in
       branches = {
         build_prs = lib.mkOption {
           type = lib.types.bool;
+          description = ''
+            When enabled buildbot-nix will schedule builds for every PR opened.
+            It will however not register GC roots.
+          '';
           default = true;
         };
 
         primary = lib.mkOption {
           type = lib.types.str;
+          description = ''
+            A `re` Python compatible regex specifying which additional branches should
+            buildbot-nix consider in addition to the default branch. Like for the default
+            branch, buildbot-nix will register GC roots for any builds it performs for this
+            branch. An empty regex means to not consider any additional branches.
+          '';
           default = "";
         };
 
         secondary = lib.mkOption {
           type = lib.types.str;
+          description = ''
+            Refer to the description of `branches.primary`, the only difference between it and this
+            option is that buildbot-nix will *not* register GC roots for any builds it performs,
+            similarly to how it behaves for PRs.
+          '';
           default = "";
         };
       };
