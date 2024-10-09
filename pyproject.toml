@@ -26,6 +26,7 @@ scripts = { buildbot-effects = "hercules_effects.cli:main" }
 [tool.setuptools]
 packages = [
   "buildbot_nix",
+  "buildbot_nix.repo_config",
   "buildbot_nix.github",
   "buildbot_effects"
 ]
