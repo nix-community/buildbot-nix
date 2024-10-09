@@ -709,7 +709,6 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
 
     async def run(self) -> int:
         if self.build.reason == "rebuild" and not self.getProperty("combine_builds"):
-            print("SENDING COMBINED BUILD")
             await CombinedBuildEvent.produce_event_for_build(
                 self.master, CombinedBuildEvent.STARTED_NIX_BUILD, self.build, None
             )
@@ -721,7 +720,6 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         res = cmd.results()
 
         if self.build.reason == "rebuild" and not self.getProperty("combine_builds"):
-            print("SENDING COMBINED BUILD")
             await CombinedBuildEvent.produce_event_for_build(
                 self.master, CombinedBuildEvent.FINISHED_NIX_BUILD, self.build, res
             )
@@ -1101,6 +1099,8 @@ def nix_cached_failure_config(
         CachedFailureStep(
             name="Cached failure",
             doStepIf=lambda buildstep: buildstep.build.reason != "rebuild",
+            haltOnFailure=True,
+            flunkOnFailure=True,
         ),
     )
 
