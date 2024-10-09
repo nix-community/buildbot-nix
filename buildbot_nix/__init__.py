@@ -145,6 +145,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         )
         self.brids = []
         self.consumers = {}
+        self.update_result_futures = []
         super().__init__(**kwargs)
 
     def interrupt(self, reason: str | Failure) -> None:
@@ -276,10 +277,10 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         for brid in brids.values():
             url = getURLForBuildrequest(self.master, brid)
             await self.addURL(f"{scheduler.name} #{brid}", url)
-            self._add_results(brid)
+            self.update_result_futures.append(self._add_results(brid))
 
         if not self.combine_builds:
-            self.produce_event_for_build_requests_by_id(
+            await self.produce_event_for_build_requests_by_id(
                 brids.values(), "started-nix-build", None
             )
 
@@ -587,6 +588,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduler_log.addStdout(
                 f"\t- new result: {util.Results[overall_result].upper()} \n"
             )
+
+        while self.update_result_futures:
+            await self.update_result_futures.pop()
 
         await self.produce_event_for_build_by_id(
             "finished-nix-build", self.build.buildid, overall_result
