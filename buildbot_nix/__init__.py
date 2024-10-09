@@ -276,10 +276,10 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         for brid in brids.values():
             url = getURLForBuildrequest(self.master, brid)
             await self.addURL(f"{scheduler.name} #{brid}", url)
-            await self._add_results(brid)
+            self._add_results(brid)
 
         if not self.combine_builds:
-            await self.produce_event_for_build_requests_by_id(
+            self.produce_event_for_build_requests_by_id(
                 brids.values(), "started-nix-build", None
             )
 
