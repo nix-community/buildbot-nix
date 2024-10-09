@@ -1,4 +1,5 @@
 import atexit
+import copy
 import dataclasses
 import graphlib
 import json
@@ -7,7 +8,7 @@ import os
 import re
 import urllib.parse
 from collections import defaultdict
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Coroutine, Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from multiprocessing import cpu_count
@@ -61,6 +62,7 @@ from .models import (
 from .nix_status_generator import CombinedBuildEvent
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
+from .repo_config import BranchConfig
 
 SKIPPED_BUILDER_NAMES = [f"skipped-builds-{n}" for n in range(cpu_count())]
 
@@ -145,7 +147,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         )
         self.brids = []
         self.consumers = {}
-        self.update_result_futures = []
+        self.update_result_futures: list[Coroutine[Any, Any, None]] = []
         super().__init__(**kwargs)
 
     def interrupt(self, reason: str | Failure) -> None:
@@ -585,6 +587,10 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         supported_systems: list[str],
         job_report_limit: int | None,
         failed_builds_db: FailedBuildDB,
+        worker_count: int,
+        max_memory_size: int,
+        drv_gcroots_dir: Path,
+        allow_repository_configuration: bool,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
@@ -595,13 +601,57 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.supported_systems = supported_systems
         self.job_report_limit = job_report_limit
         self.failed_builds_db = failed_builds_db
+        self.worker_count = worker_count
+        self.max_memory_size = max_memory_size
+        self.drv_gcroots_dir = drv_gcroots_dir
+        self.allow_repository_configuration = allow_repository_configuration
 
-    async def run(self) -> Generator[Any, object, Any]:
-        await CombinedBuildEvent.produce_event_for_build(
-            self.master, CombinedBuildEvent.STARTED_NIX_EVAL, self.build, None
+    async def produce_event(self, event: str, result: None | int) -> None:
+        build: dict[str, Any] = await self.master.data.get(
+            ("builds", str(self.build.buildid))
         )
+        if result is not None:
+            build["results"] = result
+        self.master.mq.produce(
+            ("builds", str(self.build.buildid), event), copy.deepcopy(build)
+        )
+
+    async def run(self) -> int:
+        await self.produce_event("started-nix-eval", None)
+
+        branch_config: BranchConfig
+        if self.allow_repository_configuration:
+            branch_config = await BranchConfig.extract_during_step(self)
+        else:
+            branch_config = BranchConfig()
+
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
-        cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
+        cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand(
+            collectStdout=True,
+            collectStderr=False,
+            stdioLogName="stdio",
+            command=[
+                "nix-eval-jobs",
+                "--workers",
+                str(self.worker_count),
+                "--max-memory-size",
+                str(self.max_memory_size),
+                "--option",
+                "accept-flake-config",
+                "true",
+                "--gc-roots-dir",
+                self.drv_gcroots_dir,
+                "--force-recurse",
+                "--check-cache-status",
+                "--flake",
+                f".#{branch_config.attribute}",
+                *(
+                    ["--reference-lock-file", branch_config.lock_file]
+                    if branch_config.lock_file != "flake.lock"
+                    else []
+                ),
+            ],
+        )
         await self.runCommand(cmd)
 
         # if the command passes extract the list of stages
@@ -868,6 +918,7 @@ def nix_eval_config(
     max_memory_size: int,
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
+    allow_repository_configuration: bool,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -895,24 +946,12 @@ def nix_eval_config(
             supported_systems=supported_systems,
             job_report_limit=job_report_limit,
             failed_builds_db=failed_builds_db,
-            command=[
-                "nix-eval-jobs",
-                "--workers",
-                str(worker_count),
-                "--max-memory-size",
-                str(max_memory_size),
-                "--option",
-                "accept-flake-config",
-                "true",
-                "--gc-roots-dir",
-                drv_gcroots_dir,
-                "--force-recurse",
-                "--check-cache-status",
-                "--flake",
-                ".#checks",
-            ],
             haltOnFailure=True,
             locks=[eval_lock.access("exclusive")],
+            worker_count=worker_count,
+            max_memory_size=max_memory_size,
+            drv_gcroots_dir=drv_gcroots_dir,
+            allow_repository_configuration=allow_repository_configuration,
         ),
     )
 
@@ -1221,6 +1260,7 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
+    allow_repository_configuration: bool,
     outputs_path: Path | None = None,
 ) -> None:
     config["projects"].append(Project(project.name))
@@ -1310,6 +1350,7 @@ def config_for_project(
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
                 failed_builds_db=failed_builds_db,
+                allow_repository_configuration=allow_repository_configuration,
             ),
             nix_build_config(
                 project,
@@ -1538,6 +1579,7 @@ class NixConfigurator(ConfiguratorBase):
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
                 failed_builds_db=DB,
+                allow_repository_configuration=self.config.allow_repository_configuration,
                 outputs_path=self.config.outputs_path,
             )
 
