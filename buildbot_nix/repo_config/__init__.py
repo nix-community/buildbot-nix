@@ -24,6 +24,8 @@ class BranchConfig(BaseModel):
             collectStdout=True,
             collectStderr=False,
             stdioLogName=None,
+            # TODO: replace this with something like buildbot.steps.transfer.StringUpload
+            # in the future... this one doesn't not exist yet.
             command=["cat", "buildbot-nix.toml"],
         )
         await buildstep.runCommand(cmd)
