@@ -626,6 +626,9 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             branch_config = BranchConfig()
 
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
+        # !! Careful, the command attribute has to be specified here as the call
+        # !! to `makeRemoteShellCommand` inside `BranchConfig.extract_during_step`
+        # !! overrides `command`...
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand(
             collectStdout=True,
             collectStderr=False,
