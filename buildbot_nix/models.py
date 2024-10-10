@@ -192,6 +192,7 @@ class BuildbotNixConfig(BaseModel):
     post_build_steps: list[PostBuildStep]
     job_report_limit: int | None
     http_basic_auth_password_file: Path | None
+    effects_per_repo_secrets: dict[str, str]
 
     @property
     def nix_workers_secret(self) -> str:
