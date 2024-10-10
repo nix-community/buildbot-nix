@@ -825,7 +825,7 @@ class UpdateBuildOutput(steps.BuildStep):
 
         if not self.branch_config.do_copy_outputs(
             self.project.default_branch, props.getProperty("branch")
-        ):
+        ) or props.getProperty("event") != "push":
             return util.SKIPPED
 
         out_path = props.getProperty("out_path")
@@ -991,10 +991,10 @@ async def do_register_gcroot_if(
     out_path = await s.getProperty("out_path")
 
     return branch_config.do_register_gcroot(
-        s.getProperty("default_branch"), s.getProperty("branch")
-    ) and not (
-        Path(str(gc_root)).exists() and Path(str(gc_root)).readlink() == str(out_path)
-    )
+        await s.getProperty("default_branch"), await s.getProperty("branch")
+    ) and await s.getProperty("event") == "push" \
+      and not Path(str(gc_root)).exists() and Path(str(gc_root)).readlink() == str(out_path)
+
 
 
 def nix_build_steps(
