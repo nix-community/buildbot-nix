@@ -2,7 +2,7 @@ import re
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from buildbot.plugins import steps, util
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -174,20 +174,51 @@ class PostBuildStep(BaseModel):
 
 
 class BranchConfig(BaseModel):
-    build_prs: bool
-    primary: re.Pattern
-    secondary: re.Pattern
+    match_glob: str = Field(validation_alias = "matchGlob")
+    register_gcroots: bool = Field(validation_alias = "registerGCRoots")
+    copy_outputs: bool = Field(validation_alias = "copyOutputs")
 
-    def do_run(self, default_branch: str, branch: str) -> bool:
-        return (
-            branch == default_branch
-            or self.primary.fullmatch(branch) is not None
-            or self.secondary.fullmatch(branch) is not None
+    match_regex: re.Pattern = Field(match_glob, exclude = True, frozen = True)
+
+    def __or__(self, other: BranchConfig) -> BranchConfig:
+        assert(self.match_glob == other.match_glob)
+        assert(self.match_regex == other.match_regex)
+
+        return BranchConfig(
+            match_glob = self.match_glob,
+            register_gcroots = self.register_gcroots or other.register_gcroots,
+            copy_outputs = self.copy_outputs or other.copy_outputs,
+            match_regex = self.match_regex
         )
 
-    def do_register_gcroot(self, default_branch: str, branch: str) -> bool:
-        return branch == default_branch or self.primary.fullmatch(branch) is not None
+class BranchConfigDict(dict[str, BranchConfig]):
+    def lookup_branch_config(self, branch: str) -> BranchConfig | None:
+        ret = None
+        for branch_config in self.values():
+            if branch_config.match_regex.fullmatch(branch):
+                if ret is None:
+                    ret = branch_config
+                else:
+                    ret |= branch_config
+        return ret
 
+    def check_lookup(self, default_branch: str, branch: str, fn: Callable[[BranchConfig], bool]) -> bool:
+        branch_config = self.lookup_branch_config(branch)
+        return (
+            branch == default_branch or (
+                branch_config is not None
+                and fn(branch_config)
+            )
+        )
+
+    def do_run(self, default_branch: str, branch: str) -> bool:
+        return self.check_lookup(default_branch, branch, lambda _: True)
+
+    def do_register_gcroot(self, default_branch: str, branch: str) -> bool:
+        return self.check_lookup(default_branch, branch, lambda bc: bc.register_gcroots)
+
+    def do_copy_outputs(self, default_branch: str, branch: str) -> bool:
+        return self.check_lookup(default_branch, branch, lambda bc: bc.copy_outputs)
 
 class BuildbotNixConfig(BaseModel):
     db_url: str
@@ -209,7 +240,7 @@ class BuildbotNixConfig(BaseModel):
     post_build_steps: list[PostBuildStep]
     job_report_limit: int | None
     http_basic_auth_password_file: Path | None
-    branches: BranchConfig
+    branches: BranchConfigDict
 
     @property
     def nix_workers_secret(self) -> str:

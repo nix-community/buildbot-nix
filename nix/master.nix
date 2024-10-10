@@ -493,37 +493,78 @@ in
         default = 50;
       };
 
-      branches = {
-        build_prs = lib.mkOption {
-          type = lib.types.bool;
-          description = ''
-            When enabled buildbot-nix will schedule builds for every PR opened.
-            It will however not register GC roots.
-          '';
-          default = true;
-        };
+      branches = lib.mkOption {
+        type = lib.types.attrsOf lib.types.submodule {
+          option = {
+            matchGlob = lib.mkOption {
+              type = lib.types.str;
+              description = ''
+                A glob specifying which branches to apply this rule to.
+              '';
+            };
 
-        primary = lib.mkOption {
-          type = lib.types.str;
-          description = ''
-            A `re` Python compatible regex specifying which additional branches should
-            buildbot-nix consider in addition to the default branch. Like for the default
-            branch, buildbot-nix will register GC roots for any builds it performs for this
-            branch. An empty regex means to not consider any additional branches.
-          '';
-          default = "";
-        };
+            registerGCRoots = lib.mkOption {
+              type = lib.types.bool;
+              description = ''
+                Whether to register gcroots for branches matching this glob.
+              '';
+              default = false;
+            };
 
-        secondary = lib.mkOption {
-          type = lib.types.str;
-          description = ''
-            Refer to the description of `branches.primary`, the only difference between it and this
-            option is that buildbot-nix will *not* register GC roots for any builds it performs,
-            similarly to how it behaves for PRs.
-          '';
-          default = "";
+            copyOutputs = lib.mkOption {
+              type = lib.types.bool;
+              description = ''
+                Whether to copy outputs for branches matching this glob.
+              '';
+              default = false;
+            };
+          };
         };
+        default = {};
+        description = ''
+          An attrset of branch rules, each rule specifies which branches it should apply to using the
+          `matchGlob` option and then the corresponding settings are applied to the matched branches.
+          If multiple rules match a given branch, the rules are `or`-ed together, by `or`-ing each
+          individual boolean option of all matching rules. Take the following as example:
+          ```
+             {
+               rule1 = {
+                 matchGlob = "f*";
+                 build_prs = true;
+                 register_gcroots = false;
+                 copy_outputs = false;
+               }
+               rule2 = {
+                 matchGlob = "foo";
+                 build_prs = false;
+                 register_gcroots = true;
+                 copy_outputs = false;
+               }
+             }
+          ```
+          This example will result in `build_prs` and `register_gcroots` both being considered `true`,
+          but `copy_outputs` being `false` for the branch `foo`.
+
+          The default branches of all repos are considered to be matching of a rule setting all the options
+          to `true`.
+        '';
       };
+      example = lib.literalExpression ''
+        {
+          rule1 = {
+            matchGlob = "f*";
+            build_prs = true;
+            register_gcroots = false;
+            copy_outputs = false;
+          }
+          rule2 = {
+            matchGlob = "foo";
+            build_prs = false;
+            register_gcroots = true;
+            copy_outputs = false;
+          }
+        }
+      '';
     };
   };
   config = lib.mkMerge [
