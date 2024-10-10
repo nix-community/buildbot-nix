@@ -52,7 +52,7 @@ class CombinedBuildEvent(Enum):
                 )
             else:
                 for build in builds:
-                    CombinedBuildEvent.produce_event_for_build(
+                    await CombinedBuildEvent.produce_event_for_build(
                         master, event, build, result
                     )
 
