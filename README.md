@@ -199,6 +199,18 @@ to `basichttpauth` to function (this is handled by the module, which is why you
 can leave it unset). For a concrete example please refer to
 [fully-private-github](./examples/fully-private-github.nix)
 
+### Per Repository Configuration
+
+Currently `buildbot-nix` will look for a file named `buildbot-nix.toml` in the
+root of whichever branch it's currently evaluating, parse it as TOML and apply
+the configuration specified. The following table illustrates the supported
+options.
+
+|           | key         | type  | description                                                                 | default      | example                                                                                                                                                                                                 |
+| :-------- | :---------- | :---- | :-------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| lock file | `lock_file` | `str` | dictates which lock file `buildbot-nix` will use when evaluating your flake | `flake.lock` | have multiple lockfiles, one for `nixpkgs-stable`, one for `nixpkgs-unstable` or by default pin an input to a private repo, but have a lockfile with that private repo replaced by a public repo for CI |
+| attribute | `attribute` | `str` | which attribute in the flake to evaluate and build                          | `checks`     | using a different attribute, like `hydraJobs`                                                                                                                                                           |
+
 ## Binary caches
 
 To access the build results on other machines there are two options at the
