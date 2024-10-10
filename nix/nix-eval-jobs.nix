@@ -11,8 +11,8 @@ nix-eval-jobs.overrideAttrs (oldAttrs: {
     owner = "nix-community";
     repo = "nix-eval-jobs";
     # https://github.com/nix-community/nix-eval-jobs/pull/325
-    rev = "91ca6cffaecbe5d0df79d2d97d4b286252c17aef";
-    sha256 = "sha256-uTroApEsrSVxGtKcnrOBSEGImS3UolxMmy/9z97FpWE=";
+    rev = "e5a2c008b922c1a7642f93d29645403b20c70fec";
+    sha256 = "sha256-UIY4EFvzsxYK8FhT6RSsmVDLqDBHDMzROy1g4YisIgY=";
   };
 
   buildInputs = [
