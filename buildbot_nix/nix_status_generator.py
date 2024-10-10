@@ -68,25 +68,25 @@ class CombinedBuildEvent(Enum):
             if result is not None:
                 build_db["results"] = result
             master.mq.produce(
-                ("builds", str(build.buildid), str(event)), copy.deepcopy(build_db)
+                ("builds", str(build.buildid), event.name), copy.deepcopy(build_db)
             )
         elif isinstance(build, dict):
             if result is not None:
                 build["results"] = result
             master.mq.produce(
-                ("builds", str(build["buildid"]), str(event)), copy.deepcopy(build)
+                ("builds", str(build["buildid"]), event.name), copy.deepcopy(build)
             )
 
 
 @implementer(IReportGenerator)
 class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
     wanted_event_keys: ClassVar[list[Any]] = [
-        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_EVAL)),
-        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_EVAL)),
-        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_BUILD)),
-        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD)),
-        ("buildrequests", None, str(CombinedBuildEvent.STARTED_NIX_BUILD)),
-        ("buildrequests", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD)),
+        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_EVAL.name)),
+        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_EVAL.name)),
+        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_BUILD.name)),
+        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD.name)),
+        ("buildrequests", None, str(CombinedBuildEvent.STARTED_NIX_BUILD.name)),
+        ("buildrequests", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD.name)),
     ]
 
     compare_attrs: ClassVar[list[str]] = ["start_formatter", "end_formatter"]
@@ -190,28 +190,29 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                 formatter, master, reporter, data
             )
 
-            if event in {
-                str(CombinedBuildEvent.STARTED_NIX_EVAL),
-                str(CombinedBuildEvent.FINISHED_NIX_EVAL),
+            event_typed: CombinedBuildEvent = CombinedBuildEvent(event)
+            if event_typed in {
+                CombinedBuildEvent.STARTED_NIX_EVAL,
+                CombinedBuildEvent.FINISHED_NIX_EVAL,
             }:
                 report["builds"][0]["properties"]["status_name"] = (
                     "nix-eval",
                     "generator",
                 )
             if (
-                event
+                event_typed
                 in {
-                    str(CombinedBuildEvent.STARTED_NIX_BUILD),
-                    str(CombinedBuildEvent.FINISHED_NIX_BUILD),
+                    CombinedBuildEvent.STARTED_NIX_BUILD,
+                    CombinedBuildEvent.FINISHED_NIX_BUILD,
                 }
             ) and report["builds"][0]["properties"]["status_name"][0] == "nix-eval":
                 report["builds"][0]["properties"]["status_name"] = (
                     "nix-build",
                     "generator",
                 )
-            if event in {
-                str(CombinedBuildEvent.FINISHED_NIX_EVAL),
-                str(CombinedBuildEvent.FINISHED_NIX_BUILD),
+            if event_typed in {
+                CombinedBuildEvent.FINISHED_NIX_EVAL,
+                CombinedBuildEvent.FINISHED_NIX_BUILD,
             }:
                 report["builds"][0]["complete"] = True
                 report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
