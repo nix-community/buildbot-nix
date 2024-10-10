@@ -190,28 +190,29 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                 formatter, master, reporter, data
             )
 
-            if event in {
-                str(CombinedBuildEvent.STARTED_NIX_EVAL),
-                str(CombinedBuildEvent.FINISHED_NIX_EVAL),
+            event_typed: CombinedBuildEvent = CombinedBuildEvent(event)
+            if event_typed in {
+                CombinedBuildEvent.STARTED_NIX_EVAL,
+                CombinedBuildEvent.FINISHED_NIX_EVAL,
             }:
                 report["builds"][0]["properties"]["status_name"] = (
                     "nix-eval",
                     "generator",
                 )
             if (
-                event
+                event_typed
                 in {
-                    str(CombinedBuildEvent.STARTED_NIX_BUILD),
-                    str(CombinedBuildEvent.FINISHED_NIX_BUILD),
+                    CombinedBuildEvent.STARTED_NIX_BUILD,
+                    CombinedBuildEvent.FINISHED_NIX_BUILD,
                 }
             ) and report["builds"][0]["properties"]["status_name"][0] == "nix-eval":
                 report["builds"][0]["properties"]["status_name"] = (
                     "nix-build",
                     "generator",
                 )
-            if event in {
-                str(CombinedBuildEvent.FINISHED_NIX_EVAL),
-                str(CombinedBuildEvent.FINISHED_NIX_BUILD),
+            if event_typed in {
+                CombinedBuildEvent.FINISHED_NIX_EVAL,
+                CombinedBuildEvent.FINISHED_NIX_BUILD,
             }:
                 report["builds"][0]["complete"] = True
                 report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
