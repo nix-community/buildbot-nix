@@ -552,7 +552,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             await self.update_result_futures.pop()
 
         await CombinedBuildEvent.produce_event_for_build(
-            self.master, CombinedBuildEvent.FINISHED_NIX_BUILD, self.build, result
+            self.master, CombinedBuildEvent.FINISHED_NIX_BUILD, self.build, overall_result
         )
         scheduler_log.addStdout("Done!\n")
         return overall_result
