@@ -190,32 +190,39 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                 formatter, master, reporter, data
             )
 
-            event_typed: CombinedBuildEvent = CombinedBuildEvent(event)
-            if event_typed in {
-                CombinedBuildEvent.STARTED_NIX_EVAL,
-                CombinedBuildEvent.FINISHED_NIX_EVAL,
-            }:
-                report["builds"][0]["properties"]["status_name"] = (
-                    "nix-eval",
-                    "generator",
-                )
-            if (
-                event_typed
-                in {
-                    CombinedBuildEvent.STARTED_NIX_BUILD,
-                    CombinedBuildEvent.FINISHED_NIX_BUILD,
-                }
-            ) and report["builds"][0]["properties"]["status_name"][0] == "nix-eval":
-                report["builds"][0]["properties"]["status_name"] = (
-                    "nix-build",
-                    "generator",
-                )
-            if event_typed in {
-                CombinedBuildEvent.FINISHED_NIX_EVAL,
-                CombinedBuildEvent.FINISHED_NIX_BUILD,
-            }:
-                report["builds"][0]["complete"] = True
-                report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
+            event_typed: CombinedBuildEvent = CombinedBuildEvent.__members__[event]
+            match event_typed:
+                case (
+                    CombinedBuildEvent.STARTED_NIX_EVAL
+                    | CombinedBuildEvent.FINISHED_NIX_EVAL
+                ):
+                    report["builds"][0]["properties"]["status_name"] = (
+                        "nix-eval",
+                        "generator",
+                    )
+                case (
+                    CombinedBuildEvent.STARTED_NIX_BUILD
+                    | CombinedBuildEvent.FINISHED_NIX_BUILD
+                ):
+                    if (
+                        report["builds"][0]["properties"]["status_name"][0]
+                        == "nix-eval"
+                    ):
+                        report["builds"][0]["properties"]["status_name"] = (
+                            "nix-build",
+                            "generator",
+                        )
+                case _:
+                    msg = f"Unexpected event: {event_typed}"
+                    raise ValueError(msg)
+
+            match event_typed:
+                case (
+                    CombinedBuildEvent.FINISHED_NIX_EVAL
+                    | CombinedBuildEvent.FINISHED_NIX_BUILD
+                ):
+                    report["builds"][0]["complete"] = True
+                    report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
 
             return report
         if what == "buildrequests":
