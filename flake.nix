@@ -84,9 +84,6 @@
               ];
             };
             packages.buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
-            packages.foo = pkgs.runCommand "foo" { } ''
-              false
-            '';
             checks =
               let
                 nixosMachines = lib.mapAttrs' (
