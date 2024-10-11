@@ -96,7 +96,16 @@ def effect_function(opts: EffectsOptions) -> str:
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
     url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
-    return f"""(((builtins.getFlake {url}).outputs.herculesCI (builtins.fromJSON {escaped_args})).onPush.default.outputs.hci-effects)"""
+    return f"""
+      let
+        flake = builtins.getFlake {url};
+        effects = flake.outputs.herculesCI (builtins.fromJSON {escaped_args});
+      in
+        if flake.outputs ? herculesCI then
+          effects.onPush.default.outputs.effects or {{}}
+        else
+          {{}}
+    """
 
 
 def list_effects(opts: EffectsOptions) -> list[str]:
@@ -104,17 +113,17 @@ def list_effects(opts: EffectsOptions) -> list[str]:
         "eval",
         "--json",
         "--expr",
-        f"builtins.attrNames {effect_function(opts)}",
+        f"builtins.attrNames ({effect_function(opts)})",
     )
     proc = run(cmd, stdout=subprocess.PIPE)
     return json.loads(proc.stdout)
 
 
-def instantiate_effects(opts: EffectsOptions) -> str:
+def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
     cmd = [
         "nix-instantiate",
         "--expr",
-        f"{effect_function(opts)}.deploy.run",
+        f"(({effect_function(opts)}).{effect}).run or []",
     ]
     proc = run(cmd, stdout=subprocess.PIPE)
     return proc.stdout.rstrip()
@@ -133,12 +142,15 @@ def parse_derivation(path: str) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
-def env_args(env: dict[str, str]) -> list[str]:
+def env_args(env: dict[str, str], clear_env: set[str]) -> list[str]:
     result = []
     for k, v in env.items():
         result.append("--setenv")
         result.append(f"{k}")
         result.append(f"{v}")
+    for k in clear_env:
+        result.append("--unsetenv")
+        result.append(f"{k}")
     return result
 
 
@@ -171,6 +183,11 @@ def run_effects(
     env["IN_HERCULES_CI_EFFECT"] = "true"
     env["HERCULES_CI_SECRETS_JSON"] = "/run/secrets.json"
     env["NIX_BUILD_TOP"] = "/build"
+    env["TMPDIR"] = "/tmp"  # noqa: S108
+    clear_env = set()
+    clear_env.add("TMP")
+    clear_env.add("TEMP")
+    clear_env.add("TEMPDIR")
     bwrap = shutil.which("bwrap")
     if bwrap is None:
         msg = "bwrap' executable not found"
@@ -214,6 +231,7 @@ def run_effects(
         secrets = secrets.copy()
         secrets["hercules-ci"] = {"data": {"token": "dummy"}}
         tmp.write(json.dumps(secrets).encode())
+        tmp.flush()
         bubblewrap_cmd.extend(
             [
                 "--ro-bind",
@@ -221,7 +239,7 @@ def run_effects(
                 "/run/secrets.json",
             ],
         )
-        bubblewrap_cmd.extend(env_args(env))
+        bubblewrap_cmd.extend(env_args(env, clear_env))
         bubblewrap_cmd.append("--")
         bubblewrap_cmd.extend(sandboxed_cmd)
         with pipe() as (r_file, w_file):
