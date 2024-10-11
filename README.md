@@ -201,10 +201,11 @@ can leave it unset). For a concrete example please refer to
 
 ### Per Repository Configuration
 
-Currently `buildbot-nix` will look for a file named `buildbot-nix.toml` in the
-root of whichever branch it's currently evaluating, parse it as TOML and apply
-the configuration specified. The following table illustrates the supported
-options.
+When present, `buildbot-nix` reads and applies the configuration from a file
+named `buildbot-nix.toml` located in the root directory of the repository. The
+configuration is sourced either from the current branch being built or, in the
+case of pull requests, from the result of the merge into the target branch. The
+table below outlines the supported options.
 
 |           | key         | type  | description                                                                 | default      | example                                                                                                                                                                                                 |
 | :-------- | :---------- | :---- | :-------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
