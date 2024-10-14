@@ -672,15 +672,7 @@ in
           "${if hasSSL then "https" else "http"}://${cfg.domain}/";
         dbUrl = config.services.buildbot-nix.master.dbUrl;
 
-        package = cfg.buildbotNixpkgs.buildbot.overrideAttrs (old: {
-          patches = old.patches ++ [
-            (pkgs.fetchpatch {
-              name = "give-access-to-full-name-in-the-git-hub-hook-properties.patch";
-              url = "https://github.com/buildbot/buildbot/commit/27eb8c311c0beeb35c9b0c21be437684744dce21.patch";
-              hash = "sha256-VPH7EoDVZXwx6oc6rzkUcsNEq+nGLcTNmNMlrrW6Mog=";
-            })
-          ];
-        });
+        package = cfg.buildbotNixpkgs.buildbot;
         pythonPackages =
           let
             buildbot-gitea =
