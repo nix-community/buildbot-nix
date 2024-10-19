@@ -22,7 +22,7 @@ class FailedBuild(BaseModel):
 
 class FailedBuildDB:
     def __init__(self, db_path: Path) -> None:
-        self.database = dbm.open(str(db_path), "c")
+        self.database = dbm.open(str(db_path), "c")  # noqa: SIM115
 
     def close(self) -> None:
         self.database.close()
