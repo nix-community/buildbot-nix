@@ -18,8 +18,12 @@
         ];
 
         programs.mypy = {
-          enable = true;
-          directories.".".extraPythonPackages = [ pkgs.python3.pkgs.twisted ];
+          enable = pkgs.stdenv.buildPlatform.isLinux;
+          directories.".".extraPythonPackages = [
+            pkgs.buildbot
+            pkgs.buildbot-worker
+            pkgs.python3.pkgs.twisted
+          ];
         };
 
         settings.formatter.ruff-check.priority = 1;
