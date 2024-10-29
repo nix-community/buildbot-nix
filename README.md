@@ -255,3 +255,7 @@ The following instances integrated with Gitea:
 
 We have a matrix channel at
 [buildbot-nix](https://matrix.to/#/#buildbot-nix:thalheim.io).
+
+## Need commercial support or customization?
+
+For commercial support, please contact [Mic92](https://github.com/Mic92/) at joerg@thalheim.io or reach out to [Numtide](https://numtide.com/contact/).
