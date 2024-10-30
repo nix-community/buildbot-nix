@@ -62,7 +62,9 @@ from .nix_status_generator import CombinedBuildEvent
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 
-SKIPPED_BUILDER_NAMES = [f"skipped-builds-{n}" for n in range(cpu_count())]
+SKIPPED_BUILDER_NAMES = [
+    f"skipped-builds-{n:03}" for n in range(int(max(4, int(cpu_count() * 0.25))))
+]
 
 log = Logger()
 
