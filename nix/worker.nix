@@ -77,6 +77,8 @@ in
         pkgs.git
         pkgs.openssh
         pkgs.nix
+        pkgs.bash
+        pkgs.coreutils
         cfg.nixEvalJobs.package
       ];
       environment.PYTHONPATH = "${python.withPackages (_: [ cfg.package ])}/${python.sitePackages}";

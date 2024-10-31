@@ -592,7 +592,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         worker_count: int,
         max_memory_size: int,
         drv_gcroots_dir: Path,
-        allow_repository_configuration: bool,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
@@ -606,7 +605,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.worker_count = worker_count
         self.max_memory_size = max_memory_size
         self.drv_gcroots_dir = drv_gcroots_dir
-        self.allow_repository_configuration = allow_repository_configuration
 
     async def produce_event(self, event: str, result: None | int) -> None:
         build: dict[str, Any] = await self.master.data.get(
@@ -621,11 +619,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     async def run(self) -> int:
         await self.produce_event("started-nix-eval", None)
 
-        branch_config: BranchConfig
-        if self.allow_repository_configuration:
-            branch_config = await BranchConfig.extract_during_step(self)
-        else:
-            branch_config = BranchConfig()
+        branch_config: BranchConfig = await BranchConfig.extract_during_step(self)
 
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
         # !! Careful, the command attribute has to be specified here as the call
@@ -923,7 +917,6 @@ def nix_eval_config(
     max_memory_size: int,
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
-    allow_repository_configuration: bool,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -956,7 +949,6 @@ def nix_eval_config(
             worker_count=worker_count,
             max_memory_size=max_memory_size,
             drv_gcroots_dir=drv_gcroots_dir,
-            allow_repository_configuration=allow_repository_configuration,
         ),
     )
 
@@ -1265,7 +1257,6 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
-    allow_repository_configuration: bool,
     outputs_path: Path | None = None,
 ) -> None:
     config["projects"].append(Project(project.name))
@@ -1355,7 +1346,6 @@ def config_for_project(
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
                 failed_builds_db=failed_builds_db,
-                allow_repository_configuration=allow_repository_configuration,
             ),
             nix_build_config(
                 project,
@@ -1584,7 +1574,6 @@ class NixConfigurator(ConfiguratorBase):
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
                 failed_builds_db=DB,
-                allow_repository_configuration=self.config.allow_repository_configuration,
                 outputs_path=self.config.outputs_path,
             )
 

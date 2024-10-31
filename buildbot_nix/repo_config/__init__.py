@@ -22,21 +22,27 @@ class BranchConfig(BaseModel):
         stdio: Log = await buildstep.addLog("stdio")
         cmd = await buildstep.makeRemoteShellCommand(
             collectStdout=True,
-            collectStderr=False,
+            collectStderr=True,
             stdioLogName=None,
             # TODO: replace this with something like buildbot.steps.transfer.StringUpload
             # in the future... this one doesn't not exist yet.
-            command=["cat", "buildbot-nix.toml"],
+            command=[
+                "sh",
+                "-c",
+                "if [ -f buildbot-nix.toml ] then; then cat buildbot-nix.toml; fi",
+            ],
         )
         await buildstep.runCommand(cmd)
         if cmd.didFail():
-            stdio.addStdout("Failed to read repository local configuration.\n")
+            stdio.addStderr(
+                f"Failed to read repository local configuration, {cmd.stderr}.\n"
+            )
             return cls()
         try:
             return cls.model_validate(tomllib.loads(cmd.stdout))
         except ValidationError as e:
-            stdio.addStdout(f"Failed to read repository local configuration, {e}.\n")
+            stdio.addStderr(f"Failed to read repository local configuration, {e}.\n")
             return cls()
         except TOMLDecodeError as e:
-            stdio.addStdout(f"Failed to read repository local configuration, {e}.\n")
+            stdio.addStderr(f"Failed to read repository local configuration, {e}.\n")
             return cls()
