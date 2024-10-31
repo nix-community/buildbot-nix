@@ -492,15 +492,6 @@ in
         '';
         default = 50;
       };
-
-      allowRepositoryConfiguration = lib.mkOption {
-        type = lib.types.bool;
-        description = ''
-          Whether to allow repositories to configure some settings locally in `buildbot-nix.toml`
-          file. For a up to date schema check `buildbot_nix/repo_config/__init__py`.
-        '';
-        default = false;
-      };
     };
   };
   config = lib.mkMerge [
@@ -668,7 +659,6 @@ in
                   post_build_steps = cfg.postBuildSteps;
                   job_report_limit = cfg.jobReportLimit;
                   http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
-                  allow_repository_configuration = cfg.allowRepositoryConfiguration;
                 }
               }").read_text()))
             )
