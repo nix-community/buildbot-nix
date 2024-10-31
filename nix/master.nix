@@ -511,16 +511,16 @@ in
               default = false;
             };
 
-            copyOutputs = lib.mkOption {
+            updateOutputs = lib.mkOption {
               type = lib.types.bool;
               description = ''
-                Whether to copy outputs for branches matching this glob.
+                Whether to update outputs for branches matching this glob.
               '';
               default = false;
             };
           };
         };
-        default = {};
+        default = { };
         description = ''
           An attrset of branch rules, each rule specifies which branches it should apply to using the
           `matchGlob` option and then the corresponding settings are applied to the matched branches.
@@ -531,17 +531,17 @@ in
                rule1 = {
                  matchGlob = "f*";
                  registerGCRroots = false;
-                 copyOutputs = false;
+                 updateOutputs = false;
                }
                rule2 = {
                  matchGlob = "foo";
                  registerGCRroots = true;
-                 copyOutputs = false;
+                 updateOutputs = false;
                }
              }
           ```
-          This example will result in `build_prs` and `register_gcroots` both being considered `true`,
-          but `copy_outputs` being `false` for the branch `foo`.
+          This example will result in `registerGCRoots` both being considered `true`,
+          but `updateOutputs` being `false` for the branch `foo`.
 
           The default branches of all repos are considered to be matching of a rule setting all the options
           to `true`.
@@ -552,12 +552,12 @@ in
           rule1 = {
             matchGlob = "f*";
             registerGCRroots = false;
-            copyOutputs = false;
+            updateOutputs = false;
           }
           rule2 = {
             matchGlob = "foo";
             registerGCRroots = true;
-            copyOutputs = false;
+            updateOutputs = false;
           }
         }
       '';

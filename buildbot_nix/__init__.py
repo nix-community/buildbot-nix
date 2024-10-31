@@ -823,7 +823,7 @@ class UpdateBuildOutput(steps.BuildStep):
     async def run(self) -> int:
         props = self.build.getProperties()
 
-        if not self.branch_config.do_copy_outputs(
+        if not self.branch_config.do_update_outputs(
             self.project.default_branch, props.getProperty("branch")
         ) or props.getProperty("event") != "push":
             return util.SKIPPED

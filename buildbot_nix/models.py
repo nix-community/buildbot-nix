@@ -1,8 +1,8 @@
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from buildbot.plugins import steps, util
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -176,18 +176,18 @@ class PostBuildStep(BaseModel):
 class BranchConfig(BaseModel):
     match_glob: str = Field(validation_alias = "matchGlob")
     register_gcroots: bool = Field(validation_alias = "registerGCRoots")
-    copy_outputs: bool = Field(validation_alias = "copyOutputs")
+    update_outputs: bool = Field(validation_alias = "updateOutputs")
 
     match_regex: re.Pattern = Field(match_glob, exclude = True, frozen = True)
 
-    def __or__(self, other: BranchConfig) -> BranchConfig:
+    def __or__(self, other: "BranchConfig") -> "BranchConfig":
         assert(self.match_glob == other.match_glob)
         assert(self.match_regex == other.match_regex)
 
         return BranchConfig(
             match_glob = self.match_glob,
             register_gcroots = self.register_gcroots or other.register_gcroots,
-            copy_outputs = self.copy_outputs or other.copy_outputs,
+            update_outputs = self.update_outputs or other.update_outputs,
             match_regex = self.match_regex
         )
 
@@ -217,8 +217,8 @@ class BranchConfigDict(dict[str, BranchConfig]):
     def do_register_gcroot(self, default_branch: str, branch: str) -> bool:
         return self.check_lookup(default_branch, branch, lambda bc: bc.register_gcroots)
 
-    def do_copy_outputs(self, default_branch: str, branch: str) -> bool:
-        return self.check_lookup(default_branch, branch, lambda bc: bc.copy_outputs)
+    def do_update_outputs(self, default_branch: str, branch: str) -> bool:
+        return self.check_lookup(default_branch, branch, lambda bc: bc.update_outputs)
 
 class BuildbotNixConfig(BaseModel):
     db_url: str
