@@ -258,4 +258,5 @@ We have a matrix channel at
 
 ## Need commercial support or customization?
 
-For commercial support, please contact [Mic92](https://github.com/Mic92/) at joerg@thalheim.io or reach out to [Numtide](https://numtide.com/contact/).
+For commercial support, please contact [Mic92](https://github.com/Mic92/) at
+joerg@thalheim.io or reach out to [Numtide](https://numtide.com/contact/).
