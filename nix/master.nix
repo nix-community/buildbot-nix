@@ -546,21 +546,21 @@ in
           The default branches of all repos are considered to be matching of a rule setting all the options
           to `true`.
         '';
+        example = lib.literalExpression ''
+          {
+            rule1 = {
+              matchGlob = "f*";
+              registerGCRroots = false;
+              updateOutputs = false;
+            }
+            rule2 = {
+              matchGlob = "foo";
+              registerGCRroots = true;
+              updateOutputs = false;
+            }
+          }
+        '';
       };
-      example = lib.literalExpression ''
-        {
-          rule1 = {
-            matchGlob = "f*";
-            registerGCRroots = false;
-            updateOutputs = false;
-          }
-          rule2 = {
-            matchGlob = "foo";
-            registerGCRroots = true;
-            updateOutputs = false;
-          }
-        }
-      '';
     };
   };
   config = lib.mkMerge [
