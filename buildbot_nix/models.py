@@ -174,22 +174,23 @@ class PostBuildStep(BaseModel):
 
 
 class BranchConfig(BaseModel):
-    match_glob: str = Field(validation_alias = "matchGlob")
-    register_gcroots: bool = Field(validation_alias = "registerGCRoots")
-    update_outputs: bool = Field(validation_alias = "updateOutputs")
+    match_glob: str = Field(validation_alias="matchGlob")
+    register_gcroots: bool = Field(validation_alias="registerGCRoots")
+    update_outputs: bool = Field(validation_alias="updateOutputs")
 
-    match_regex: re.Pattern = Field(match_glob, exclude = True, frozen = True)
+    match_regex: re.Pattern = Field(match_glob, exclude=True, frozen=True)
 
     def __or__(self, other: "BranchConfig") -> "BranchConfig":
-        assert(self.match_glob == other.match_glob)
-        assert(self.match_regex == other.match_regex)
+        assert self.match_glob == other.match_glob
+        assert self.match_regex == other.match_regex
 
         return BranchConfig(
-            match_glob = self.match_glob,
-            register_gcroots = self.register_gcroots or other.register_gcroots,
-            update_outputs = self.update_outputs or other.update_outputs,
-            match_regex = self.match_regex
+            match_glob=self.match_glob,
+            register_gcroots=self.register_gcroots or other.register_gcroots,
+            update_outputs=self.update_outputs or other.update_outputs,
+            match_regex=self.match_regex,
         )
+
 
 class BranchConfigDict(dict[str, BranchConfig]):
     def lookup_branch_config(self, branch: str) -> BranchConfig | None:
@@ -202,13 +203,12 @@ class BranchConfigDict(dict[str, BranchConfig]):
                     ret |= branch_config
         return ret
 
-    def check_lookup(self, default_branch: str, branch: str, fn: Callable[[BranchConfig], bool]) -> bool:
+    def check_lookup(
+        self, default_branch: str, branch: str, fn: Callable[[BranchConfig], bool]
+    ) -> bool:
         branch_config = self.lookup_branch_config(branch)
-        return (
-            branch == default_branch or (
-                branch_config is not None
-                and fn(branch_config)
-            )
+        return branch == default_branch or (
+            branch_config is not None and fn(branch_config)
         )
 
     def do_run(self, default_branch: str, branch: str) -> bool:
@@ -219,6 +219,7 @@ class BranchConfigDict(dict[str, BranchConfig]):
 
     def do_update_outputs(self, default_branch: str, branch: str) -> bool:
         return self.check_lookup(default_branch, branch, lambda bc: bc.update_outputs)
+
 
 class BuildbotNixConfig(BaseModel):
     db_url: str
