@@ -530,15 +530,13 @@ in
              {
                rule1 = {
                  matchGlob = "f*";
-                 build_prs = true;
-                 register_gcroots = false;
-                 copy_outputs = false;
+                 registerGCRroots = false;
+                 copyOutputs = false;
                }
                rule2 = {
                  matchGlob = "foo";
-                 build_prs = false;
-                 register_gcroots = true;
-                 copy_outputs = false;
+                 registerGCRroots = true;
+                 copyOutputs = false;
                }
              }
           ```
@@ -553,15 +551,13 @@ in
         {
           rule1 = {
             matchGlob = "f*";
-            build_prs = true;
-            register_gcroots = false;
-            copy_outputs = false;
+            registerGCRroots = false;
+            copyOutputs = false;
           }
           rule2 = {
             matchGlob = "foo";
-            build_prs = false;
-            register_gcroots = true;
-            copy_outputs = false;
+            registerGCRroots = true;
+            copyOutputs = false;
           }
         }
       '';
