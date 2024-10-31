@@ -993,7 +993,7 @@ async def do_register_gcroot_if(
     return branch_config.do_register_gcroot(
         await s.getProperty("default_branch"), await s.getProperty("branch")
     ) and await s.getProperty("event") == "push" \
-      and not Path(str(gc_root)).exists() and Path(str(gc_root)).readlink() == str(out_path)
+      and not (Path(str(gc_root)).exists() and Path(str(gc_root)).readlink() == str(out_path))
 
 
 
