@@ -494,8 +494,8 @@ in
       };
 
       branches = lib.mkOption {
-        type = lib.types.attrsOf lib.types.submodule {
-          option = {
+        type = lib.types.attrsOf (lib.types.submodule {
+          options = {
             matchGlob = lib.mkOption {
               type = lib.types.str;
               description = ''
@@ -519,7 +519,7 @@ in
               default = false;
             };
           };
-        };
+        });
         default = { };
         description = ''
           An attrset of branch rules, each rule specifies which branches it should apply to using the
