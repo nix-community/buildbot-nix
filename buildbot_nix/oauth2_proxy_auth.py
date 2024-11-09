@@ -17,7 +17,7 @@ log = Logger()
 class OAuth2ProxyAuth(AuthBase):
     header: ClassVar[bytes] = b"Authorization"
     prefix: ClassVar[bytes] = b"Basic "
-    user_info_provider: UserInfoProviderBase = None
+    user_info_provider: UserInfoProviderBase
     password: bytes
 
     def __init__(self, password: str, **kwargs: Any) -> None:
