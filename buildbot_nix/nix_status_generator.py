@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar
 
-from buildbot.interfaces import IRenderable, IReportGenerator
+from buildbot.interfaces import IReportGenerator
 from buildbot.master import BuildMaster
 from buildbot.process.build import Build
 from buildbot.process.buildrequest import BuildRequest
@@ -13,10 +13,10 @@ from buildbot.process.results import CANCELLED
 from buildbot.reporters import utils
 from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.generators.utils import BuildStatusGeneratorMixin
-from buildbot.reporters.message import MessageFormatterRenderable, MessageFormatterBase
+from buildbot.reporters.message import MessageFormatterBase, MessageFormatterRenderable
 from buildbot.reporters.utils import getDetailsForBuild
 from twisted.logger import Logger
-from zope.interface import implementer # type: ignore[import]
+from zope.interface import implementer  # type: ignore[import]
 
 log = Logger()
 
@@ -109,9 +109,10 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
             "all", tags, builders, schedulers, branches, None, add_logs, add_patch
         )
 
-        self.start_formatter = start_formatter or MessageFormatterRenderable("Build started.")
+        self.start_formatter = start_formatter or MessageFormatterRenderable(
+            "Build started."
+        )
         self.end_formatter = end_formatter or MessageFormatterRenderable("Build done.")
-
 
     # TODO: copy pasted from buildbot, make it static upstream and reuse
     @staticmethod
@@ -164,7 +165,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         master: BuildMaster,
         reporter: ReporterBase,
         key: tuple[str, None | Any, str],
-        data: dict[str, Any], # TODO database types
+        data: dict[str, Any],  # TODO database types
     ) -> None | dict[str, Any]:
         what, _, event = key
         if what == "builds":

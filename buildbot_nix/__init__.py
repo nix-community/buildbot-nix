@@ -36,7 +36,7 @@ from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
-    from buildbot.process.log import Log, StreamLog
+    from buildbot.process.log import StreamLog
     from buildbot.www.auth import AuthBase
 
 from twisted.internet import defer

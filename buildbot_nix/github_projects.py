@@ -365,10 +365,10 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
 
 
 class GitHubLegacySecretService(SecretProviderBase):
-    name: str | None = "GitHubLegacySecretService" # type: ignore
+    name: str | None = "GitHubLegacySecretService"  # type: ignore[assignment]
     token: LegacyToken
 
-    def reconfigService(self, token: LegacyToken) -> None: # type: ignore
+    def reconfigService(self, token: LegacyToken) -> None:  # type: ignore[override]
         self.token = token
 
     def get(self, entry: str) -> str | None:
@@ -458,11 +458,11 @@ class GithubAppAuthBackend(GithubAuthBackend):
 
 
 class GitHubAppSecretService(SecretProviderBase):
-    name: str | None = "GitHubAppSecretService"  # type: ignore
+    name: str | None = "GitHubAppSecretService"  # type: ignore[assignment]
     installation_tokens: dict[int, InstallationToken]
     jwt_token: JWTToken
 
-    def reconfigService( # type: ignore
+    def reconfigService(  # type: ignore[override]
         self, installation_tokens: dict[int, InstallationToken], jwt_token: JWTToken
     ) -> None:
         self.installation_tokens = installation_tokens
