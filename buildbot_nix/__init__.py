@@ -29,7 +29,7 @@ from buildbot.process.project import Project
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, statusToString, worst_status
 from buildbot.reporters.utils import getURLForBuildrequest
-from buildbot.schedulers.base import BaseScheduler
+from buildbot.schedulers.triggerable import Triggerable
 from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
@@ -171,7 +171,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             if self.build.conn is None and self.wait_for_finish_deferred is not None:
                 self.wait_for_finish_deferred.cancel()
 
-    def get_scheduler_by_name(self, name: str) -> BaseScheduler:
+    def get_scheduler_by_name(self, name: str) -> Triggerable:
         schedulers = self.master.scheduler_manager.namedServices
         if name not in schedulers:
             message = f"unknown triggered scheduler: {name!r}"
@@ -182,7 +182,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     @staticmethod
     def set_common_properties(
         props: Properties,
-        project: Project,
+        project: GitProject,
         source: str,
         combine_builds: bool,
         job: NixEvalJob,
@@ -268,7 +268,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         scheduler_name: str,
         props: Properties,
     ) -> tuple[dict[int, int], defer.Deferred[list[int]]]:
-        scheduler: BaseScheduler = self.get_scheduler_by_name(scheduler_name)
+        scheduler: Triggerable = self.get_scheduler_by_name(scheduler_name)
 
         ids_deferred, results_deferred = scheduler.trigger(
             waited_for=True,
@@ -392,7 +392,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.running = True
         build_props = self.build.getProperties()
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
-        scheduler_log: Log = await self.addLog("scheduler")
+        scheduler_log: StreamLog = await self.addLog("scheduler")
 
         # inject failed buildsteps for any failed eval jobs we got
         overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
@@ -1493,7 +1493,7 @@ class PeriodicWithStartup(schedulers.Periodic):
         await super().activate()
 
 
-DB = None
+DB: FailedBuildDB | None = None
 
 
 class NixConfigurator(ConfiguratorBase):
