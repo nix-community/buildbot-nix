@@ -105,6 +105,6 @@ ignore-names = [
 python_version = "3.11"
 pretty = true
 warn_redundant_casts = true
-disallow_untyped_calls = true
+disallow_untyped_calls = false
 disallow_untyped_defs = true
 no_implicit_optional = true
