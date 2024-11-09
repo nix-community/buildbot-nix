@@ -1437,7 +1437,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> Match:
+    ) -> Match | None:
         return await self.check_builder(epobject, epdict, "build")
 
     async def match_BuildRequestEndpoint_stop(  # noqa: N802
@@ -1445,7 +1445,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         epobject: Any,
         epdict: dict[str, Any],
         options: dict[str, Any],
-    ) -> Match:
+    ) -> Match | None:
         return await self.check_builder(epobject, epdict, "buildrequest")
 
 

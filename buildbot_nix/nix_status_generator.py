@@ -13,10 +13,10 @@ from buildbot.process.results import CANCELLED
 from buildbot.reporters import utils
 from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.generators.utils import BuildStatusGeneratorMixin
-from buildbot.reporters.message import MessageFormatterRenderable
+from buildbot.reporters.message import MessageFormatterRenderable, MessageFormatterBase
 from buildbot.reporters.utils import getDetailsForBuild
 from twisted.logger import Logger
-from zope.interface import implementer
+from zope.interface import implementer # type: ignore[import]
 
 log = Logger()
 
@@ -91,8 +91,8 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
 
     compare_attrs: ClassVar[list[str]] = ["start_formatter", "end_formatter"]
 
-    start_formatter: IRenderable
-    end_formatter: IRenderable
+    start_formatter: MessageFormatterBase
+    endj_formatter: MessageFormatterBase
 
     def __init__(
         self,
@@ -102,23 +102,21 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         branches: None | list[str] = None,
         add_logs: bool | list[str] = False,
         add_patch: bool = False,
-        start_formatter: None | IRenderable = None,
-        end_formatter: None | IRenderable = None,
+        start_formatter: None | MessageFormatterBase = None,
+        end_formatter: None | MessageFormatterBase = None,
     ) -> None:
         super().__init__(
             "all", tags, builders, schedulers, branches, None, add_logs, add_patch
         )
-        self.start_formatter = start_formatter
-        if self.start_formatter is None:
-            self.start_formatter = MessageFormatterRenderable("Build started.")
-        self.end_formatter = end_formatter
-        if self.end_formatter is None:
-            self.end_formatter = MessageFormatterRenderable("Build done.")
+
+        self.start_formatter = start_formatter or MessageFormatterRenderable("Build started.")
+        self.end_formatter = end_formatter or MessageFormatterRenderable("Build done.")
+
 
     # TODO: copy pasted from buildbot, make it static upstream and reuse
     @staticmethod
     async def partial_build_dict(
-        master: BuildMaster, buildrequest: BuildRequest
+        master: BuildMaster, buildrequest: dict[str, Any]
     ) -> dict[str, Any]:
         brdict: Any = await master.db.buildrequests.getBuildRequest(
             buildrequest["buildrequestid"]
@@ -166,7 +164,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         master: BuildMaster,
         reporter: ReporterBase,
         key: tuple[str, None | Any, str],
-        data: Build | BuildRequest,
+        data: dict[str, Any], # TODO database types
     ) -> None | dict[str, Any]:
         what, _, event = key
         if what == "builds":
