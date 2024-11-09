@@ -1019,13 +1019,13 @@ async def do_register_gcroot_if(
     gc_root = await util.Interpolate(
         "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
     ).getRenderingFor(s.getProperties())
-    out_path = await s.getProperty("out_path")
+    out_path = s.getProperty("out_path")
 
     return (
         branch_config.do_register_gcroot(
-            await s.getProperty("default_branch"), await s.getProperty("branch")
+            s.getProperty("default_branch"), s.getProperty("branch")
         )
-        and await s.getProperty("event") == "push"
+        and s.getProperty("event") == "push"
         and not (
             Path(str(gc_root)).exists()
             and Path(str(gc_root)).readlink() == str(out_path)
