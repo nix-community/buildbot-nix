@@ -738,18 +738,46 @@ class DependencyFailedStep(steps.BuildStep):
 class CachedFailureStep(steps.BuildStep):
     """Shows a dependency failure."""
 
+    project: GitProject
+    worker_names: list[str]
+    post_build_steps: list[models.PostBuildStep]
+    branch_config_dict: models.BranchConfigDict
+    outputs_path: Path | None
+
+    def __init__(
+            self,
+            project: GitProject,
+            worker_names: list[str],
+            post_build_steps: list[models.PostBuildStep],
+            branch_config_dict: models.BranchConfigDict,
+            outputs_path: Path | None,
+            **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+
     async def run(self) -> int:
-        attr = self.getProperty("attr")
-        # show eval error
-        error_log: StreamLog = await self.addLog("nix_error")
-        msg = [
-            f"{attr} was failed because it has failed previously and its failure has been cached.",
-        ]
-        url = self.getProperty("first_failure_url")
-        if url:
-            msg.append(f"  failed build: {url}")
-        error_log.addStderr("\n".join(msg) + "\n")
-        return util.FAILURE
+        if self.build.reason != "rebuild":
+            attr = self.getProperty("attr")
+            # show eval error
+            error_log: StreamLog = await self.addLog("nix_error")
+            msg = [
+                f"{attr} was failed because it has failed previously and its failure has been cached.",
+            ]
+            url = self.getProperty("first_failure_url")
+            if url:
+                msg.append(f"  failed build: {url}")
+                error_log.addStderr("\n".join(msg) + "\n")
+            return util.FAILURE
+        self.build.addStepsAfterCurrentStep(
+            nix_build_steps(
+                self.project,
+                self.worker_names,
+                self.post_build_steps,
+                self.branch_config_dict,
+                self.outputs_path,
+            )
+        )
+        return util.SUCCESS
 
 
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
@@ -1011,7 +1039,6 @@ def nix_build_steps(
     post_build_steps: list[steps.BuildStep],
     branch_config: models.BranchConfigDict,
     outputs_path: Path | None = None,
-    global_do_step_if: Callable[[steps.BuildStep], bool] | bool = True,
 ) -> list[steps.BuildStep]:
     out_steps = [
         NixBuildCommand(
@@ -1036,7 +1063,6 @@ def nix_build_steps(
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
             haltOnFailure=True,
-            doStepIf=global_do_step_if,
         ),
         *post_build_steps,
         Trigger(
@@ -1055,7 +1081,6 @@ def nix_build_steps(
         steps.ShellCommand(
             name="Delete temporary gcroots",
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
-            doStepIf=global_do_step_if,
         ),
     ]
 
@@ -1076,14 +1101,14 @@ def nix_build_config(
     project: GitProject,
     worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
-    branch_config: models.BranchConfig,
+    branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
     factory.addSteps(
         nix_build_steps(
-            project, worker_names, post_build_steps, branch_config, outputs_path
+            project, worker_names, post_build_steps, branch_config_dict, outputs_path
         )
     )
 
@@ -1147,6 +1172,7 @@ def nix_cached_failure_config(
     project: GitProject,
     worker_names: list[str],
     skipped_worker_names: list[str],
+    branch_config_dict: models.BranchConfigDict,
     post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
 ) -> BuilderConfig:
@@ -1154,21 +1180,15 @@ def nix_cached_failure_config(
     factory = util.BuildFactory()
     factory.addStep(
         CachedFailureStep(
+            project=project,
+            worker_names=worker_names,
+            post_build_steps=post_build_steps,
+            branch_config_dict=branch_config_dict,
+            outputs_path=outputs_path,
             name="Cached failure",
-            doStepIf=lambda buildstep: buildstep.build.reason != "rebuild",
             haltOnFailure=True,
             flunkOnFailure=True,
         ),
-    )
-
-    factory.addSteps(
-        nix_build_steps(
-            project,
-            worker_names,
-            post_build_steps,
-            outputs_path,
-            global_do_step_if=lambda buildstep: buildstep.build.reason == "rebuild",
-        )
     )
 
     return util.BuilderConfig(
@@ -1184,7 +1204,7 @@ def nix_cached_failure_config(
 def nix_skipped_build_config(
     project: GitProject,
     worker_names: list[str],
-    branch_config: models.BranchConfigDict,
+    branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is skipped."""
@@ -1209,7 +1229,7 @@ def nix_skipped_build_config(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=lambda s: do_register_gcroot_if(s, branch_config),
+            doStepIf=lambda s: do_register_gcroot_if(s, branch_config_dict),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
@@ -1220,7 +1240,7 @@ def nix_skipped_build_config(
                 project=project,
                 name="Update build output",
                 path=outputs_path,
-                branch_config=branch_config,
+                branch_config=branch_config_dict,
             ),
         )
     return util.BuilderConfig(
@@ -1277,7 +1297,7 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
-    branch_config: models.BranchConfigDict,
+    branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
 ) -> None:
     config["projects"].append(Project(project.name))
@@ -1287,7 +1307,7 @@ def config_for_project(
                 name=f"{project.project_id}-primary",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
-                    filter_fn=lambda c: branch_config.do_run(
+                    filter_fn=lambda c: branch_config_dict.do_run(
                         project.default_branch, c.branch
                     ),
                 ),
@@ -1383,23 +1403,24 @@ def config_for_project(
                 project,
                 worker_names,
                 outputs_path=outputs_path,
-                branch_config=branch_config,
+                branch_config_dict=branch_config_dict,
                 post_build_steps=post_build_steps,
             ),
             nix_skipped_build_config(
                 project=project,
                 worker_names=SKIPPED_BUILDER_NAMES,
-                branch_config=branch_config,
+                branch_config_dict=branch_config_dict,
                 outputs_path=outputs_path,
             ),
             nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
             nix_dependency_failed_config(project, SKIPPED_BUILDER_NAMES),
             nix_cached_failure_config(
-                project,
-                worker_names,
-                SKIPPED_BUILDER_NAMES,
-                post_build_steps,
-                outputs_path,
+                project=project,
+                worker_names=worker_names,
+                skipped_worker_names=SKIPPED_BUILDER_NAMES,
+                branch_config_dict=branch_config_dict,
+                post_build_steps=post_build_steps,
+                outputs_path=outputs_path,
             ),
             nix_register_gcroot_config(project, worker_names),
         ],
@@ -1612,7 +1633,7 @@ class NixConfigurator(ConfiguratorBase):
                 [x.to_buildstep() for x in self.config.post_build_steps],
                 self.config.job_report_limit,
                 failed_builds_db=DB,
-                branch_config=self.config.branches,
+                branch_config_dict=self.config.branches,
                 outputs_path=self.config.outputs_path,
             )
 
