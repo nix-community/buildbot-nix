@@ -2,14 +2,15 @@ import tomllib
 from tomllib import TOMLDecodeError
 from typing import TYPE_CHECKING, Self
 
-from buildbot.process.buildstep import ShellMixin
-from buildbot.process.buildstep import BuildStep
+from buildbot.process.buildstep import BuildStep, ShellMixin
+from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
-    class BuildStepShellMixin(BuildStep, ShellMixin):
-        pass
-from pydantic import BaseModel, ValidationError
+
+
+class BuildStepShellMixin(BuildStep, ShellMixin):
+    pass
 
 
 class RepoConfig(BaseModel):
