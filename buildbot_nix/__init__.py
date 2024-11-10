@@ -1034,7 +1034,7 @@ async def do_register_gcroot_if(
         and s.getProperty("event") == "push"
         and not (
             Path(str(gc_root)).exists()
-            and Path(str(gc_root)).readlink() == str(out_path)
+            and Path(str(gc_root)).readlink() == Path(out_path)
         )
     )
 
