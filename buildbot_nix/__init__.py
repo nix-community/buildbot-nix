@@ -832,6 +832,7 @@ class UpdateBuildOutput(steps.BuildStep):
         super().__init__(**kwargs)
         self.project = project
         self.path = path
+        self.branch_config = branch_config
 
     def join_traversalsafe(self, root: Path, joined: Path) -> Path:
         root = root.resolve()
