@@ -753,6 +753,11 @@ class CachedFailureStep(steps.BuildStep):
         outputs_path: Path | None,
         **kwargs: Any,
     ) -> None:
+        self.project = project
+        self.worker_names = worker_names
+        self.post_build_steps = post_build_steps
+        self.branch_config_dict = branch_config_dict
+
         super().__init__(**kwargs)
 
     async def run(self) -> int:
