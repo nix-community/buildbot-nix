@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from buildbot.plugins import steps, util
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, GetCoreSchemaHandler
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import CoreSchema, core_schema
 
 from .secrets import read_secret_file
@@ -177,6 +177,7 @@ class PostBuildStep(BaseModel):
 def glob_to_regex(glob: str) -> re.Pattern:
     return re.compile(glob.replace("*", ".*").replace("?", "."))
 
+
 class BranchConfig(BaseModel):
     match_glob: str = Field(validation_alias="matchGlob")
     register_gcroots: bool = Field(validation_alias="registerGCRoots")
@@ -185,9 +186,7 @@ class BranchConfig(BaseModel):
     match_regex: re.Pattern = Field(default=None, exclude=True)
 
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(
-            **kwargs
-        )
+        super().__init__(**kwargs)
 
         match_glob = kwargs.get("match_glob") or kwargs["matchGlob"]
         self.match_regex = glob_to_regex(match_glob)
@@ -208,7 +207,9 @@ class BranchConfigDict(dict[str, BranchConfig]):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
-        return core_schema.no_info_after_validator_function(cls, handler(dict[str, BranchConfig]))
+        return core_schema.no_info_after_validator_function(
+            cls, handler(dict[str, BranchConfig])
+        )
 
     def lookup_branch_config(self, branch: str) -> BranchConfig | None:
         ret = None

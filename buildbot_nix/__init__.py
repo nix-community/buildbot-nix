@@ -8,7 +8,7 @@ import os
 import re
 import urllib.parse
 from collections import defaultdict
-from collections.abc import Callable, Coroutine, Generator
+from collections.abc import Coroutine, Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from multiprocessing import cpu_count
@@ -36,7 +36,7 @@ from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 if TYPE_CHECKING:
-    from buildbot.process.log import Log, StreamLog
+    from buildbot.process.log import StreamLog
     from buildbot.www.auth import AuthBase
 
 from twisted.internet import defer
@@ -745,13 +745,13 @@ class CachedFailureStep(steps.BuildStep):
     outputs_path: Path | None
 
     def __init__(
-            self,
-            project: GitProject,
-            worker_names: list[str],
-            post_build_steps: list[models.PostBuildStep],
-            branch_config_dict: models.BranchConfigDict,
-            outputs_path: Path | None,
-            **kwargs: Any
+        self,
+        project: GitProject,
+        worker_names: list[str],
+        post_build_steps: list[models.PostBuildStep],
+        branch_config_dict: models.BranchConfigDict,
+        outputs_path: Path | None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
 

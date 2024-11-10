@@ -494,32 +494,34 @@ in
       };
 
       branches = lib.mkOption {
-        type = lib.types.attrsOf (lib.types.submodule {
-          options = {
-            matchGlob = lib.mkOption {
-              type = lib.types.str;
-              description = ''
-                A glob specifying which branches to apply this rule to.
-              '';
-            };
+        type = lib.types.attrsOf (
+          lib.types.submodule {
+            options = {
+              matchGlob = lib.mkOption {
+                type = lib.types.str;
+                description = ''
+                  A glob specifying which branches to apply this rule to.
+                '';
+              };
 
-            registerGCRoots = lib.mkOption {
-              type = lib.types.bool;
-              description = ''
-                Whether to register gcroots for branches matching this glob.
-              '';
-              default = false;
-            };
+              registerGCRoots = lib.mkOption {
+                type = lib.types.bool;
+                description = ''
+                  Whether to register gcroots for branches matching this glob.
+                '';
+                default = false;
+              };
 
-            updateOutputs = lib.mkOption {
-              type = lib.types.bool;
-              description = ''
-                Whether to update outputs for branches matching this glob.
-              '';
-              default = false;
+              updateOutputs = lib.mkOption {
+                type = lib.types.bool;
+                description = ''
+                  Whether to update outputs for branches matching this glob.
+                '';
+                default = false;
+              };
             };
-          };
-        });
+          }
+        );
         default = { };
         description = ''
           An attrset of branch rules, each rule specifies which branches it should apply to using the
