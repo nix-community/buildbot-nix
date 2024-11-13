@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from buildbot.changes.base import ChangeSource
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.properties import Interpolate
@@ -61,6 +62,9 @@ class GiteaProject(GitProject):
     def get_project_url(self) -> str:
         url = urlparse(self.config.instance_url)
         return f"{url.scheme}://git:%(secret:{self.config.token_file})s@{url.hostname}/{self.name}"
+
+    def create_change_source(self) -> ChangeSource | None:
+        return None
 
     @property
     def pretty_type(self) -> str:

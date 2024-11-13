@@ -7,6 +7,7 @@ from itertools import starmap
 from pathlib import Path
 from typing import Any
 
+from buildbot.changes.base import ChangeSource
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
@@ -721,6 +722,9 @@ class GithubProject(GitProject):
 
     def get_project_url(self) -> str:
         return f"https://git:{self.token.get_as_secret()}s@github.com/{self.name}"
+
+    def create_change_source(self) -> ChangeSource | None:
+        return None
 
     @property
     def pretty_type(self) -> str:

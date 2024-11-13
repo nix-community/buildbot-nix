@@ -21,19 +21,20 @@ from buildbot.interfaces import WorkerSetupError
 from buildbot.locks import MasterLock
 from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
-from buildbot.process.buildstep import SUCCESS
 
 # from buildbot.db.buildrequests import BuildRequestModel
 # from buildbot.db.builds import BuildModel
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
-from buildbot.process.results import ALL_RESULTS, statusToString, worst_status
+from buildbot.process.results import ALL_RESULTS, SUCCESS, statusToString, worst_status
 from buildbot.reporters.utils import getURLForBuildrequest
 from buildbot.schedulers.triggerable import Triggerable
 from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
+
+from buildbot_nix.pull_based.backend import PullBasedBacked
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
@@ -1744,6 +1745,9 @@ class NixConfigurator(ConfiguratorBase):
         if self.config.gitea is not None:
             backends["gitea"] = GiteaBackend(self.config.gitea, self.config.url)
 
+        if self.config.pull_based is not None:
+            backends["pull_based"] = PullBasedBacked(self.config.pull_based)
+
         auth: AuthBase | None = None
         if self.config.auth_backend == AuthBackendConfig.httpbasicauth:
             auth = OAuth2ProxyAuth(self.config.http_basic_auth_password)
@@ -1817,23 +1821,25 @@ class NixConfigurator(ConfiguratorBase):
 
         for backend in backends.values():
             # Reload backend projects
-            config["builders"].append(backend.create_reload_builder([worker_names[0]]))
-            config["schedulers"].extend(
-                [
-                    schedulers.ForceScheduler(
-                        name=f"reload-{backend.type}-projects",
-                        builderNames=[backend.reload_builder_name],
-                        buttonName="Update projects",
-                    ),
-                    # project list twice a day and on startup
-                    PeriodicWithStartup(
-                        name=f"reload-{backend.type}-projects-bidaily",
-                        builderNames=[backend.reload_builder_name],
-                        periodicBuildTimer=12 * 60 * 60,
-                        run_on_startup=not backend.are_projects_cached(),
-                    ),
-                ],
-            )
+            reload_builder = backend.create_reload_builder([worker_names[0]])
+            if reload_builder is not None:
+                config["builders"].append(reload_builder)
+                config["schedulers"].extend(
+                    [
+                        schedulers.ForceScheduler(
+                            name=f"reload-{backend.type}-projects",
+                            builderNames=[reload_builder.name],
+                            buttonName="Update projects",
+                        ),
+                        # project list twice a day and on startup
+                        PeriodicWithStartup(
+                            name=f"reload-{backend.type}-projects-bidaily",
+                            builderNames=[reload_builder.name],
+                            periodicBuildTimer=12 * 60 * 60,
+                            run_on_startup=not backend.are_projects_cached(),
+                        ),
+                    ],
+                )
             config["services"].append(backend.create_reporter())
             config.setdefault("secretsProviders", [])
             config["secretsProviders"].extend(backend.create_secret_providers())
@@ -1850,6 +1856,12 @@ class NixConfigurator(ConfiguratorBase):
             config["www"]["change_hook_dialects"][backend.change_hook_name] = (
                 backend.create_change_hook()
             )
+
+        config.setdefault("change_source", [])
+        for project in projects:
+            change_source = project.create_change_source()
+            if change_source is not None:
+                config["change_source"].append(change_source)
 
         config["www"].setdefault("avatar_methods", [])
 

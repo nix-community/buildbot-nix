@@ -28,6 +28,14 @@ dependencies = [
   "treq",
   "psycopg2"
 ]
+[tool.setuptools]
+packages = [
+  "buildbot_effects",
+  "buildbot_nix",
+  "buildbot_nix.github",
+  "buildbot_nix.pull_based",
+  "buildbot_nix.repo_config",
+]
 
 [tool.ruff]
 target-version = "py311"
