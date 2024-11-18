@@ -2,11 +2,15 @@ import tomllib
 from tomllib import TOMLDecodeError
 from typing import TYPE_CHECKING, Self
 
-from buildbot.process.buildstep import ShellMixin
+from buildbot.process.buildstep import BuildStep, ShellMixin
+from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
-    from buildbot.process.log import Log
-from pydantic import BaseModel, ValidationError
+    from buildbot.process.log import StreamLog
+
+
+class BuildStepShellMixin(BuildStep, ShellMixin):
+    pass
 
 
 class RepoConfig(BaseModel):
@@ -18,8 +22,8 @@ class BranchConfig(BaseModel):
     attribute: str = "checks"
 
     @classmethod
-    async def extract_during_step(cls, buildstep: ShellMixin) -> Self:
-        stdio: Log = await buildstep.addLog("stdio")
+    async def extract_during_step(cls, buildstep: BuildStepShellMixin) -> Self:
+        stdio: StreamLog = await buildstep.addLog("stdio")
         cmd = await buildstep.makeRemoteShellCommand(
             collectStdout=True,
             collectStderr=True,

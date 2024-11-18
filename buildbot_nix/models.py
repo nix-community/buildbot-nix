@@ -230,7 +230,7 @@ class NixEvalJobSuccess(BaseModel):
 
 
 NixEvalJob = NixEvalJobError | NixEvalJobSuccess
-NixEvalJobModel = TypeAdapter(NixEvalJob)
+NixEvalJobModel: TypeAdapter[NixEvalJob] = TypeAdapter(NixEvalJob)
 
 
 class NixDerivation(BaseModel):
