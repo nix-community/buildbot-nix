@@ -96,15 +96,20 @@
             ...
           }:
           {
-            packages.default = pkgs.mkShell {
-              packages = [
-                pkgs.bashInteractive
-                pkgs.mypy
-                pkgs.ruff
-              ];
-            };
-            packages.buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
-            packages.buildbot-effects = pkgs.python3.pkgs.callPackage ./nix/buildbot-effects.nix { };
+            packages =
+              {
+                default = pkgs.mkShell {
+                  packages = [
+                    pkgs.bashInteractive
+                    pkgs.mypy
+                    pkgs.ruff
+                  ];
+                };
+                buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
+              }
+              // lib.optionalAttrs pkgs.stdenv.isLinux {
+                buildbot-effects = pkgs.python3.pkgs.callPackage ./nix/buildbot-effects.nix { };
+              };
             checks =
               let
                 nixosMachines = lib.mapAttrs' (
