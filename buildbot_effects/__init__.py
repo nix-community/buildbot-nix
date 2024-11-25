@@ -99,12 +99,18 @@ def effect_function(opts: EffectsOptions) -> str:
     return f"""
       let
         flake = builtins.getFlake {url};
-        effects = flake.outputs.herculesCI (builtins.fromJSON {escaped_args});
-      in
-        if flake.outputs ? herculesCI then
-          effects.onPush.default.outputs.effects or {{}}
+        outputName = if flake.outputs ? herculesCI then
+          "herculesCI"
+        else if flake.outputs ? effects then
+          "effects"
         else
+          null;
+      in
+        if outputName == null then
           {{}}
+        else
+          (flake.outputs.${{outputName}}
+            (builtins.fromJSON {escaped_args})).onPush.default.outputs.effects or {{}}
     """
 
 

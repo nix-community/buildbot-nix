@@ -10,6 +10,10 @@
     # used for development
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
+
+    hercules-ci-effects.url = "github:hercules-ci/hercules-ci-effects";
+    hercules-ci-effects.inputs.nixpkgs.follows = "nixpkgs";
+    hercules-ci-effects.inputs.flake-parts.follows = "flake-parts";
   };
 
   outputs =
@@ -22,14 +26,34 @@
         ...
       }:
       {
-        imports = [
-          ./nix/checks/flake-module.nix
-        ] ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix;
+        imports =
+          [
+            ./nix/checks/flake-module.nix
+          ]
+          ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix
+          ++ inputs.nixpkgs.lib.optional (
+            inputs.hercules-ci-effects ? flakeModule
+          ) inputs.hercules-ci-effects.flakeModule;
         systems = [
           "x86_64-linux"
           "aarch64-linux"
           "aarch64-darwin"
         ];
+
+        herculesCI = herculesCI: {
+          onPush.default.outputs.effects.deploy = withSystem config.defaultEffectSystem (
+            { pkgs, hci-effects, ... }:
+            hci-effects.runIf (herculesCI.config.repo.branch == "main") (
+              hci-effects.mkEffect {
+                effectScript = ''
+                  echo "${builtins.toJSON { inherit (herculesCI.config.repo) branch tag rev; }}"
+                  ${pkgs.hello}/bin/hello
+                '';
+              }
+            )
+          );
+        };
+
         flake = {
           nixosModules.buildbot-master.imports = [
             ./nix/master.nix
@@ -42,20 +66,6 @@
               }
             )
           ];
-
-          herculesCI = herculesCI: {
-            onPush.default.outputs.effects.deploy = withSystem config.defaultEffectSystem (
-              { pkgs, hci-effects, ... }:
-              hci-effects.runIf (herculesCI.config.repo.branch == "main") (
-                hci-effects.mkEffect {
-                  effectScript = ''
-                    echo "${builtins.toJSON { inherit (herculesCI.config.repo) branch tag rev; }}"
-                    ${pkgs.hello}/bin/hello
-                  '';
-                }
-              )
-            );
-          };
 
           nixosModules.buildbot-worker.imports = [
             ./nix/worker.nix
