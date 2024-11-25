@@ -765,11 +765,10 @@ class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
         self.observer = logobserver.BufferLogObserver()
         self.addLogObserver("stdio", self.observer)
 
-    @defer.inlineCallbacks
-    def run(self) -> Generator[Any, object, Any]:
+    async def run(self) -> int:
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
-        cmd: remotecommand.RemoteCommand = yield self.makeRemoteShellCommand()
-        yield self.runCommand(cmd)
+        cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
+        await self.runCommand(cmd)
 
         # if the command passes extract the list of stages
         result = cmd.results()
@@ -1351,7 +1350,7 @@ def nix_register_gcroot_config(
 
 
 def buildbot_effects_config(
-    project: Project, git_url: str, worker_names: list[str], secrets: str | None
+    project: GitProject, git_url: str, worker_names: list[str], secrets: str | None
 ) -> util.BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
