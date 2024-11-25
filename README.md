@@ -253,6 +253,11 @@ integrate run a systemd service as described in
 service watches for changes in the local buildbot-nix store and uploads the
 contents to the attic cache.
 
+## (experimental) Hercules CI effects
+
+See [flake.nix](flake.nix) and
+[https://docs.hercules-ci.com/hercules-ci/effects/] for documentation.
+
 ## Real-World Deployments
 
 See Buildbot-nix in action in these deployments:

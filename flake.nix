@@ -15,7 +15,12 @@
   outputs =
     inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } (
-      { lib, ... }:
+      {
+        lib,
+        config,
+        withSystem,
+        ...
+      }:
       {
         imports = [
           ./nix/checks/flake-module.nix
@@ -37,6 +42,21 @@
               }
             )
           ];
+
+          herculesCI = herculesCI: {
+            onPush.default.outputs.effects.deploy = withSystem config.defaultEffectSystem (
+              { pkgs, hci-effects, ... }:
+              hci-effects.runIf (herculesCI.config.repo.branch == "main") (
+                hci-effects.mkEffect {
+                  effectScript = ''
+                    echo "${builtins.toJSON { inherit (herculesCI.config.repo) branch tag rev; }}"
+                    ${pkgs.hello}/bin/hello
+                  '';
+                }
+              )
+            );
+          };
+
           nixosModules.buildbot-worker.imports = [
             ./nix/worker.nix
             (
