@@ -75,6 +75,52 @@ class BuildbotNixError(Exception):
     pass
 
 
+class BuildbotEffectsTrigger(Trigger):
+    """Dynamic trigger that run buildbot effect defined in a flake."""
+
+    def __init__(
+        self,
+        project: GitProject,
+        effects_scheduler: str,
+        effects: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> None:
+        if "name" not in kwargs:
+            kwargs["name"] = "trigger"
+        self.effects = effects
+        self.config = None
+        self.effects_scheduler = effects_scheduler
+        self.project = project
+        super().__init__(
+            waitForFinish=True,
+            schedulerNames=[effects_scheduler],
+            haltOnFailure=True,
+            flunkOnFailure=True,
+            sourceStamps=[],
+            alwaysUseLatest=False,
+            updateSourceStamp=False,
+            **kwargs,
+        )
+
+    def createTriggerProperties(self, props: Any) -> Any:  # noqa: N802
+        return props
+
+    def getSchedulersAndProperties(self) -> list[tuple[str, Properties]]:  # noqa: N802
+        source = f"buildbot-run-effect-{self.project.project_id}"
+
+        triggered_schedulers = []
+        for effect in self.effects:
+            props = Properties()
+            props.setProperty("virtual_builder_name", effect, source)
+            props.setProperty("status_name", f"effects.{effect}", source)
+            props.setProperty("virtual_builder_tags", "", source)
+            props.setProperty("command", effect, source)
+
+            triggered_schedulers.append((self.effects_scheduler, props))
+
+        return triggered_schedulers
+
+
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
 
@@ -709,6 +755,41 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         return result
 
 
+class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
+    """Evaluate the effects of a flake and run them on the default branch."""
+
+    def __init__(self, project: GitProject, **kwargs: Any) -> None:
+        kwargs = self.setupShellMixin(kwargs)
+        super().__init__(**kwargs)
+        self.project = project
+        self.observer = logobserver.BufferLogObserver()
+        self.addLogObserver("stdio", self.observer)
+
+    async def run(self) -> int:
+        # run nix-eval-jobs --flake .#checks to generate the dict of stages
+        cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
+        await self.runCommand(cmd)
+
+        # if the command passes extract the list of stages
+        result = cmd.results()
+        if result == util.SUCCESS:
+            # create a ShellCommand for each stage and add them to the build
+            effects = json.loads(self.observer.getStdout())
+
+            self.build.addStepsAfterCurrentStep(
+                [
+                    BuildbotEffectsTrigger(
+                        project=self.project,
+                        effects_scheduler=f"{self.project.project_id}-run-effect",
+                        name="Buildbot effect",
+                        effects=effects,
+                    ),
+                ],
+            )
+
+        return result
+
+
 class EvalErrorStep(steps.BuildStep):
     """Shows the error message of a failed evaluation."""
 
@@ -940,7 +1021,7 @@ def nix_eval_config(
         NixEvalCommand(
             project=project,
             env={},
-            name="evaluate flake",
+            name="Evaluate flake",
             supported_systems=supported_systems,
             job_report_limit=job_report_limit,
             failed_builds_db=failed_builds_db,
@@ -961,6 +1042,28 @@ def nix_eval_config(
                 drv_gcroots_dir,
             ],
         ),
+    )
+    factory.addStep(
+        BuildbotEffectsCommand(
+            project=project,
+            env={},
+            name="Evaluate effects",
+            command=[
+                # fmt: off
+                "buildbot-effects",
+                "--rev",
+                util.Property("revision"),
+                "--branch",
+                util.Property("branch"),
+                "--repo",
+                util.Property("github.repository.html_url"),
+                "list",
+                # fmt: on
+            ],
+            # TODO: support other branches?
+            doStepIf=lambda c: c.build.getProperty("branch", "")
+            == project.default_branch,
+        )
     )
 
     return util.BuilderConfig(
@@ -1246,6 +1349,58 @@ def nix_register_gcroot_config(
     )
 
 
+def buildbot_effects_config(
+    project: GitProject, git_url: str, worker_names: list[str], secrets: str | None
+) -> util.BuilderConfig:
+    """Builds one nix flake attribute."""
+    factory = util.BuildFactory()
+    url_with_secret = util.Interpolate(git_url)
+    factory.addStep(
+        GitLocalPrMerge(
+            repourl=url_with_secret,
+            method="clean",
+            submodules=True,
+            haltOnFailure=True,
+        ),
+    )
+    secrets_list = []
+    secrets_args = []
+    if secrets is not None:
+        secrets_list = [("../secrets.json", util.Secret(secrets))]
+        secrets_args = ["--secrets", "../secrets.json"]
+    factory.addSteps(
+        [
+            steps.ShellCommand(
+                name="Run effects",
+                command=[
+                    # fmt: off
+                    "buildbot-effects",
+                    "--rev",
+                    util.Property("revision"),
+                    "--branch",
+                    util.Property("branch"),
+                    "--repo",
+                    # TODO: gittea
+                    util.Property("github.base.repo.full_name"),
+                    *secrets_args,
+                    "run",
+                    util.Property("command"),
+                    # fmt: on
+                ],
+            ),
+        ],
+        withSecrets=secrets_list,
+    )
+    return util.BuilderConfig(
+        name=f"{project.name}/run-effect",
+        project=project.name,
+        workernames=worker_names,
+        collapseRequests=False,
+        env={},
+        factory=factory,
+    )
+
+
 def config_for_project(
     config: dict[str, Any],
     project: GitProject,
@@ -1257,6 +1412,7 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
+    per_repo_effects_secrets: dict[str, str],
     outputs_path: Path | None = None,
 ) -> None:
     config["projects"].append(Project(project.name))
@@ -1294,7 +1450,11 @@ def config_for_project(
                 name=f"{project.project_id}-nix-build",
                 builderNames=[f"{project.name}/nix-build"],
             ),
-            # this is triggered from `nix-build` when the build is skipped
+            schedulers.Triggerable(
+                name=f"{project.project_id}-run-effect",
+                builderNames=[f"{project.name}/run-effect"],
+            ),
+            # this is triggered from `nix-eval` when the build is skipped
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-skipped-build",
                 builderNames=[f"{project.name}/nix-skipped-build"],
@@ -1332,6 +1492,9 @@ def config_for_project(
             ),
         ],
     )
+    key = f"{project.type}:{project.owner}/{project.repo}"
+    effects_secrets_cred = per_repo_effects_secrets.get(key)
+
     config["builders"].extend(
         [
             # Since all workers run on the same machine, we only assign one of them to do the evaluation.
@@ -1352,6 +1515,12 @@ def config_for_project(
                 worker_names,
                 outputs_path=outputs_path,
                 post_build_steps=post_build_steps,
+            ),
+            buildbot_effects_config(
+                project,
+                git_url=project.get_project_url(),
+                worker_names=worker_names,
+                secrets=effects_secrets_cred,
             ),
             nix_skipped_build_config(project, SKIPPED_BUILDER_NAMES, outputs_path),
             nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
@@ -1564,15 +1733,19 @@ class NixConfigurator(ConfiguratorBase):
 
         for project in projects:
             config_for_project(
-                config,
-                project,
-                worker_names,
-                self.config.build_systems,
-                self.config.eval_worker_count or multiprocessing.cpu_count(),
-                self.config.eval_max_memory_size,
-                eval_lock,
-                [x.to_buildstep() for x in self.config.post_build_steps],
-                self.config.job_report_limit,
+                config=config,
+                project=project,
+                worker_names=worker_names,
+                nix_supported_systems=self.config.build_systems,
+                nix_eval_worker_count=self.config.eval_worker_count
+                or multiprocessing.cpu_count(),
+                nix_eval_max_memory_size=self.config.eval_max_memory_size,
+                eval_lock=eval_lock,
+                post_build_steps=[
+                    x.to_buildstep() for x in self.config.post_build_steps
+                ],
+                job_report_limit=self.config.job_report_limit,
+                per_repo_effects_secrets=self.config.effects_per_repo_secrets,
                 failed_builds_db=DB,
                 outputs_path=self.config.outputs_path,
             )

@@ -20,8 +20,8 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python"
 ]
-version = "0.1.1"
-scripts = { buildbot-effects = "hercules_effects.cli:main" }
+version = "0.0.1"
+scripts = { buildbot-effects = "buildbot_effects.cli:main" }
 
 [tool.setuptools]
 packages = [
@@ -43,6 +43,9 @@ ignore = [
   "TD",
   # fixmes
   "FIX",
+
+  # commented out code
+  "ERA001",
 
   # Unused function argument
   "ARG001",
