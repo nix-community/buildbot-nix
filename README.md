@@ -255,8 +255,51 @@ contents to the attic cache.
 
 ## (experimental) Hercules CI effects
 
-See [flake.nix](flake.nix) and
+See [flake.nix](flake.nix) for an example and
 [https://docs.hercules-ci.com/hercules-ci/effects/] for documentation.
+
+You can run hercules-effects locally using the `buildbot-effects` cli:
+
+```
+$ buildbot-effects --help
+usage: buildbot-effects [-h] [--secrets SECRETS] [--rev REV] [--branch BRANCH] [--repo REPO] [--path PATH] {list,run,run-all} ...
+
+Run effects from a hercules-ci flake
+
+positional arguments:
+  {list,run,run-all}  Command to run
+    list              List available effects
+    run               Run an effect
+    run-all           Run all effects
+
+options:
+  -h, --help          show this help message and exit
+  --secrets SECRETS   Path to a json file with secrets
+  --rev REV           Git revision to use
+  --branch BRANCH     Git branch to use
+  --repo REPO         Git repo to prepend to be
+  --path PATH         Path to the repository
+```
+
+Example from the buildbot-nix repository:
+
+```console
+$ git clone github.com/nix-community/buildbot-nix
+$ cd buildbot-nix
+```
+
+```console
+$ nix run github:nix-community/buildbot-nix#buildbot-effects -- list
+[
+  "deploy"
+]
+```
+
+```console
+$ nix run github:nix-community/buildbot-nix#buildbot-effects -- --branch main run deploy
+{branch:main,rev:5d2e0af1cfccfc209b893b89392cf80f5640d936,tag:null}
+Hello, world!
+```
 
 ## Real-World Deployments
 
