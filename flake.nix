@@ -31,28 +31,29 @@
             ./nix/checks/flake-module.nix
           ]
           ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix
-          ++ inputs.nixpkgs.lib.optional (
-            inputs.hercules-ci-effects ? flakeModule
-          ) inputs.hercules-ci-effects.flakeModule;
+          ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
+            inputs.hercules-ci-effects.flakeModule
+            {
+              herculesCI = herculesCI: {
+                onPush.default.outputs.effects.deploy = withSystem config.defaultEffectSystem (
+                  { pkgs, hci-effects, ... }:
+                  hci-effects.runIf (herculesCI.config.repo.branch == "main") (
+                    hci-effects.mkEffect {
+                      effectScript = ''
+                        echo "${builtins.toJSON { inherit (herculesCI.config.repo) branch tag rev; }}"
+                        ${pkgs.hello}/bin/hello
+                      '';
+                    }
+                  )
+                );
+              };
+            }
+          ];
         systems = [
           "x86_64-linux"
           "aarch64-linux"
           "aarch64-darwin"
         ];
-
-        herculesCI = herculesCI: {
-          onPush.default.outputs.effects.deploy = withSystem config.defaultEffectSystem (
-            { pkgs, hci-effects, ... }:
-            hci-effects.runIf (herculesCI.config.repo.branch == "main") (
-              hci-effects.mkEffect {
-                effectScript = ''
-                  echo "${builtins.toJSON { inherit (herculesCI.config.repo) branch tag rev; }}"
-                  ${pkgs.hello}/bin/hello
-                '';
-              }
-            )
-          );
-        };
 
         flake = {
           nixosModules.buildbot-master.imports = [
