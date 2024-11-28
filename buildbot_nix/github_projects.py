@@ -31,6 +31,7 @@ from .common import (
     paginated_github_request,
     slugify_project_name,
 )
+from .errors import BuildbotNixError
 from .github.installation_token import InstallationToken
 from .github.jwt_token import JWTToken
 from .github.legacy_token import (
@@ -46,7 +47,6 @@ from .models import (
 )
 from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
-from . import BuildbotNixError
 
 tlog = Logger()
 
@@ -564,9 +564,11 @@ class GithubBackend(GitBackend):
 
     def create_change_hook(self) -> dict[str, Any]:
         def get_github_token(props: Properties) -> str:
-            return self.auth_backend.get_repo_token(
-                props.getProperty("full_name")
-            ).get()
+            full_name = props.getProperty("full_name")
+            if full_name is None:
+                msg = f"full_name not found in properties: {props}"
+                raise BuildbotNixError(msg)
+            return self.auth_backend.get_repo_token(full_name).get()
 
         return {
             "secret": self.webhook_secret,
