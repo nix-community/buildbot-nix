@@ -640,7 +640,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
         self.project = project
-        self.observer = logobserver.BufferLogObserver()
+        self.observer = logobserver.BufferLogObserver(wantStderr=True)
         self.addLogObserver("stdio", self.observer)
         self.supported_systems = supported_systems
         self.job_report_limit = job_report_limit
@@ -702,6 +702,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result
         )
         if result == util.SUCCESS:
+            log.info(self.observer.getStderr())
+            self.addHTMLLog(
+                "Evaluation Warnings", f"<pre>{self.observer.getStderr()}</pre>"
+            )
+
             # create a ShellCommand for each stage and add them to the build
             jobs: list[NixEvalJob] = []
 
