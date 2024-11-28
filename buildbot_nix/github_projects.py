@@ -46,6 +46,7 @@ from .models import (
 )
 from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
+from . import BuildbotNixError
 
 tlog = Logger()
 
@@ -408,7 +409,11 @@ class GithubAppAuthBackend(GithubAuthBackend):
         return self.jwt_token
 
     def get_repo_token(self, repo_full_name: str) -> RepoToken:
-        installation_id = self.project_id_map[repo_full_name]
+        maybe_project = self.project_id_map.get(repo_full_name)
+        if maybe_project is None:
+            msg = f"BUG: Project {repo_full_name} not found in project_id_map at {self.auth_type.project_id_map_file}"
+            raise BuildbotNixError(msg)
+        installation_id = maybe_project
         return self.installation_tokens[installation_id]
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
