@@ -44,6 +44,7 @@ from twisted.logger import Logger
 from twisted.python.failure import Failure
 
 from . import models
+from .errors import BuildbotNixError
 from .failed_builds import FailedBuild, FailedBuildDB
 from .gitea_projects import GiteaBackend
 from .github_projects import (
@@ -69,10 +70,6 @@ SKIPPED_BUILDER_NAMES = [
 ]
 
 log = Logger()
-
-
-class BuildbotNixError(Exception):
-    pass
 
 
 class BuildbotEffectsTrigger(Trigger):

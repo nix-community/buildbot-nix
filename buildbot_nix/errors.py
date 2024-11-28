@@ -1,0 +1,2 @@
+class BuildbotNixError(Exception):
+    pass
