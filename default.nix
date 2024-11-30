@@ -1,7 +1,23 @@
-{ setuptools, buildPythonPackage }:
+{
+  setuptools,
+  buildPythonPackage,
+  pydantic,
+  requests,
+  treq,
+  psycopg2,
+  nix,
+}:
 buildPythonPackage {
   name = "buildbot-nix";
-  format = "pyproject";
+  pyproject = true;
   src = ./.;
-  nativeBuildInputs = [ setuptools ];
+  build-system = [ setuptools ];
+  dependencies = [
+    pydantic
+    requests
+    treq
+    psycopg2
+  ];
+
+  buildInputs = [ nix ];
 }

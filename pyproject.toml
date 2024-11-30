@@ -23,6 +23,13 @@ classifiers = [
 version = "0.0.1"
 scripts = { buildbot-effects = "buildbot_effects.cli:main" }
 
+dependencies = [
+  "pydantic",
+  "requests",
+  "treq",
+  "psycopg2"
+]
+
 [tool.setuptools]
 packages = [
   "buildbot_nix",
