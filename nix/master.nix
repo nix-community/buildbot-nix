@@ -708,6 +708,7 @@ in
         pythonPackages = ps: [
           (ps.toPythonModule packages.buildbot-worker)
           packages.buildbot-nix
+          packages.buildbot-effects
           packages.buildbot-plugins.www
           packages.buildbot-gitea
         ];
