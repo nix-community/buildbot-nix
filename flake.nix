@@ -100,7 +100,7 @@
                     pkgs.ruff
                   ];
                 };
-                buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
+                buildbot-nix = pkgs.python3.pkgs.callPackage ./nix/buildbot-nix.nix { };
               }
               // lib.optionalAttrs pkgs.stdenv.isLinux {
                 buildbot-effects = pkgs.python3.pkgs.callPackage ./nix/buildbot-effects.nix { };

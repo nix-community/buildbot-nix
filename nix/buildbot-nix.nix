@@ -10,7 +10,7 @@
 buildPythonPackage {
   name = "buildbot-nix";
   pyproject = true;
-  src = ./.;
+  src = ./../buildbot_nix;
   build-system = [ setuptools ];
   dependencies = [
     pydantic

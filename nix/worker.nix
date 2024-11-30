@@ -131,7 +131,7 @@ in
               `buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`.
               Consider upgrading by setting `services.buildbot-nix.worker.package` i.e. from nixpkgs-unstable.
             ''
-            "${packages.python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
+            "${packages.python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/buildbot_nix/worker.py";
       };
     };
   };
