@@ -233,6 +233,9 @@ def run_effects(
         "/etc/hosts",
         "/etc/hosts",
         "--ro-bind",
+        "/etc/ssh/ssh_known_hosts",
+        "/etc/ssh/ssh_known_hosts",
+        "--ro-bind",
         "/nix/store",
         "/nix/store",
     ]
