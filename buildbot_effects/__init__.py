@@ -199,6 +199,7 @@ def run_effects(
         msg = "bwrap' executable not found"
         raise BuildbotEffectsError(msg)
 
+    # Mirrors hercules-ci implementation: https://github.com/hercules-ci/hercules-ci-agent/blob/57c564298bafde509bd23f4d5862574c94be01ba/hercules-ci-agent/src/Hercules/Effect.hs#L285
     bubblewrap_cmd = [
         "nix",
         "develop",
@@ -226,11 +227,10 @@ def run_effects(
         "/etc/resolv.conf",
         "/etc/resolv.conf",
         "--ro-bind",
-        "/etc/hosts",
-        "/etc/hosts",
-        "--ro-bind",
         "/nix/store",
         "/nix/store",
+        "--hostname",
+        "hercules-ci",
     ]
 
     with NamedTemporaryFile() as tmp:
