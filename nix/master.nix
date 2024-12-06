@@ -7,6 +7,7 @@
 }:
 let
   cfg = config.services.buildbot-nix.master;
+  inherit (config.services.buildbot-nix) packages;
   inherit (lib) mkRemovedOptionModule mkRenamedOptionModule;
 
   interpolateType = lib.mkOptionType {
@@ -47,6 +48,7 @@ let
 in
 {
   imports = [
+    ./packages.nix
     (mkRenamedOptionModule
       [
         "services"
@@ -90,6 +92,17 @@ in
       ]
       ''
         Setting a user is not required.
+      ''
+    )
+    (mkRemovedOptionModule
+      [
+        "services"
+        "buildbot-nix"
+        "master"
+        "buildbotNixpkgs"
+      ]
+      ''
+        Set packages directly in services.buildbot-nix.packages instead.
       ''
     )
   ];
@@ -483,11 +496,6 @@ in
         '';
       };
 
-      buildbotNixpkgs = lib.mkOption {
-        type = lib.types.raw;
-        description = "Nixpkgs to use for buildbot packages";
-      };
-
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
@@ -561,10 +569,10 @@ in
           '';
         }
         {
-          assertion = lib.versionAtLeast cfg.buildbotNixpkgs.buildbot.version "4.0.0";
+          assertion = lib.versionAtLeast packages.buildbot.version "4.0.0";
           message = ''
             `buildbot-nix` requires `buildbot` 4.0.0 or greater to function.
-            Set services.buildbot-nix.master.buildbotNixpkgs to a nixpkgs with buildbot >= 4.0.0,
+            Set services.buildbot-nix.packages.buildbot to a nixpkgs with buildbot >= 4.0.0,
             i.e. nixpkgs-unstable.
           '';
         }
@@ -696,31 +704,14 @@ in
           "${if hasSSL then "https" else "http"}://${cfg.domain}/";
         dbUrl = config.services.buildbot-nix.master.dbUrl;
 
-        package = cfg.buildbotNixpkgs.buildbot;
-        pythonPackages =
-          let
-            buildbot-gitea =
-              (cfg.buildbotNixpkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
-                inherit (cfg.buildbotNixpkgs) buildbot;
-              }).overrideAttrs
-                (old: {
-                  patches = old.patches ++ [
-                    ./0002-GiteaHandler-set-branch-to-the-PR-branch-not-the-bas.patch
-                    ./0001-GiteaHandler-set-the-category-of-PR-changes-to-pull-.patch
-                  ];
-                });
-          in
-          ps: [
-            ps.pydantic
-            pkgs.nix
-            ps.requests
-            ps.treq
-            ps.psycopg2
-            (ps.toPythonModule cfg.buildbotNixpkgs.buildbot-worker)
-            cfg.buildbotNixpkgs.buildbot-plugins.www
-            (cfg.buildbotNixpkgs.python3.pkgs.callPackage ../default.nix { })
-            buildbot-gitea
-          ];
+        package = packages.buildbot;
+        pythonPackages = ps: [
+          (ps.toPythonModule packages.buildbot-worker)
+          packages.buildbot-nix
+          packages.buildbot-effects
+          packages.buildbot-plugins.www
+          packages.buildbot-gitea
+        ];
       };
 
       systemd.services.buildbot-master = {

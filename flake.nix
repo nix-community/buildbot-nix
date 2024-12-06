@@ -58,26 +58,10 @@
         flake = {
           nixosModules.buildbot-master.imports = [
             ./nix/master.nix
-            (
-              { pkgs, ... }:
-              {
-                services.buildbot-nix.master.buildbotNixpkgs =
-                  lib.mkDefault
-                    inputs.nixpkgs.legacyPackages.${pkgs.hostPlatform.system};
-              }
-            )
           ];
 
           nixosModules.buildbot-worker.imports = [
             ./nix/worker.nix
-            (
-              { pkgs, ... }:
-              {
-                services.buildbot-nix.worker.buildbotNixpkgs =
-                  lib.mkDefault
-                    inputs.nixpkgs.legacyPackages.${pkgs.hostPlatform.system};
-              }
-            )
           ];
 
           nixosConfigurations =
@@ -116,7 +100,7 @@
                     pkgs.ruff
                   ];
                 };
-                buildbot-nix = pkgs.python3.pkgs.callPackage ./default.nix { };
+                buildbot-nix = pkgs.python3.pkgs.callPackage ./nix/buildbot-nix.nix { };
               }
               // lib.optionalAttrs pkgs.stdenv.isLinux {
                 buildbot-effects = pkgs.python3.pkgs.callPackage ./nix/buildbot-effects.nix { };

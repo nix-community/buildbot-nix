@@ -3,11 +3,11 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "buildbot-nix"
+name = "buildbot-effects"
 authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
-description = "A nixos module to make buildbot a proper Nix-CI."
+description = "CI effects for buildbot-nix"
 readme = "README.rst"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -22,14 +22,6 @@ classifiers = [
 ]
 version = "0.0.1"
 scripts = { buildbot-effects = "buildbot_effects.cli:main" }
-
-[tool.setuptools]
-packages = [
-  "buildbot_nix",
-  "buildbot_nix.repo_config",
-  "buildbot_nix.github",
-  "buildbot_effects"
-]
 
 [tool.ruff]
 target-version = "py311"

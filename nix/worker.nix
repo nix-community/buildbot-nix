@@ -6,12 +6,42 @@
 }:
 let
   cfg = config.services.buildbot-nix.worker;
+  inherit (config.services.buildbot-nix) packages;
   home = "/var/lib/buildbot-worker";
   buildbotDir = "${home}/worker";
-  python = cfg.package.pythonModule;
 in
 {
   _file = ./worker.nix;
+
+  imports = [
+    ./packages.nix
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "buildbot-nix"
+        "worker"
+        "package"
+      ]
+      [
+        "services"
+        "buildbot-nix"
+        "packages"
+        "buildbot-worker"
+      ]
+    )
+    (lib.mkRemovedOptionModule
+      [
+        "services"
+        "buildbot-nix"
+        "worker"
+        "buildbotNixpkgs"
+      ]
+      ''
+        Set packages directly in services.buildbot-nix.packages instead.
+      ''
+    )
+  ];
+
   options = {
     services.buildbot-nix.worker = {
       enable = lib.mkEnableOption "buildbot-worker";
@@ -24,16 +54,6 @@ in
         type = lib.types.package;
         default = pkgs.callPackage ./nix-eval-jobs.nix { };
         description = "nix-eval-jobs to use for evaluation";
-      };
-      buildbotNixpkgs = lib.mkOption {
-        type = lib.types.raw;
-        description = "Nixpkgs to use for buildbot packages";
-      };
-      package = lib.mkOption {
-        type = lib.types.package;
-        default = cfg.buildbotNixpkgs.buildbot-worker;
-        defaultText = "pkgs.buildbot-worker";
-        description = "The buildbot-worker package to use.";
       };
       masterUrl = lib.mkOption {
         type = lib.types.str;
@@ -80,9 +100,11 @@ in
         pkgs.bash
         pkgs.coreutils
         cfg.nixEvalJobs.package
-        (pkgs.python3.pkgs.callPackage ./buildbot-effects.nix { })
+        packages.buildbot-effects
       ];
-      environment.PYTHONPATH = "${python.withPackages (_: [ cfg.package ])}/${python.sitePackages}";
+      environment.PYTHONPATH = "${
+        packages.python.withPackages (_: [ packages.buildbot-worker ])
+      }/${packages.python.sitePackages}";
       environment.MASTER_URL = cfg.masterUrl;
       environment.BUILDBOT_DIR = buildbotDir;
 
@@ -109,7 +131,7 @@ in
               `buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`.
               Consider upgrading by setting `services.buildbot-nix.worker.package` i.e. from nixpkgs-unstable.
             ''
-            "${python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/worker.py";
+            "${packages.python.pkgs.twisted}/bin/twistd --nodaemon --pidfile= --logfile - --python ${../buildbot_nix}/buildbot_nix/worker.py";
       };
     };
   };
