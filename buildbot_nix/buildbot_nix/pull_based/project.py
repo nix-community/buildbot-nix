@@ -1,15 +1,12 @@
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 
-from buildbot.process.properties import Interpolate
-
-from buildbot_nix.common import slugify_project_name
 from buildbot.changes.base import ChangeSource
 from buildbot.changes.gitpoller import GitPoller
 
-from ..projects import (
-    GitProject,
-)
+from buildbot_nix.common import slugify_project_name
+from buildbot_nix.projects import GitProject
+
 
 class PullBasedProject(GitProject):
     parsed_url: ParseResult
@@ -22,15 +19,16 @@ class PullBasedProject(GitProject):
     ssh_known_hosts: str | None
 
     def __init__(
-            self,
-            url: str,
-            name: str, default_branch: str,
-            poll_interval: int,
-            poll_spread: int,
-            ssh_private_key: str | None,
-            ssh_known_hosts: str | None,
-            **kwargs: Any
-    ):
+        self,
+        url: str,
+        name: str,
+        default_branch: str,
+        poll_interval: int,
+        poll_spread: int,
+        ssh_private_key: str | None,
+        ssh_known_hosts: str | None,
+        **kwargs: Any,
+    ) -> None:
         self.parsed_url = urlparse(url)
         self._url = url
         self._name = name
@@ -46,16 +44,16 @@ class PullBasedProject(GitProject):
 
     def create_change_source(self) -> ChangeSource | None:
         return GitPoller(
-            repourl = self.url,
-            branches = True,
-            pollInterval = self.poll_interval,
-            pollRandomDelayMin = 0,
-            pollRandomDelayMax = self.poll_spread,
-            pollAtLaunch = True,
-            category = "push",
-            project = self.name,
-            sshPrivateKey = self.ssh_private_key,
-            sshKnownHosts = self.ssh_known_hosts,
+            repourl=self.url,
+            branches=True,
+            pollInterval=self.poll_interval,
+            pollRandomDelayMin=0,
+            pollRandomDelayMax=self.poll_spread,
+            pollAtLaunch=True,
+            category="push",
+            project=self.name,
+            sshPrivateKey=self.ssh_private_key,
+            sshKnownHosts=self.ssh_known_hosts,
         )
 
     @property

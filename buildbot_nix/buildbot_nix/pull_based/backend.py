@@ -6,23 +6,16 @@ from buildbot.secrets.providers.base import SecretProviderBase
 from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase
 
+from buildbot_nix.models import PullBasedConfig
+from buildbot_nix.projects import GitBackend, GitProject
 from buildbot_nix.pull_based.null_reporter import NullReporter
 from buildbot_nix.pull_based.project import PullBasedProject
-
-from ..projects import (
-    GitProject,
-    GitBackend,
-)
-from ..models import (
-    PullBasedConfig
-)
-from .. import models
 
 
 class PullBasedBacked(GitBackend):
     config: PullBasedConfig
 
-    def __init__(self, pull_based_config: PullBasedConfig, **kwargs: Any):
+    def __init__(self, pull_based_config: PullBasedConfig, **kwargs: Any) -> None:
         self.config = pull_based_config
         super().__init__(**kwargs)
 
@@ -49,19 +42,19 @@ class PullBasedBacked(GitBackend):
         for name, repo in self.config.repositories.items():
             ret.append(
                 PullBasedProject(
-                    url = repo.url,
-                    default_branch = repo.default_branch,
-                    name = name,
-                    poll_interval = repo.poll_interval,
-                    poll_spread = self.config.poll_spread or 0,
-                    ssh_private_key = repo.ssh_private_key,
-                    ssh_known_hosts = repo.ssh_known_hosts,
+                    url=repo.url,
+                    default_branch=repo.default_branch,
+                    name=name,
+                    poll_interval=repo.poll_interval,
+                    poll_spread=self.config.poll_spread or 0,
+                    ssh_private_key=repo.ssh_private_key,
+                    ssh_known_hosts=repo.ssh_known_hosts,
                 )
             )
         return ret
 
     def are_projects_cached(self) -> bool:
-        return True;
+        return True
 
     @property
     def pretty_type(self) -> str:

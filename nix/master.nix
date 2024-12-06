@@ -446,57 +446,52 @@ in
       };
 
       pullBased = {
-        enable = lib.mkEnableOption "Enable pull based repositories.";
-
         repositories = lib.mkOption {
           default = { };
           type = lib.types.attrsOf (
-            lib.types.submodule (
-              { name, ... }:
-              {
-                options = {
-                  defaultBranch = lib.mkOption {
-                    type = lib.types.str;
-                    description = ''
-                      The repositories default branch.
-                    '';
-                  };
-
-                  url = lib.mkOption {
-                    type = lib.types.str;
-                    description = ''
-                      The repository's URL, must be fetchable by git.
-                    '';
-                  };
-
-                  pollInterval = lib.mkOption {
-                    type = lib.types.addCheck lib.types.int (x: x > 0);
-                    default = 5 * 60;
-                    description = ''
-                      How often to poll this repository expressed in seconds.
-                    '';
-                  };
-
-                  # sshPrivateKeyFile = lib.mkOption {
-                  #   type = lib.types.nullOr lib.types.path;
-                  #   default = cfg.pullBased.sshPrivateKey;
-                  #   description = ''
-                  #     If non-null the specified SSH key will be used to fetch all configured repositories.
-                  #     This option is defaults to the global `sshPrivateKeyFile` option.
-                  #   '';
-                  # };
-
-                  # sshKnownHostsFile = lib.mkOption {
-                  #   type = lib.types.nullOr lib.types.path;
-                  #   default = cfg.pullBased.ssh_known_hosts;
-                  #   description = ''
-                  #     If non-null the specified known hosts file will be matched against when connecting to
-                  #     repositories over SSH. This option defaults to the global `sshKnownHostsFile` option.
-                  #   '';
-                  # };
+            lib.types.submodule {
+              options = {
+                defaultBranch = lib.mkOption {
+                  type = lib.types.str;
+                  description = ''
+                    The repositories default branch.
+                  '';
                 };
-              }
-            )
+
+                url = lib.mkOption {
+                  type = lib.types.str;
+                  description = ''
+                    The repository's URL, must be fetchable by git.
+                  '';
+                };
+
+                pollInterval = lib.mkOption {
+                  type = lib.types.addCheck lib.types.int (x: x > 0);
+                  default = 5 * 60;
+                  description = ''
+                    How often to poll this repository expressed in seconds.
+                  '';
+                };
+
+                sshPrivateKeyFile = lib.mkOption {
+                  type = lib.types.nullOr lib.types.path;
+                  default = cfg.pullBased.sshPrivateKeyFile;
+                  description = ''
+                    If non-null the specified SSH key will be used to fetch all configured repositories.
+                    This option is defaults to the global `sshPrivateKeyFile` option.
+                  '';
+                };
+
+                sshKnownHostsFile = lib.mkOption {
+                  type = lib.types.nullOr lib.types.path;
+                  default = cfg.pullBased.sshKnownHostsFile;
+                  description = ''
+                    If non-null the specified known hosts file will be matched against when connecting to
+                    repositories over SSH. This option defaults to the global `sshKnownHostsFile` option.
+                  '';
+                };
+              };
+            }
           );
         };
 
@@ -850,10 +845,8 @@ in
                             default_branch = repo.defaultBranch;
                             url = repo.url;
                             poll_interval = repo.pollInterval;
-                            ssh_private_key_file =
-                              if cfg.pullBased.sshPrivateKeyFile != null then "pull-based-ssh-private-key-file" else null;
-                            ssh_known_hosts_file =
-                              if cfg.pullBased.sshKnownHostsFile != null then "pull-based-ssh-known-hosts-file" else null;
+                            ssh_private_key_file = repo.sshPrivateKeyFile;
+                            ssh_known_hosts_file = repo.sshKnownHostsFile;
                           }
                         );
                         poll_spread = cfg.pullBased.pollSpread;
@@ -930,9 +923,9 @@ in
             ++ lib.mapAttrsToList (
               repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
             ) cfg.effects.perRepoSecretFiles
-            ++ lib.optional (
-              cfg.pullBased.enable && (cfg.pullBased.sshPrivateKeyFile != null)
-            ) "pull-based-ssh-private-key-file:${cfg.pullBased.sshPrivateKeyFile}";
+            ++ lib.mapAttrsToList (
+              repoName: repo: "pull-based__${cleanUpRepoName repoName}:${repo.sshPrivateKeyFile}"
+            ) (lib.filterAttrs (_: repo: repo.sshPrivateKeyFile != null) cfg.pullBased.repositories);
           RuntimeDirectory = "buildbot-master";
         };
       };
