@@ -2,7 +2,7 @@ import re
 from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from buildbot.plugins import steps, util
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, TypeAdapter
@@ -34,6 +34,12 @@ class Interpolate(BaseModel):
 
     nix_type: str = Field(alias="_type")
     value: str
+
+    @classmethod
+    def to_buildbot(cls, value: str | Self) -> str | util.Interpolate:
+        if isinstance(value, str):
+            return value
+        return util.Interpolate(value.value)
 
     def __init__(self, value: str, **kwargs: Any) -> None:
         super().__init__(nix_type="interpolate", value=value)
@@ -104,6 +110,33 @@ class GiteaConfig(BaseModel):
         fields = exclude_fields(["token", "webhook_secret", "oauth_secret"])
 
 
+class PullBasedRepository(BaseModel):
+    name: str
+    default_branch: str
+    url: str
+    poll_interval: int
+
+    ssh_private_key_file: Path | None
+    ssh_known_hosts_file: Path | None
+
+    @property
+    def ssh_private_key(self) -> str | None:
+        if self.ssh_private_key_file is not None:
+            return read_secret_file(self.ssh_private_key_file)
+        return None
+
+    @property
+    def ssh_known_hosts(self) -> str | None:
+        if self.ssh_known_hosts_file is not None:
+            return read_secret_file(self.ssh_known_hosts_file)
+        return None
+
+
+class PullBasedConfig(BaseModel):
+    repositories: dict[str, PullBasedRepository]
+    poll_spread: int | None
+
+
 class GitHubLegacyConfig(BaseModel):
     token_file: Path
 
@@ -162,15 +195,13 @@ class PostBuildStep(BaseModel):
     command: list[str | Interpolate]
 
     def to_buildstep(self) -> steps.BuildStep:
-        def maybe_interpolate(value: str | Interpolate) -> str | util.Interpolate:
-            if isinstance(value, str):
-                return value
-            return util.Interpolate(value.value)
-
         return steps.ShellCommand(
             name=self.name,
-            env={k: maybe_interpolate(self.environment[k]) for k in self.environment},
-            command=[maybe_interpolate(x) for x in self.command],
+            env={
+                k: Interpolate.to_buildbot(self.environment[k])
+                for k in self.environment
+            },
+            command=[Interpolate.to_buildbot(x) for x in self.command],
         )
 
 
@@ -245,6 +276,7 @@ class BuildbotNixConfig(BaseModel):
     cachix: CachixConfig | None
     gitea: GiteaConfig | None
     github: GitHubConfig | None
+    pull_based: PullBasedConfig | None
     admins: list[str]
     workers_file: Path
     build_systems: list[str]

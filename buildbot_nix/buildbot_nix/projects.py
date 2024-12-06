@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from buildbot.changes.base import ChangeSource
 from buildbot.config.builder import BuilderConfig
 from buildbot.reporters.base import ReporterBase
 from buildbot.secrets.providers.base import SecretProviderBase
@@ -10,7 +11,7 @@ from buildbot.www.avatar import AvatarBase
 
 class GitBackend(ABC):
     @abstractmethod
-    def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig:
+    def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig | None:
         pass
 
     @abstractmethod
@@ -18,7 +19,7 @@ class GitBackend(ABC):
         pass
 
     @abstractmethod
-    def create_change_hook(self) -> dict[str, Any]:
+    def create_change_hook(self) -> dict[str, Any] | None:
         pass
 
     @abstractmethod
@@ -26,7 +27,7 @@ class GitBackend(ABC):
         pass
 
     @abstractmethod
-    def create_auth(self) -> AuthBase:
+    def create_auth(self) -> AuthBase | None:
         pass
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
@@ -64,6 +65,10 @@ class GitBackend(ABC):
 class GitProject(ABC):
     @abstractmethod
     def get_project_url(self) -> str:
+        pass
+
+    @abstractmethod
+    def create_change_source(self) -> ChangeSource | None:
         pass
 
     @property
