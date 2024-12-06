@@ -1,10 +1,12 @@
-from collections.abc import Mapping
+import re
+from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from buildbot.plugins import steps, util
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, TypeAdapter
+from pydantic_core import CoreSchema, core_schema
 
 from .secrets import read_secret_file
 
@@ -172,6 +174,71 @@ class PostBuildStep(BaseModel):
         )
 
 
+def glob_to_regex(glob: str) -> re.Pattern:
+    return re.compile(glob.replace("*", ".*").replace("?", "."))
+
+
+class BranchConfig(BaseModel):
+    match_glob: str = Field(validation_alias="matchGlob")
+    register_gcroots: bool = Field(validation_alias="registerGCRoots")
+    update_outputs: bool = Field(validation_alias="updateOutputs")
+
+    match_regex: re.Pattern = Field(default=None, exclude=True)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+        match_glob = kwargs.get("match_glob") or kwargs["matchGlob"]
+        self.match_regex = glob_to_regex(match_glob)
+
+    def __or__(self, other: "BranchConfig") -> "BranchConfig":
+        assert self.match_glob == other.match_glob
+        assert self.match_regex == other.match_regex
+
+        return BranchConfig(
+            match_glob=self.match_glob,
+            register_gcroots=self.register_gcroots or other.register_gcroots,
+            update_outputs=self.update_outputs or other.update_outputs,
+        )
+
+
+class BranchConfigDict(dict[str, BranchConfig]):
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            cls, handler(dict[str, BranchConfig])
+        )
+
+    def lookup_branch_config(self, branch: str) -> BranchConfig | None:
+        ret = None
+        for branch_config in self.values():
+            if branch_config.match_regex.fullmatch(branch):
+                if ret is None:
+                    ret = branch_config
+                else:
+                    ret |= branch_config
+        return ret
+
+    def check_lookup(
+        self, default_branch: str, branch: str, fn: Callable[[BranchConfig], bool]
+    ) -> bool:
+        branch_config = self.lookup_branch_config(branch)
+        return branch == default_branch or (
+            branch_config is not None and fn(branch_config)
+        )
+
+    def do_run(self, default_branch: str, branch: str) -> bool:
+        return self.check_lookup(default_branch, branch, lambda _: True)
+
+    def do_register_gcroot(self, default_branch: str, branch: str) -> bool:
+        return self.check_lookup(default_branch, branch, lambda bc: bc.register_gcroots)
+
+    def do_update_outputs(self, default_branch: str, branch: str) -> bool:
+        return self.check_lookup(default_branch, branch, lambda bc: bc.update_outputs)
+
+
 class BuildbotNixConfig(BaseModel):
     db_url: str
     auth_backend: AuthBackendConfig
@@ -193,6 +260,7 @@ class BuildbotNixConfig(BaseModel):
     job_report_limit: int | None
     http_basic_auth_password_file: Path | None
     effects_per_repo_secrets: dict[str, str]
+    branches: BranchConfigDict
 
     @property
     def nix_workers_secret(self) -> str:

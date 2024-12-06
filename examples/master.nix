@@ -68,6 +68,11 @@
     #  auth.signingKey.file = "/var/lib/secrets/cachix-key";
     #  auth.authToken.file = "/var/lib/secrets/cachix-token";
     #};
+
+    # By default we only build the "default" branch. Using the branches option, buildbot will also build other branches.
+    # branches = {
+    #   releaseBranches.matchGlob = "release-*";
+    # };
   };
 
   # Optional: Enable acme/TLS in nginx (recommended)
