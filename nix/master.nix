@@ -467,7 +467,7 @@ in
 
                 pollInterval = lib.mkOption {
                   type = lib.types.addCheck lib.types.int (x: x > 0);
-                  default = 5 * 60;
+                  default = cfg.pullBased.pollInterval;
                   description = ''
                     How often to poll this repository expressed in seconds.
                   '';
@@ -497,7 +497,7 @@ in
 
         pollInterval = lib.mkOption {
           type = lib.types.addCheck lib.types.int (x: x > 0);
-          default = 5 * 60;
+          default = 60;
           description = ''
             How often to poll each repository by default expressed in seconds. This value can be overriden
             per repository.
