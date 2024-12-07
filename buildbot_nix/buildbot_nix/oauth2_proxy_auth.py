@@ -17,13 +17,12 @@ log = Logger()
 class OAuth2ProxyAuth(AuthBase):
     header: ClassVar[bytes] = b"Authorization"
     prefix: ClassVar[bytes] = b"Basic "
-    user_info_provider: UserInfoProviderBase
     password: bytes
 
     def __init__(self, password: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        if self.user_info_provider is None:
-            self.user_info_provider = UserInfoProviderBase()
+        if self.userInfoProvider is None:
+            self.userInfoProvider = UserInfoProviderBase()
         self.password = unicode2bytes(password)
 
     def getLoginResource(self) -> IResource:  # noqa: N802
