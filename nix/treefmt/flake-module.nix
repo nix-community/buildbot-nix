@@ -37,7 +37,7 @@
         # the mypy module adds `./buildbot_nix/**/*.py` which does not appear to work
         # furthermore, saying `directories.""` will lead to `/buildbot_nix/**/*.py` which
         # is obviously incorrect...
-        settings.formatter."mypy-." = lib.mkIf pkgs.stdenv.buildPlatform.isLinux {
+        settings.formatter."mypy-" = lib.mkIf pkgs.stdenv.buildPlatform.isLinux {
           includes = [ "buildbot_nix/**/*.py" ];
         };
         settings.formatter.ruff-check.priority = 1;
