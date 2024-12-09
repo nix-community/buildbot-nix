@@ -126,7 +126,7 @@ in
         # Restart buildbot with a delay. This time way we can use buildbot to deploy itself.
         ExecReload = "+${config.systemd.package}/bin/systemd-run --on-active=60 ${config.systemd.package}/bin/systemctl restart buildbot-worker";
         ExecStart =
-          lib.traceIf (lib.versionOlder cfg.package.version "4.0.0")
+          lib.traceIf (lib.versionOlder config.services.buildbot-nix.packages.buildbot-worker.version "4.0.0")
             ''
               `buildbot-nix` recommends `buildbot-worker` to be at least of version `4.0.0`.
               Consider upgrading by setting `services.buildbot-nix.worker.package` i.e. from nixpkgs-unstable.
