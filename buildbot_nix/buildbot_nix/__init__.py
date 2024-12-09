@@ -587,9 +587,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         + "\n"
                     )
 
-                for dep, job_closure in job_closures.items():
+                for job_closure in job_closures.values():
                     if job.drvPath in job_closure:
-                        job_closures[dep].remove(job.drvPath)
+                        job_closure.remove(job.drvPath)
 
             overall_result = worst_status(result, overall_result)
             scheduler_log.addStdout(
