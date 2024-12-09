@@ -587,8 +587,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         + "\n"
                     )
 
-                for dep in job_closures:
-                    if job.drvPath in job_closures[dep]:
+                for dep, job_closure in job_closures.items():
+                    if job.drvPath in job_closure:
                         job_closures[dep].remove(job.drvPath)
 
             overall_result = worst_status(result, overall_result)
