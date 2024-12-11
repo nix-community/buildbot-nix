@@ -50,8 +50,8 @@ class OAuth2ProxyAuth(AuthBase):
             )
             raise Error(403, msg)
         header = header.removeprefix(self.prefix)
-        (username, password) = base64.b64decode(header).split(b":")
-        username = bytes2unicode(username)
+        (username_bytes, password) = base64.b64decode(header).split(b":")
+        username = bytes2unicode(username_bytes)
 
         if password != self.password:
             msg = b"invalid password given. Check your oauth2-proxy config!!"
