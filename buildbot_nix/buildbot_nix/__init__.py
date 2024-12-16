@@ -1775,6 +1775,10 @@ class NixConfigurator(ConfiguratorBase):
                 config["workers"].append(worker.Worker(worker_name, item["pass"]))
                 worker_names.append(worker_name)
 
+        if worker_names == []:
+            msg = f"No workers configured in {self.config.nix_workers_secret_file}"
+            raise BuildbotNixError(msg)
+
         eval_lock = util.MasterLock("nix-eval")
 
         if self.config.cachix is not None:
