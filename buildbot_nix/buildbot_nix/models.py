@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
@@ -9,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, TypeAda
 from pydantic_core import CoreSchema, core_schema
 
 from .secrets import read_secret_file
+from .errors import BuildbotNixError
 
 
 class InternalError(Exception):
@@ -270,6 +272,16 @@ class BranchConfigDict(dict[str, BranchConfig]):
         return self.check_lookup(default_branch, branch, lambda bc: bc.update_outputs)
 
 
+class Worker(BaseModel):
+    name: str
+    cores: int
+    password: str = Field(alias="pass")
+
+
+class WorkerConfig(BaseModel):
+    workers: list[Worker]
+
+
 class BuildbotNixConfig(BaseModel):
     db_url: str
     auth_backend: AuthBackendConfig
@@ -294,9 +306,13 @@ class BuildbotNixConfig(BaseModel):
     effects_per_repo_secrets: dict[str, str]
     branches: BranchConfigDict
 
-    @property
-    def nix_workers_secret(self) -> str:
-        return read_secret_file(self.nix_workers_secret_file)
+    def nix_worker_secrets(self) -> WorkerConfig:
+        try:
+            data = json.loads(read_secret_file(self.nix_workers_secret_file))
+        except json.JSONDecodeError as e:
+            msg = f"Failed to decode JSON from {self.nix_workers_secret_file}"
+            raise BuildbotNixError(msg) from e
+        return WorkerConfig(workers=data)
 
     @property
     def http_basic_auth_password(self) -> str:
