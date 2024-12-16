@@ -1761,18 +1761,15 @@ class NixConfigurator(ConfiguratorBase):
         for backend in backends.values():
             projects += backend.load_projects()
 
-        worker_config = json.loads(self.config.nix_workers_secret)
-        worker_names = []
-
         config.setdefault("projects", [])
         config.setdefault("secretsProviders", [])
         config.setdefault("www", {})
 
-        for item in worker_config:
-            cores = item.get("cores", 0)
-            for i in range(cores):
-                worker_name = f"{item['name']}-{i:03}"
-                config["workers"].append(worker.Worker(worker_name, item["pass"]))
+        worker_names = []
+        for w in self.config.nix_worker_secrets().workers:
+            for i in range(w.cores):
+                worker_name = f"{w.name}-{i:03}"
+                config["workers"].append(worker.Worker(worker_name, w.password))
                 worker_names.append(worker_name)
 
         if worker_names == []:
