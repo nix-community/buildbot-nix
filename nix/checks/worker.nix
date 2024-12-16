@@ -5,7 +5,6 @@
     node1 =
       {
         self,
-        config,
         pkgs,
         ...
       }:
