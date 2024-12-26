@@ -1,5 +1,5 @@
-import re
 import json
+import re
 from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
@@ -9,8 +9,8 @@ from buildbot.plugins import steps, util
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import CoreSchema, core_schema
 
-from .secrets import read_secret_file
 from .errors import BuildbotNixError
+from .secrets import read_secret_file
 
 
 class InternalError(Exception):
