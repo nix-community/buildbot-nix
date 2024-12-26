@@ -1761,18 +1761,15 @@ class NixConfigurator(ConfiguratorBase):
         for backend in backends.values():
             projects += backend.load_projects()
 
-        worker_config = json.loads(self.config.nix_workers_secret)
-        worker_names = []
-
         config.setdefault("projects", [])
         config.setdefault("secretsProviders", [])
         config.setdefault("www", {})
 
-        for item in worker_config:
-            cores = item.get("cores", 0)
-            for i in range(cores):
-                worker_name = f"{item['name']}-{i:03}"
-                config["workers"].append(worker.Worker(worker_name, item["pass"]))
+        worker_names = []
+        for w in self.config.nix_worker_secrets().workers:
+            for i in range(w.cores):
+                worker_name = f"{w.name}-{i:03}"
+                config["workers"].append(worker.Worker(worker_name, w.password))
                 worker_names.append(worker_name)
 
         if worker_names == []:
@@ -1801,25 +1798,31 @@ class NixConfigurator(ConfiguratorBase):
             # Hacky but we have no other hooks just now to run code on shutdown.
             atexit.register(lambda: DB.close() if DB is not None else None)
 
+        succeeded_projects = []
         for project in projects:
-            config_for_project(
-                config=config,
-                project=project,
-                worker_names=worker_names,
-                nix_supported_systems=self.config.build_systems,
-                nix_eval_worker_count=self.config.eval_worker_count
-                or multiprocessing.cpu_count(),
-                nix_eval_max_memory_size=self.config.eval_max_memory_size,
-                eval_lock=eval_lock,
-                post_build_steps=[
-                    x.to_buildstep() for x in self.config.post_build_steps
-                ],
-                job_report_limit=self.config.job_report_limit,
-                per_repo_effects_secrets=self.config.effects_per_repo_secrets,
-                failed_builds_db=DB,
-                branch_config_dict=self.config.branches,
-                outputs_path=self.config.outputs_path,
-            )
+            try:
+                config_for_project(
+                    config=config,
+                    project=project,
+                    worker_names=worker_names,
+                    nix_supported_systems=self.config.build_systems,
+                    nix_eval_worker_count=self.config.eval_worker_count
+                    or multiprocessing.cpu_count(),
+                    nix_eval_max_memory_size=self.config.eval_max_memory_size,
+                    eval_lock=eval_lock,
+                    post_build_steps=[
+                        x.to_buildstep() for x in self.config.post_build_steps
+                    ],
+                    job_report_limit=self.config.job_report_limit,
+                    per_repo_effects_secrets=self.config.effects_per_repo_secrets,
+                    failed_builds_db=DB,
+                    branch_config_dict=self.config.branches,
+                    outputs_path=self.config.outputs_path,
+                )
+            except Exception:  # noqa: BLE001
+                log.failure(f"Failed to configure project {project.name}")
+            else:
+                succeeded_projects.append(project)
 
         config["workers"].extend(worker.LocalWorker(w) for w in SKIPPED_BUILDER_NAMES)
 
@@ -1862,7 +1865,7 @@ class NixConfigurator(ConfiguratorBase):
             )
 
         config.setdefault("change_source", [])
-        for project in projects:
+        for project in succeeded_projects:
             change_source = project.create_change_source()
             if change_source is not None:
                 config["change_source"].append(change_source)
@@ -1882,5 +1885,5 @@ class NixConfigurator(ConfiguratorBase):
             config["www"]["authz"] = setup_authz(
                 admins=self.config.admins,
                 backends=list(backends.values()),
-                projects=projects,
+                projects=succeeded_projects,
             )

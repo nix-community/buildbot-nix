@@ -6,7 +6,7 @@
   curl,
   nlohmann_json,
 }:
-nix-eval-jobs.overrideAttrs (oldAttrs: {
+nix-eval-jobs.overrideAttrs (_oldAttrs: {
   src = fetchFromGitHub {
     owner = "nix-community";
     repo = "nix-eval-jobs";

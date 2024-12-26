@@ -2,7 +2,6 @@
   config,
   pkgs,
   lib,
-  options,
   ...
 }:
 let
@@ -19,13 +18,6 @@ let
 
     check = x: x ? "_type" && x._type == "interpolate" && x ? "value";
   };
-
-  interpolateToString =
-    value:
-    if lib.isAttrs value && value ? "_type" && value._type == "interpolate" then
-      "util.Interpolate(${builtins.toJSON value.value})"
-    else
-      builtins.toJSON value;
 
   cleanUpRepoName =
     name:
