@@ -216,7 +216,7 @@ class BranchConfig(BaseModel):
     register_gcroots: bool = Field(validation_alias="registerGCRoots")
     update_outputs: bool = Field(validation_alias="updateOutputs")
 
-    match_regex: re.Pattern = Field(default=None, exclude=True)
+    match_regex: re.Pattern | None = Field(default=None, exclude=True)
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -247,7 +247,10 @@ class BranchConfigDict(dict[str, BranchConfig]):
     def lookup_branch_config(self, branch: str) -> BranchConfig | None:
         ret = None
         for branch_config in self.values():
-            if branch_config.match_regex.fullmatch(branch):
+            if (
+                branch_config.match_regex is not None
+                and branch_config.match_regex.fullmatch(branch)
+            ):
                 if ret is None:
                     ret = branch_config
                 else:

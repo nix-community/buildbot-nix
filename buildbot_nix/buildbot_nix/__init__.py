@@ -606,7 +606,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             overall_result,
         )
         scheduler_log.addStdout("Done!\n")
-        return overall_result
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
         summary = []
