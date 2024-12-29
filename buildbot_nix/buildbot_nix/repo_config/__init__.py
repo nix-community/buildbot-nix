@@ -33,7 +33,7 @@ class BranchConfig(BaseModel):
             command=[
                 "sh",
                 "-c",
-                "if [ -f buildbot-nix.toml ] then; then cat buildbot-nix.toml; fi",
+                "if [ -f buildbot-nix.toml ]; then cat buildbot-nix.toml; fi",
             ],
         )
         await buildstep.runCommand(cmd)
