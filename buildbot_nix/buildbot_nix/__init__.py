@@ -417,7 +417,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         return removed
 
-    async def run(self) -> None:
+    async def run(self) -> int:
         """
         This function implements a relatively simple scheduling algorithm. At the start we compute the
         interdependencies between each of the jobs we want to run and at every iteration we schedule those
@@ -536,7 +536,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
             results: list[int]
             index: int
-            results, index = await self.wait_for_finish_deferred
+            results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
 
             job, brids, _ = scheduled[index]
             done.append(BuildTrigger.DoneJob(job, brids, results))
@@ -607,6 +607,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             overall_result,
         )
         scheduler_log.addStdout("Done!\n")
+        return overall_result
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
         summary = []
