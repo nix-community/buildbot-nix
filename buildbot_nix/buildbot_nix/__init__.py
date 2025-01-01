@@ -1057,6 +1057,8 @@ def nix_eval_config(
             method="clean",
             submodules=True,
             haltOnFailure=True,
+            sshPrivateKey=project.private_key_path.read_text() if project.private_key_path else None,
+            sshKnownHosts=project.known_hosts_path.read_text() if project.known_hosts_path else None,
         ),
     )
     drv_gcroots_dir = util.Interpolate(
@@ -1406,6 +1408,8 @@ def buildbot_effects_config(
             method="clean",
             submodules=True,
             haltOnFailure=True,
+            sshPrivateKey=project.private_key_path.read_text() if project.private_key_path else None,
+            sshKnownHosts=project.known_hosts_path.read_text() if project.known_hosts_path else None,
         ),
     )
     secrets_list = []
