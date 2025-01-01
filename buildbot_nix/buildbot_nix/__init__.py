@@ -237,6 +237,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         props.setProperty("virtual_builder_tags", "", source)
         props.setProperty("attr", job.attr, source)
         props.setProperty("combine_builds", combine_builds, source)
+        props.setProperty("default_branch", project.default_branch, source)
 
         if isinstance(job, NixEvalJobSuccess):
             props.setProperty("drv_path", job.drvPath, source)
