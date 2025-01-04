@@ -21,9 +21,6 @@ from buildbot.interfaces import WorkerSetupError
 from buildbot.locks import MasterLock
 from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
-
-# from buildbot.db.buildrequests import BuildRequestModel
-# from buildbot.db.builds import BuildModel
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, SUCCESS, statusToString, worst_status
@@ -37,6 +34,8 @@ from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 from buildbot_nix.pull_based.backend import PullBasedBacked
 
 if TYPE_CHECKING:
+    from buildbot.db.buildrequests import BuildRequestModel
+    from buildbot.db.builds import BuildModel
     from buildbot.process.log import StreamLog
     from buildbot.www.auth import AuthBase
 
@@ -185,7 +184,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.cached_failure_scheduler = cached_failure_scheduler
         self.dependency_failed_scheduler = dependency_failed_scheduler
         self.failed_builds_db = failed_builds_db
-        self._result_list: list[int] = []
+        self._result_list: list[int | None] = []
         self.ended = False
         self.running = False
         self.wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None = (
@@ -339,24 +338,24 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         return brids, results_deferred
 
     async def _add_results(self, brid: Any) -> None:
-        async def _is_buildrequest_complete(brid: Any) -> Generator[Any, Any, bool]:
-            buildrequest: Any = await self.master.db.buildrequests.getBuildRequest(
-                brid
-            )  # TODO: once we bump to 4.1.x use BuildRequestModel | None
+        async def _is_buildrequest_complete(brid: Any) -> bool:
+            buildrequest: (
+                BuildRequestModel | None
+            ) = await self.master.db.buildrequests.getBuildRequest(brid)
             if buildrequest is None:
                 message = "Failed to get build request by its ID"
                 raise BuildbotNixError(message)
-            return buildrequest["complete"]
+            return buildrequest.complete
 
         event = ("buildrequests", str(brid), "complete")
         await self.master.mq.waitUntilEvent(
             event, lambda: _is_buildrequest_complete(brid)
         )
-        builds: Any = await self.master.db.builds.getBuilds(
+        builds: list[BuildModel] = await self.master.db.builds.getBuilds(
             buildrequestid=brid
-        )  # TODO: once we bump to 4.1.x use list[BuildModel]
+        )
         for build in builds:
-            self._result_list.append(build["results"])
+            self._result_list.append(build.results)
         self.updateSummary()
 
     def prepare_sourcestamp_list_for_trigger(
