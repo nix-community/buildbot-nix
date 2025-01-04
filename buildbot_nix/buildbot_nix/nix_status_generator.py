@@ -2,7 +2,7 @@ import copy
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from buildbot.interfaces import IReportGenerator
 from buildbot.master import BuildMaster
@@ -17,6 +17,9 @@ from buildbot.reporters.message import MessageFormatterBase, MessageFormatterRen
 from buildbot.reporters.utils import getDetailsForBuild
 from twisted.logger import Logger
 from zope.interface import implementer  # type: ignore[import]
+
+if TYPE_CHECKING:
+    from buildbot.db.buildrequests import BuildRequestModel
 
 log = Logger()
 
@@ -117,16 +120,18 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
     # TODO: copy pasted from buildbot, make it static upstream and reuse
     @staticmethod
     async def partial_build_dict(
-        master: BuildMaster, buildrequest: dict[str, Any]
+        master: BuildMaster, brdict: dict[str, Any]
     ) -> dict[str, Any]:
-        brdict: Any = await master.db.buildrequests.getBuildRequest(
-            buildrequest["buildrequestid"]
-        )
+        buildrequest_model: (
+            BuildRequestModel | None
+        ) = await master.db.buildrequests.getBuildRequest(brdict["buildrequestid"])
+        assert buildrequest_model is not None
+
         bdict = {}
 
         props = Properties()
-        buildrequest = await BuildRequest.fromBrdict(master, brdict)
-        builder = await master.botmaster.getBuilderById(brdict["builderid"])
+        buildrequest = await BuildRequest.fromBrdict(master, buildrequest_model)
+        builder = await master.botmaster.getBuilderById(buildrequest_model.builderid)
 
         await Build.setup_properties_known_before_build_starts(
             props, [buildrequest], builder
@@ -134,7 +139,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         Build.setupBuildProperties(props, [buildrequest])
 
         bdict["properties"] = props.asDict()
-        await utils.get_details_for_buildrequest(master, brdict, bdict)
+        await utils.get_details_for_buildrequest(master, buildrequest, bdict)
         return bdict
 
     # TODO: copy pasted from buildbot, somehow reuse
