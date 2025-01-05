@@ -1065,7 +1065,7 @@ def nix_eval_config(
     factory.addStep(
         NixEvalCommand(
             project=project,
-            env={},
+            env={"CLICOLOR_FORCE": "1"},
             name="Evaluate flake",
             supported_systems=supported_systems,
             job_report_limit=job_report_limit,
@@ -1149,7 +1149,8 @@ def nix_build_steps(
 ) -> list[steps.BuildStep]:
     out_steps = [
         NixBuildCommand(
-            env={},
+            env={"CLICOLOR_FORCE": "1"},
+            usePTY=True,
             name="Build flake attr",
             command=[
                 "nix",
