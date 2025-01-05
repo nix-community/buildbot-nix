@@ -11,7 +11,7 @@ in
   options.services.buildbot-nix.packages = {
     python = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.python3;
+      default = config.services.buildbot-nix.packages.buildbot.python;
       defaultText = "pkgs.python3";
       description = "python interpreter to use for buildbot-nix";
     };
