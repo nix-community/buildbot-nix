@@ -836,6 +836,7 @@ class CachedFailureStep(steps.BuildStep):
         self.worker_names = worker_names
         self.post_build_steps = post_build_steps
         self.branch_config_dict = branch_config_dict
+        self.outputs_path = outputs_path
 
         super().__init__(**kwargs)
 
