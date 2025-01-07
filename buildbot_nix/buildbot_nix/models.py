@@ -343,7 +343,7 @@ class NixEvalJobSuccess(BaseModel):
     neededBuilds: list[str]  # noqa: N815
     neededSubstitutes: list[str]  # noqa: N815
     drvPath: str  # noqa: N815
-    inputDrvs: dict[str, list[str]]  # noqa: N815
+    inputDrvs: dict[str, list[str]] | None = None  # noqa: N815
     name: str
     outputs: dict[str, str]
     system: str

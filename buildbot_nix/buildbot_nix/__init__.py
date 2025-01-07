@@ -836,6 +836,7 @@ class CachedFailureStep(steps.BuildStep):
         self.worker_names = worker_names
         self.post_build_steps = post_build_steps
         self.branch_config_dict = branch_config_dict
+        self.outputs_path = outputs_path
 
         super().__init__(**kwargs)
 
@@ -1065,7 +1066,7 @@ def nix_eval_config(
     factory.addStep(
         NixEvalCommand(
             project=project,
-            env={},
+            env={"CLICOLOR_FORCE": "1"},
             name="Evaluate flake",
             supported_systems=supported_systems,
             job_report_limit=job_report_limit,
@@ -1149,7 +1150,8 @@ def nix_build_steps(
 ) -> list[steps.BuildStep]:
     out_steps = [
         NixBuildCommand(
-            env={},
+            env={"CLICOLOR_FORCE": "1"},
+            usePTY=True,
             name="Build flake attr",
             command=[
                 "nix",

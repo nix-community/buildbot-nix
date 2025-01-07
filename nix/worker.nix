@@ -96,7 +96,7 @@ in
         pkgs.cachix
         pkgs.git
         pkgs.openssh
-        pkgs.nix
+        config.nix.package
         pkgs.bash
         pkgs.coreutils
         cfg.nixEvalJobs.package
