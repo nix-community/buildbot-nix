@@ -1076,6 +1076,7 @@ def nix_eval_config(
             worker_count=worker_count,
             max_memory_size=max_memory_size,
             drv_gcroots_dir=drv_gcroots_dir,
+            logEnviron=False,
         ),
     )
 
@@ -1171,6 +1172,7 @@ def nix_build_steps(
             # We increase this over the default since the build output might end up in a different `nix build`.
             timeout=60 * 60 * 3,
             haltOnFailure=True,
+            logEnviron=False,
         ),
         *post_build_steps,
         Trigger(
