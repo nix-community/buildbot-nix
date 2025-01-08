@@ -41,16 +41,11 @@ in
     };
 
     buildbot-gitea = lib.mkOption {
-      default =
-        (cfg.python.pkgs.callPackage ./buildbot-gitea.nix {
+      default = (
+        cfg.python.pkgs.callPackage ./buildbot-gitea.nix {
           buildbot = cfg.buildbot;
-        }).overrideAttrs
-          (old: {
-            patches = old.patches ++ [
-              ./0002-GiteaHandler-set-branch-to-the-PR-branch-not-the-bas.patch
-              ./0001-GiteaHandler-set-the-category-of-PR-changes-to-pull-.patch
-            ];
-          });
+        }
+      );
     };
   };
 }

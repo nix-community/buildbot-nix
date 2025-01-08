@@ -1,28 +1,32 @@
 {
   buildPythonPackage,
-  fetchPypi,
+  fetchFromGitHub,
   lib,
-
   pip,
   buildbot,
   requests,
 }:
-buildPythonPackage (
-  lib.fix (self: {
-    pname = "buildbot-gitea";
-    version = "1.8.0";
+buildPythonPackage {
+  pname = "buildbot-gitea";
+  version = "1.8.0";
 
-    propagatedBuildInputs = [
-      pip
-      buildbot
-      requests
-    ];
+  src = fetchFromGitHub {
+    owner = "Mic92";
+    repo = "buildbot-gitea";
+    rev = "a8e06d38f6654421aab787da04128756ce04a3df";
+    hash = "sha256-z0Mj/PmTghziXJ6dV6qYFGZUuV0abMxzU+miqohDazU=";
+  };
 
-    patches = [ ./0001-reporter-create-status-in-the-base-repository-of-a-p.patch ];
+  propagatedBuildInputs = [
+    pip
+    buildbot
+    requests
+  ];
 
-    src = fetchPypi {
-      inherit (self) pname version;
-      hash = "sha256-zYcILPp42QuQyfEIzmYKV9vWf47sBAQI8FOKJlZ60yA=";
-    };
-  })
-)
+  meta = with lib; {
+    description = "Gitea plugin for Buildbot";
+    homepage = "https://github.com/Mic92/buildbot-gitea";
+    license = licenses.mit;
+    maintainers = with maintainers; [ mic92 ];
+  };
+}
