@@ -1151,7 +1151,6 @@ def nix_build_steps(
     out_steps = [
         NixBuildCommand(
             env={"CLICOLOR_FORCE": "1"},
-            usePTY=True,
             name="Build flake attr",
             command=[
                 "nix",
