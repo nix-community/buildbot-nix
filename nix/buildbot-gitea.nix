@@ -13,8 +13,8 @@ buildPythonPackage {
   src = fetchFromGitHub {
     owner = "Mic92";
     repo = "buildbot-gitea";
-    rev = "a8e06d38f6654421aab787da04128756ce04a3df";
-    hash = "sha256-z0Mj/PmTghziXJ6dV6qYFGZUuV0abMxzU+miqohDazU=";
+    rev = "3f3c9591384cd98ea5186b4375cdf142b9083737";
+    hash = "sha256-bdjGijer/JSMTkBwhbeCx9pstFXFnRy0ZdC7mGaRX84=";
   };
 
   propagatedBuildInputs = [
