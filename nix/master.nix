@@ -881,6 +881,7 @@ in
           packages.buildbot-effects
           packages.buildbot-plugins.www
           packages.buildbot-gitea
+          ps.zstandard
         ];
       };
 
