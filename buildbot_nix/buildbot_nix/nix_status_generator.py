@@ -103,13 +103,20 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         builders: None | list[str] = None,
         schedulers: None | list[str] = None,
         branches: None | list[str] = None,
-        add_logs: bool | list[str] = False,
+        want_logs_content: bool = False,
         add_patch: bool = False,
         start_formatter: None | MessageFormatterBase = None,
         end_formatter: None | MessageFormatterBase = None,
     ) -> None:
         super().__init__(
-            "all", tags, builders, schedulers, branches, None, add_logs, add_patch
+            "all",
+            tags,
+            builders,
+            schedulers,
+            branches,
+            None,
+            want_logs_content,
+            add_patch,
         )
 
         self.start_formatter = start_formatter or MessageFormatterRenderable(
