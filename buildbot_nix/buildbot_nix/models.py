@@ -1,5 +1,7 @@
 import json
+import os
 import re
+import sys
 from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
@@ -10,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, TypeAda
 from pydantic_core import CoreSchema, core_schema
 
 from .errors import BuildbotNixError
-from .secrets import read_secret_file
 
 
 class InternalError(Exception):
@@ -26,6 +27,14 @@ class AuthBackendConfig(str, Enum):
     gitea = "gitea"
     httpbasicauth = "httpbasicauth"
     none = "none"
+
+
+def read_secret_file(secret_file: Path) -> str:
+    directory = os.environ.get("CREDENTIALS_DIRECTORY")
+    if directory is None:
+        print("directory not set", file=sys.stderr)
+        sys.exit(1)
+    return Path(directory).joinpath(secret_file).read_text().rstrip()
 
 
 # note that serialization isn't correct, as there is no way to *rename* the field `nix_type` to `_type`,
