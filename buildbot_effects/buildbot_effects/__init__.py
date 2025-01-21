@@ -190,6 +190,7 @@ def run_effects(
     env["HERCULES_CI_SECRETS_JSON"] = "/run/secrets.json"
     env["NIX_BUILD_TOP"] = "/build"
     env["TMPDIR"] = "/tmp"  # noqa: S108
+    env["NIX_REMOTE"] = "daemon"
     clear_env = set()
     clear_env.add("TMP")
     clear_env.add("TEMP")
@@ -235,6 +236,9 @@ def run_effects(
         "/nix/store",
         "--hostname",
         "hercules-ci",
+        "--bind",
+        "/nix/var/nix/daemon-socket/socket",
+        "/nix/var/nix/daemon-socket/socket",
     ]
 
     with NamedTemporaryFile() as tmp:
