@@ -1057,6 +1057,7 @@ def nix_eval_config(
             method="clean",
             submodules=True,
             haltOnFailure=True,
+            logEnviron=False,
         ),
     )
     drv_gcroots_dir = util.Interpolate(
@@ -1088,6 +1089,7 @@ def nix_eval_config(
                 "-rf",
                 drv_gcroots_dir,
             ],
+            logEnviron=False,
         ),
     )
     factory.addStep(
@@ -1192,6 +1194,7 @@ def nix_build_steps(
         steps.ShellCommand(
             name="Delete temporary gcroots",
             command=["rm", "-f", util.Interpolate("result-%(prop:attr)s")],
+            logEnviron=False,
         ),
     ]
 
@@ -1384,6 +1387,7 @@ def nix_register_gcroot_config(
                 "-r",
                 util.Property("out_path"),
             ],
+            logEnviron=False,
         ),
     )
 
