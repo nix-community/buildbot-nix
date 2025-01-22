@@ -1151,7 +1151,8 @@ def nix_build_steps(
 ) -> list[steps.BuildStep]:
     out_steps = [
         NixBuildCommand(
-            env={"CLICOLOR_FORCE": "1"},
+            # TODO: we want this eventually once we are able to the internal json format
+            # env={"CLICOLOR_FORCE": "1"},
             name="Build flake attr",
             command=[
                 "nix",
