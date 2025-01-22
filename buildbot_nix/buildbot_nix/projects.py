@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any
+from pathlib import Path
 
 from buildbot.changes.base import ChangeSource
 from buildbot.config.builder import BuilderConfig
@@ -124,4 +125,14 @@ class GitProject(ABC):
     @property
     @abstractmethod
     def belongs_to_org(self) -> bool:
+        pass
+
+    @property
+    @abstractmethod
+    def private_key_path(self) -> Path | None:
+        pass
+
+    @property
+    @abstractmethod
+    def known_hosts_path(self) -> Path | None:
         pass

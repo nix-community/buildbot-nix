@@ -103,6 +103,9 @@ class GiteaConfig(BaseModel):
     oauth_id: str | None
     oauth_secret_file: Path | None
 
+    ssh_private_key_file: Path | None
+    ssh_known_hosts_file: Path | None
+
     @property
     def token(self) -> str:
         return read_secret_file(self.token_file)
