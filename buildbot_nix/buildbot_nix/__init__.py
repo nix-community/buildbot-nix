@@ -1112,6 +1112,7 @@ def nix_eval_config(
             # TODO: support other branches?
             doStepIf=lambda c: c.build.getProperty("branch", "")
             == project.default_branch,
+            logEnviron=False,
         )
     )
 
@@ -1439,6 +1440,7 @@ def buildbot_effects_config(
                     util.Property("command"),
                     # fmt: on
                 ],
+                logEnviron=False,
             ),
         ],
         withSecrets=secrets_list,
