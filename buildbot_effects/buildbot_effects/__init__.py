@@ -22,9 +22,9 @@ def run(
     stdin: int | IO[str] | None = None,
     stdout: int | IO[str] | None = None,
     stderr: int | IO[str] | None = None,
-    verbose: bool = True,
+    debug: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    if verbose:
+    if debug:
         print("$", shlex.join(cmd), file=sys.stderr)
     return subprocess.run(
         cmd,
@@ -36,9 +36,9 @@ def run(
     )
 
 
-def git_command(args: list[str], path: Path) -> str:
+def git_command(args: list[str], path: Path, debug: bool = False) -> str:
     cmd = ["git", "-C", str(path), *args]
-    proc = run(cmd, stdout=subprocess.PIPE)
+    proc = run(cmd, stdout=subprocess.PIPE, debug=debug)
     return proc.stdout.strip()
 
 
@@ -121,7 +121,7 @@ def list_effects(opts: EffectsOptions) -> list[str]:
         "--expr",
         f"builtins.attrNames ({effect_function(opts)})",
     )
-    proc = run(cmd, stdout=subprocess.PIPE)
+    proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
     return json.loads(proc.stdout)
 
 
@@ -131,11 +131,11 @@ def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
         "--expr",
         f"(({effect_function(opts)}).{effect}).run or []",
     ]
-    proc = run(cmd, stdout=subprocess.PIPE)
+    proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
     return proc.stdout.rstrip()
 
 
-def parse_derivation(path: str) -> dict[str, Any]:
+def parse_derivation(path: str, debug: bool = False) -> dict[str, Any]:
     cmd = [
         "nix",
         "--extra-experimental-features",
@@ -144,7 +144,7 @@ def parse_derivation(path: str) -> dict[str, Any]:
         "show",
         f"{path}^*",
     ]
-    proc = run(cmd, stdout=subprocess.PIPE)
+    proc = run(cmd, stdout=subprocess.PIPE, debug=debug)
     return json.loads(proc.stdout)
 
 
@@ -176,6 +176,7 @@ def run_effects(
     drv_path: str,
     drv: dict[str, Any],
     secrets: dict[str, Any] | None = None,
+    debug: bool = False,
 ) -> None:
     if secrets is None:
         secrets = {}
@@ -257,7 +258,8 @@ def run_effects(
         bubblewrap_cmd.append("--")
         bubblewrap_cmd.extend(sandboxed_cmd)
         with pipe() as (r_file, w_file):
-            print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
+            if debug:
+                print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
             proc = subprocess.Popen(
                 bubblewrap_cmd,
                 text=True,
