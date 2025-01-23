@@ -56,6 +56,12 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         default=Path(),
         help="Path to the repository",
     )
+    parser.add_argument(
+        "--debug",
+        default=False,
+        action="store_true",
+        help="Enable debug mode (may leak secrets such as GITHUB_TOKEN)",
+    )
     subparser = parser.add_subparsers(
         dest="command",
         required=True,
@@ -88,6 +94,7 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         rev=args.rev,
         repo=args.repo,
         path=args.path.resolve(),
+        debug=args.debug,
     )
     return args, opts
 
