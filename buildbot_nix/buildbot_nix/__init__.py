@@ -1007,35 +1007,38 @@ class GitLocalPrMerge(steps.Git):
             self.build.path_module.join(self.workdir, ".git")
         )
 
-        if not has_git:
-            await self._dovccmd(["clone", "--recurse-submodules", self.repourl, "."])
+        try:
+            await self._git_auth.download_auth_files_if_needed(auth_workdir)
 
-        patched = await self.sourcedirIsPatched()
+            if not has_git:
+                await self._dovccmd(["clone", "--recurse-submodules", self.repourl, "."])
 
-        if patched:
-            await self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
+            patched = await self.sourcedirIsPatched()
 
-        await self._git_auth.download_auth_files_if_needed(auth_workdir)
+            if patched:
+                await self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
 
-        await self._dovccmd(["fetch", "-f", "-t", self.repourl, merge_base, pr_head])
+            await self._dovccmd(["fetch", "-f", "-t", self.repourl, merge_base, pr_head])
 
-        await self._dovccmd(["checkout", "--detach", "-f", pr_head])
+            await self._dovccmd(["checkout", "--detach", "-f", pr_head])
 
-        await self._dovccmd(
-            [
-                "-c",
-                "user.email=buildbot@example.com",
-                "-c",
-                "user.name=buildbot",
-                "merge",
-                "--no-ff",
-                "-m",
-                f"Merge {merge_base} into {pr_head}",
-                merge_base,
-            ]
-        )
-        self.updateSourceProperty("got_revision", pr_head)
-        return await self.parseCommitDescription()
+            await self._dovccmd(
+                [
+                    "-c",
+                    "user.email=buildbot@example.com",
+                    "-c",
+                    "user.name=buildbot",
+                    "merge",
+                    "--no-ff",
+                    "-m",
+                    f"Merge {merge_base} into {pr_head}",
+                    merge_base,
+                ]
+            )
+            self.updateSourceProperty("got_revision", pr_head)
+            return await self.parseCommitDescription()
+        finally:
+            await self._git_auth.remove_auth_files_if_needed(auth_workdir)
 
 
 def nix_eval_config(
