@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 from buildbot.changes.base import ChangeSource
 from buildbot.config.builder import BuilderConfig

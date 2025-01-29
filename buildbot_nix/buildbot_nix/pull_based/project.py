@@ -1,6 +1,6 @@
+from pathlib import Path
 from typing import Any
 from urllib.parse import ParseResult, urlparse
-from pathlib import Path
 
 from buildbot.changes.base import ChangeSource
 from buildbot.changes.gitpoller import GitPoller

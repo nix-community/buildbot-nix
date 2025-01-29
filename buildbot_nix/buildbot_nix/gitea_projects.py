@@ -63,8 +63,7 @@ class GiteaProject(GitProject):
         url = urlparse(self.config.instance_url)
         if self.config.ssh_private_key_file:
             return self.data.ssh_url
-        else:
-            return f"{url.scheme}://git:%(secret:{self.config.token_file})s@{url.hostname}/{self.name}"
+        return f"{url.scheme}://git:%(secret:{self.config.token_file})s@{url.hostname}/{self.name}"
 
     def create_change_source(self) -> ChangeSource | None:
         return None
@@ -123,7 +122,6 @@ class GiteaProject(GitProject):
     @property
     def known_hosts_path(self) -> Path | None:
         return self.config.ssh_known_hosts_file
-
 
 
 class GiteaBackend(GitBackend):
