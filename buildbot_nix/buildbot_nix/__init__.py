@@ -24,6 +24,7 @@ from buildbot.process import buildstep, logobserver, remotecommand
 
 # from buildbot.db.buildrequests import BuildRequestModel
 # from buildbot.db.builds import BuildModel
+from buildbot.process.build import Build
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, SUCCESS, statusToString, worst_status
@@ -986,6 +987,7 @@ class GitLocalPrMerge(steps.Git):
         pr_head = build_props.getProperty("github.head.sha") or build_props.getProperty(
             "head_sha"
         )
+        auth_workdir = self._get_auth_data_workdir()
 
         # Not a PR, fallback to default behavior
         if merge_base is None or pr_head is None:
@@ -1012,6 +1014,8 @@ class GitLocalPrMerge(steps.Git):
 
         if patched:
             await self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
+
+        await self._git_auth.download_auth_files_if_needed(auth_workdir)
 
         await self._dovccmd(["fetch", "-f", "-t", self.repourl, merge_base, pr_head])
 
