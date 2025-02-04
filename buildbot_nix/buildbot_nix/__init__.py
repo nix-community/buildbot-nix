@@ -21,6 +21,7 @@ from buildbot.interfaces import WorkerSetupError
 from buildbot.locks import MasterLock
 from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
+from buildbot.process.build import Build
 
 # from buildbot.db.buildrequests import BuildRequestModel
 # from buildbot.db.builds import BuildModel
@@ -1121,7 +1122,7 @@ def nix_eval_config(
 
 
 async def do_register_gcroot_if(
-    s: steps.BuildStep, branch_config: models.BranchConfigDict
+    s: steps.BuildStep | Build, branch_config: models.BranchConfigDict
 ) -> bool:
     gc_root = await util.Interpolate(
         "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
@@ -1357,6 +1358,8 @@ def nix_skipped_build_config(
         collapseRequests=False,
         env={},
         factory=factory,
+        do_build_if=lambda build: do_register_gcroot_if(build, branch_config_dict)
+        and outputs_path is not None,
     )
 
 
