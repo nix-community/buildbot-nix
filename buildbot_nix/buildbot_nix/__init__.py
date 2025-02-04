@@ -1105,6 +1105,7 @@ def nix_eval_config(
                 "list",
                 # fmt: on
             ],
+            flunkOnFailure=True,
             # TODO: support other branches?
             doStepIf=lambda c: c.build.getProperty("branch", "")
             == project.default_branch,
