@@ -683,7 +683,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 "accept-flake-config",
                 "true",
                 "--gc-roots-dir",
-                self.drv_gcroots_dir,
+                str(self.drv_gcroots_dir),
                 "--force-recurse",
                 "--check-cache-status",
                 "--flake",
