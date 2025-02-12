@@ -114,13 +114,29 @@ def atomic_write_file(file: Path, data: str) -> None:
 Y = TypeVar("Y")
 
 
-def filter_repos_by_topic(
-    topic: str | None, repos: list[Y], topics: Callable[[Y], list[str]]
+def filter_repos(
+    repo_allowlist: list[str] | None,
+    user_allowlist: list[str] | None,
+    topic: str | None,
+    repos: list[Y],
+    repo_name: Callable[[Y], str],
+    user: Callable[[Y], str],
+    topics: Callable[[Y], list[str]],
 ) -> list[Y]:
+    # This is a bit complicated so let me explain:
+    # If both `user_allowlist` and `repo_allowlist` are `None` then we want to allow everything,
+    # however if either are non-`None`, then the one that is non-`None` determines whether to
+    # allow a repo, or both if both are non-+None`.
+
     return list(
         filter(
-            lambda repo: topic is None or topic in topics(repo),
-            repos,
+            lambda repo: (user_allowlist is None and repo_allowlist is None)
+            or (user_allowlist is not None and user(repo) in user_allowlist)
+            or (repo_allowlist is not None and repo_name(repo) in repo_allowlist),
+            filter(
+                lambda repo: topic is None or topic in topics(repo),
+                repos,
+            ),
         )
     )
 

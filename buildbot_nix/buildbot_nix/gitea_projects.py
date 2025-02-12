@@ -20,7 +20,7 @@ from twisted.python import log
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
-    filter_repos_by_topic,
+    filter_repos,
     http_request,
     model_dump_project_cache,
     model_validate_project_cache,
@@ -185,12 +185,16 @@ class GiteaBackend(GitBackend):
         if not self.config.project_cache_file.exists():
             return []
 
-        repos: list[RepoData] = filter_repos_by_topic(
+        repos: list[RepoData] = filter_repos(
+            self.config.repo_allowlist,
+            self.config.user_allowlist,
             self.config.topic,
             sorted(
                 model_validate_project_cache(RepoData, self.config.project_cache_file),
                 key=lambda repo: repo.full_name,
             ),
+            lambda repo: repo.full_name,
+            lambda repo: repo.owner.login,
             lambda repo: repo.topics,
         )
         repo_names: list[str] = [repo.owner.login + "/" + repo.name for repo in repos]
@@ -320,9 +324,13 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
-        repos: list[RepoData] = filter_repos_by_topic(
+        repos: list[RepoData] = filter_repos(
+            self.config.repo_allowlist,
+            self.config.user_allowlist,
             self.config.topic,
             refresh_projects(self.config, self.project_cache_file),
+            lambda repo: repo.full_name,
+            lambda repo: repo.owner.login,
             lambda repo: repo.topics,
         )
 
