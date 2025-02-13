@@ -627,6 +627,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
     project: GitProject
 
+    renderables = ("drv_gcroots_dir",)
+
     def __init__(
         self,
         project: GitProject,
@@ -635,7 +637,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         failed_builds_db: FailedBuildDB,
         worker_count: int,
         max_memory_size: int,
-        drv_gcroots_dir: Path,
+        drv_gcroots_dir: util.Interpolate,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
