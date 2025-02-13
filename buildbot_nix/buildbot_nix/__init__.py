@@ -627,6 +627,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
     project: GitProject
 
+    renderables = ("drv_gcroots_dir",)
+
     def __init__(
         self,
         project: GitProject,
@@ -635,7 +637,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         failed_builds_db: FailedBuildDB,
         worker_count: int,
         max_memory_size: int,
-        drv_gcroots_dir: Path,
+        drv_gcroots_dir: util.Interpolate,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
@@ -683,7 +685,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 "accept-flake-config",
                 "true",
                 "--gc-roots-dir",
-                self.drv_gcroots_dir,
+                str(self.drv_gcroots_dir),
                 "--force-recurse",
                 "--check-cache-status",
                 "--flake",
@@ -1109,6 +1111,7 @@ def nix_eval_config(
                 "list",
                 # fmt: on
             ],
+            flunkOnFailure=True,
             # TODO: support other branches?
             doStepIf=lambda c: c.build.getProperty("branch", "")
             == project.default_branch,
