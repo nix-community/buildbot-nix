@@ -21,7 +21,7 @@ def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
     drv = next(iter(drvs.values()))
 
     secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-    run_effects(drv_path, drv, secrets=secrets)
+    run_effects(drv_path, drv, secrets=secrets, debug=args.debug)
 
 
 def run_all_command(args: argparse.Namespace, options: EffectsOptions) -> None:
