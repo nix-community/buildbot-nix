@@ -29,6 +29,8 @@ class CombinedBuildEvent(Enum):
     FINISHED_NIX_EVAL = "finished-nix-eval"
     STARTED_NIX_BUILD = "started-nix-build"
     FINISHED_NIX_BUILD = "finished-nix-build"
+    STARTED_NIX_EFFECTS = "started-nix-effects"
+    FINISHED_NIX_EFFECTS = "finished-nix-effects"
 
     @staticmethod
     async def produce_event_for_build_requests_by_id(
@@ -88,6 +90,8 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_EVAL.name)),
         ("builds", None, str(CombinedBuildEvent.STARTED_NIX_BUILD.name)),
         ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD.name)),
+        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_EFFECTS.name)),
+        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_EFFECTS.name)),
         ("buildrequests", None, str(CombinedBuildEvent.STARTED_NIX_BUILD.name)),
         ("buildrequests", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD.name)),
     ]
@@ -223,6 +227,14 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                             "nix-build",
                             "generator",
                         )
+                case (
+                    CombinedBuildEvent.STARTED_NIX_EFFECTS
+                    | CombinedBuildEvent.FINISHED_NIX_EFFECTS
+                ):
+                    report["builds"][0]["properties"]["status_name"] = (
+                        "nix-effects",
+                        "generator",
+                    )
                 case _:
                     msg = f"Unexpected event: {event_typed}"
                     raise ValueError(msg)
@@ -231,6 +243,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                 case (
                     CombinedBuildEvent.FINISHED_NIX_EVAL
                     | CombinedBuildEvent.FINISHED_NIX_BUILD
+                    | CombinedBuildEvent.FINISHED_NIX_EFFECTS
                 ):
                     report["builds"][0]["complete"] = True
                     report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
