@@ -418,7 +418,11 @@ class GithubAppAuthBackend(GithubAuthBackend):
         return self.installation_tokens[installation_id]
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
-        return [GitHubAppSecretService(self.installation_tokens, self.jwt_token)]
+        return [
+            GitHubAppSecretService(
+                self.project_id_map, self.installation_tokens, self.jwt_token
+            )
+        ]
 
     def create_reporter(self) -> ReporterBase:
         def get_github_token(props: Properties) -> str:
@@ -465,12 +469,17 @@ class GithubAppAuthBackend(GithubAuthBackend):
 
 class GitHubAppSecretService(SecretProviderBase):
     name: str | None = "GitHubAppSecretService"  # type: ignore[assignment]
+    project_id_map: dict[str, int]
     installation_tokens: dict[int, InstallationToken]
     jwt_token: JWTToken
 
     def reconfigService(  # type: ignore[override]
-        self, installation_tokens: dict[int, InstallationToken], jwt_token: JWTToken
+        self,
+        project_id_map: dict[str, int],
+        installation_tokens: dict[int, InstallationToken],
+        jwt_token: JWTToken,
     ) -> None:
+        self.project_id_map = project_id_map
         self.installation_tokens = installation_tokens
         self.jwt_token = jwt_token
 
@@ -479,9 +488,14 @@ class GitHubAppSecretService(SecretProviderBase):
         get the value from the file identified by 'entry'
         """
         if entry.startswith("github-token-"):
-            return self.installation_tokens[
-                int(entry.removeprefix("github-token-"))
-            ].get()
+            try:
+                return self.installation_tokens[
+                    int(entry.removeprefix("github-token-"))
+                ].get()
+            except ValueError:
+                return self.installation_tokens[
+                    self.project_id_map[entry.removeprefix("github-token-")]
+                ].get()
         if entry == "github-jwt-token":
             return self.jwt_token.get()
         return None
