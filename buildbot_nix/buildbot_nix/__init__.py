@@ -1791,20 +1791,6 @@ class NixConfigurator(ConfiguratorBase):
 
         eval_lock = util.MasterLock("nix-eval")
 
-        if self.config.cachix is not None:
-            self.config.post_build_steps.append(
-                models.PostBuildStep(
-                    name="Upload cachix",
-                    environment=self.config.cachix.environment,
-                    command=[
-                        "cachix",
-                        "push",
-                        self.config.cachix.name,
-                        models.Interpolate("result-%(prop:attr)s"),
-                    ],
-                )
-            )
-
         global DB  # noqa: PLW0603
         if DB is None:
             DB = FailedBuildDB(Path("failed_builds.dbm"))
