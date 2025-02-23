@@ -536,7 +536,7 @@ in
       };
       buildSystems = lib.mkOption {
         type = lib.types.listOf lib.types.str;
-        default = [ pkgs.hostPlatform.system ];
+        default = [ pkgs.stdenv.hostPlatform.system ];
         description = "Systems that we will be build";
       };
       evalMaxMemorySize = lib.mkOption {

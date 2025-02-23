@@ -10,7 +10,7 @@
             inherit self pkgs;
           };
         in
-        lib.mkIf (pkgs.hostPlatform.isLinux) {
+        lib.mkIf (pkgs.stdenv.hostPlatform.isLinux) {
           master = import ./master.nix checkArgs;
           worker = import ./worker.nix checkArgs;
           effects = import ./effects.nix checkArgs;
