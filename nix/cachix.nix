@@ -115,10 +115,14 @@ in
     services.buildbot-nix.master.postBuildSteps = [
       {
         name = "Upload cachix";
-        environment = {
-          CACHIX_SIGNING_KEY = bb-lib.interpolate "%(secret:cachix-signing-key)s";
-          CACHIX_AUTH_TOKEN = bb-lib.interpolate "%(secret:cachix-auth-token)s";
-        };
+        environment = lib.mkMerge [
+          (lib.optionalAttrs (cfg.cachix.auth ? "signingKey") {
+            CACHIX_SIGNING_KEY = bb-lib.interpolate "%(secret:cachix-signing-key)s";
+          })
+          (lib.optionalAttrs (cfg.cachix.auth ? "authToken") {
+            CACHIX_AUTH_TOKEN = bb-lib.interpolate "%(secret:cachix-auth-token)s";
+          })
+        ];
         command = [
           "cachix" # note that this is the cachix from the worker's $PATH
           "push"
