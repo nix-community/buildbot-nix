@@ -7,6 +7,11 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 
+    nix-eval-jobs.url = "github:nix-community/nix-eval-jobs";
+    nix-eval-jobs.inputs.nixpkgs.follows = "nixpkgs";
+    nix-eval-jobs.inputs.flake-parts.follows = "flake-parts";
+    nix-eval-jobs.inputs.treefmt-nix.follows = "treefmt-nix";
+
     # used for development
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
@@ -62,6 +67,14 @@
 
           nixosModules.buildbot-worker.imports = [
             ./nix/worker.nix
+            (
+              { pkgs, ... }:
+              {
+                services.buildbot-nix.worker.nixEvalJobs.package =
+                  lib.mkDefault
+                    inputs.nix-eval-jobs.packages.${pkgs.hostPlatform.system}.default;
+              }
+            )
           ];
 
           nixosConfigurations =

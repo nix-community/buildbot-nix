@@ -52,7 +52,6 @@ in
       };
       nixEvalJobs.package = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.callPackage ./nix-eval-jobs.nix { };
         description = "nix-eval-jobs to use for evaluation";
       };
       masterUrl = lib.mkOption {
