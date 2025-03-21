@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 
@@ -99,3 +100,11 @@ class PullBasedProject(GitProject):
     @property
     def belongs_to_org(self) -> bool:
         return False
+
+    @property
+    def private_key_path(self) -> Path | None:
+        return None
+
+    @property
+    def known_hosts_path(self) -> Path | None:
+        return None

@@ -61,6 +61,8 @@ class GiteaProject(GitProject):
 
     def get_project_url(self) -> str:
         url = urlparse(self.config.instance_url)
+        if self.config.ssh_private_key_file:
+            return self.data.ssh_url
         return f"{url.scheme}://git:%(secret:{self.config.token_file})s@{url.hostname}/{self.name}"
 
     def create_change_source(self) -> ChangeSource | None:
@@ -112,6 +114,14 @@ class GiteaProject(GitProject):
     def belongs_to_org(self) -> bool:
         # TODO Gitea doesn't include this information
         return False  # self.data["owner"]["type"] == "Organization"
+
+    @property
+    def private_key_path(self) -> Path | None:
+        return self.config.ssh_private_key_file
+
+    @property
+    def known_hosts_path(self) -> Path | None:
+        return self.config.ssh_known_hosts_file
 
 
 class GiteaBackend(GitBackend):
