@@ -41,6 +41,7 @@ in
 {
   imports = [
     ./packages.nix
+    ./cachix.nix
     (mkRenamedOptionModule
       [
         "services"
@@ -276,62 +277,6 @@ in
         };
       };
 
-      cachix = {
-        enable = lib.mkEnableOption "Enable Cachix integration";
-
-        name = lib.mkOption {
-          type = lib.types.str;
-          description = "Cachix name";
-        };
-
-        auth = lib.mkOption {
-          type = lib.types.attrTag {
-            signingKey = lib.mkOption {
-              description = ''
-                Use a signing key to authenticate with Cachix.
-              '';
-
-              type = lib.types.submodule {
-                options.file = lib.mkOption {
-                  type = lib.types.path;
-                  description = ''
-                    Path to a file containing the signing key.
-                  '';
-                };
-              };
-            };
-
-            authToken = lib.mkOption {
-              description = ''
-                Use an authentication token to authenticate with Cachix.
-              '';
-
-              type = lib.types.submodule {
-                options.file = lib.mkOption {
-                  type = lib.types.path;
-                  description = ''
-                    Path to a file containing the authentication token.
-                  '';
-                };
-              };
-            };
-          };
-        };
-
-        signingKeyFile = lib.mkOption {
-          type = lib.types.nullOr lib.types.path;
-          default = null;
-          visible = false;
-          description = "Cachix signing key";
-        };
-
-        authTokenFile = lib.mkOption {
-          type = lib.types.nullOr lib.types.path;
-          default = null;
-          visible = false;
-          description = "Cachix auth token";
-        };
-      };
       gitea = {
         enable = lib.mkEnableOption "Enable Gitea integration" // {
           default = cfg.authBackend == "gitea";
@@ -674,362 +619,311 @@ in
       };
     };
   };
-  config = lib.mkMerge [
-    (lib.mkIf cfg.enable {
-      # By default buildbot uses a normal user, which is not a good default, because
-      # we grant normal users potentially access to other resources. Also
-      # we don't to be able to ssh into buildbot.
+  config = lib.mkIf cfg.enable {
+    # By default buildbot uses a normal user, which is not a good default, because
+    # we grant normal users potentially access to other resources. Also
+    # we don't to be able to ssh into buildbot.
 
-      users.users.buildbot = {
-        isNormalUser = lib.mkForce false;
-        isSystemUser = true;
+    users.users.buildbot = {
+      isNormalUser = lib.mkForce false;
+      isSystemUser = true;
+    };
+
+    assertions = [
+      {
+        assertion = lib.versionAtLeast packages.buildbot.version "4.0.0";
+        message = ''
+          `buildbot-nix` requires `buildbot` 4.0.0 or greater to function.
+          Set services.buildbot-nix.packages.buildbot to a nixpkgs with buildbot >= 4.0.0,
+          i.e. nixpkgs-unstable.
+        '';
+      }
+      {
+        assertion =
+          cfg.authBackend == "github" -> (cfg.github.oauthId != null && cfg.github.oauthSecretFile != null);
+        message = ''If config.services.buildbot-nix.master.authBackend is set to "github", then config.services.buildbot-nix.master.github.oauthId and config.services.buildbot-nix.master.github.oauthSecretFile have to be set.'';
+      }
+      {
+        assertion =
+          cfg.authBackend == "gitea" -> (cfg.gitea.oauthId != null && cfg.gitea.oauthSecretFile != null);
+        message = ''config.services.buildbot-nix.master.authBackend is set to "gitea", then config.services.buildbot-nix.master.gitea.oauthId and config.services.buildbot-nix.master.gitea.oauthSecretFile have to be set.'';
+      }
+      {
+        assertion = cfg.authBackend == "github" -> cfg.github.enable;
+        message = ''
+          If `cfg.authBackend` is set to `"github"` the GitHub backend must be enabled with `cfg.github.enable`;
+        '';
+      }
+      {
+        assertion = cfg.authBackend == "gitea" -> cfg.gitea.enable;
+        message = ''
+          If `cfg.authBackend` is set to `"gitea"` the GitHub backend must be enabled with `cfg.gitea.enable`;
+        '';
+      }
+    ];
+
+    services.buildbot-master = {
+      enable = true;
+
+      # disable example workers from nixpkgs
+      builders = [ ];
+      schedulers = [ ];
+      workers = [ ];
+
+      home = "/var/lib/buildbot";
+      extraImports = ''
+        from datetime import timedelta
+        from buildbot_nix import (
+          NixConfigurator,
+          BuildbotNixConfig,
+        )
+        from pathlib import Path
+        import json
+      '';
+      configurators = [
+        ''
+          util.JanitorConfigurator(logHorizon=timedelta(weeks=4), hour=12, dayOfWeek=6)
+        ''
+        ''
+          NixConfigurator(
+            BuildbotNixConfig.model_validate(json.loads(Path("${
+              (pkgs.formats.json { }).generate "buildbot-nix-config.json" {
+                db_url = cfg.dbUrl;
+                auth_backend = cfg.authBackend;
+                gitea =
+                  if !cfg.gitea.enable then
+                    null
+                  else
+                    {
+                      token_file = "gitea-token";
+                      webhook_secret_file = "gitea-webhook-secret";
+                      project_cache_file = "gitea-project-cache.json";
+                      oauth_secret_file = "gitea-oauth-secret";
+                      instance_url = cfg.gitea.instanceUrl;
+                      oauth_id = cfg.gitea.oauthId;
+                      topic = cfg.gitea.topic;
+                    };
+                github =
+                  if !cfg.github.enable then
+                    null
+                  else
+                    {
+                      auth_type =
+                        if (cfg.github.authType ? "legacy") then
+                          { token_file = "github-token"; }
+                        else if (cfg.github.authType ? "app") then
+                          {
+                            id = cfg.github.authType.app.id;
+                            secret_key_file = "github-app-secret-key";
+                            installation_token_map_file = "github-app-installation-token-map.json";
+                            project_id_map_file = "github-app-project-id-map-name.json";
+                            jwt_token_map = "github-app-jwt-token";
+                          }
+                        else
+                          throw "authType is neither \"legacy\" nor \"app\"";
+                      project_cache_file = "github-project-cache-v1.json";
+                      webhook_secret_file = "github-webhook-secret";
+                      oauth_secret_file = "github-oauth-secret";
+                      oauth_id = cfg.github.oauthId;
+                      topic = cfg.github.topic;
+                    };
+                pull_based =
+                  if cfg.pullBased.repositories == [ ] then
+                    null
+                  else
+                    {
+                      repositories = lib.flip lib.mapAttrs cfg.pullBased.repositories (
+                        name: repo: {
+                          inherit name;
+                          default_branch = repo.defaultBranch;
+                          url = repo.url;
+                          poll_interval = repo.pollInterval;
+                          ssh_private_key_file = repo.sshPrivateKeyFile;
+                          ssh_known_hosts_file = repo.sshKnownHostsFile;
+                        }
+                      );
+                      poll_spread = cfg.pullBased.pollSpread;
+                    };
+                admins = cfg.admins;
+                workers_file = cfg.workersFile;
+                build_systems = cfg.buildSystems;
+                eval_max_memory_size = cfg.evalMaxMemorySize;
+                eval_worker_count = cfg.evalWorkerCount;
+                domain = cfg.domain;
+                webhook_base_url = cfg.webhookBaseUrl;
+                use_https = cfg.useHTTPS;
+                outputs_path = cfg.outputsPath;
+                url = config.services.buildbot-nix.master.webhookBaseUrl;
+                post_build_steps = cfg.postBuildSteps;
+                job_report_limit = cfg.jobReportLimit;
+                http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
+                effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
+                  inherit name;
+                  value = "effects-secret__${cleanUpRepoName name}";
+                }) cfg.effects.perRepoSecretFiles;
+                branches = cfg.branches;
+              }
+            }").read_text()))
+          )
+        ''
+      ];
+      buildbotUrl =
+        let
+          host = config.services.nginx.virtualHosts.${cfg.domain};
+          hasSSL = host.forceSSL || host.addSSL || cfg.useHTTPS;
+        in
+        "${if hasSSL then "https" else "http"}://${cfg.domain}/";
+      dbUrl = config.services.buildbot-nix.master.dbUrl;
+
+      package = packages.buildbot;
+      pythonPackages = ps: [
+        (ps.toPythonModule packages.buildbot-worker)
+        packages.buildbot-nix
+        packages.buildbot-effects
+        packages.buildbot-plugins.www
+        packages.buildbot-gitea
+      ];
+    };
+
+    systemd.services.buildbot-master = {
+      after = [ "postgresql.service" ];
+      path = [ pkgs.openssl ];
+      serviceConfig = {
+        # in master.py we read secrets from $CREDENTIALS_DIRECTORY
+        LoadCredential =
+          [ "buildbot-nix-workers:${cfg.workersFile}" ]
+          ++ lib.optionals cfg.github.enable (
+            [ "github-webhook-secret:${cfg.github.webhookSecretFile}" ]
+            ++ lib.optional (
+              cfg.github.authType ? "legacy"
+            ) "github-token:${cfg.github.authType.legacy.tokenFile}"
+            ++ lib.optional (
+              cfg.github.authType ? "app"
+            ) "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
+          )
+          ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
+          ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
+          ++ lib.optionals cfg.gitea.enable [
+            "gitea-token:${cfg.gitea.tokenFile}"
+            "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
+          ]
+          ++ lib.mapAttrsToList (
+            repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
+          ) cfg.effects.perRepoSecretFiles
+          ++ lib.mapAttrsToList (
+            repoName: repo: "pull-based__${cleanUpRepoName repoName}:${repo.sshPrivateKeyFile}"
+          ) (lib.filterAttrs (_: repo: repo.sshPrivateKeyFile != null) cfg.pullBased.repositories);
+        RuntimeDirectory = "buildbot-master";
       };
+    };
 
-      services.buildbot-nix.master.cachix.auth =
-        lib.mkIf (cfg.cachix.authTokenFile != null || cfg.cachix.signingKeyFile != null)
-          (
-            if (cfg.cachix.authTokenFile != null) then
-              lib.warn
-                "Obsolete option `services.buildbot-nix.master.cachix.authTokenFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.authToken.file'."
-                { authToken.file = cfg.cachix.authTokenFile; }
-            else if (cfg.cachix.signingKeyFile != null) then
-              lib.warn
-                "Obsolete option `services.buildbot-nix.master.cachix.signingKeyFile' is used. It was renamed to `services.buildbot-nix.master.cachix.auth.signingKey.file'."
-                { signingKey.file = cfg.cachix.signingKeyFile; }
-            else
-              throw "Impossible, guarded by mkIf."
-          );
-
-      assertions = [
+    services.postgresql = {
+      enable = true;
+      ensureDatabases = [ "buildbot" ];
+      ensureUsers = [
         {
-          assertion =
-            let
-              isNull = x: x == null;
-            in
-            isNull cfg.cachix.authTokenFile && isNull cfg.cachix.signingKeyFile
-            || isNull cfg.cachix.authTokenFile && cfg.cachix.enable
-            || isNull cfg.cachix.signingKeyFile && cfg.cachix.enable;
-          message = ''
-            The semantics of `options.services.buildbot-nix.master.cachix` recently changed
-            slightly, the option `name` is no longer null-able. To enable Cachix support
-            use `services.buildbot-nix.master.cachix.enable = true`.
-
-            Furthermore, the options `services.buildbot-nix.master.cachix.authTokenFile` and
-            `services.buildbot-nix.master.cachix.signingKeyFile` were renamed to
-            `services.buildbot-nix.master.cachix.auth.authToken.file` and
-            `services.buildbot-nix.master.cachix.auth.signingKey.file` respectively.
-          '';
-        }
-        {
-          assertion = lib.versionAtLeast packages.buildbot.version "4.0.0";
-          message = ''
-            `buildbot-nix` requires `buildbot` 4.0.0 or greater to function.
-            Set services.buildbot-nix.packages.buildbot to a nixpkgs with buildbot >= 4.0.0,
-            i.e. nixpkgs-unstable.
-          '';
-        }
-        {
-          assertion =
-            cfg.authBackend == "github" -> (cfg.github.oauthId != null && cfg.github.oauthSecretFile != null);
-          message = ''If config.services.buildbot-nix.master.authBackend is set to "github", then config.services.buildbot-nix.master.github.oauthId and config.services.buildbot-nix.master.github.oauthSecretFile have to be set.'';
-        }
-        {
-          assertion =
-            cfg.authBackend == "gitea" -> (cfg.gitea.oauthId != null && cfg.gitea.oauthSecretFile != null);
-          message = ''config.services.buildbot-nix.master.authBackend is set to "gitea", then config.services.buildbot-nix.master.gitea.oauthId and config.services.buildbot-nix.master.gitea.oauthSecretFile have to be set.'';
-        }
-        {
-          assertion = cfg.authBackend == "github" -> cfg.github.enable;
-          message = ''
-            If `cfg.authBackend` is set to `"github"` the GitHub backend must be enabled with `cfg.github.enable`;
-          '';
-        }
-        {
-          assertion = cfg.authBackend == "gitea" -> cfg.gitea.enable;
-          message = ''
-            If `cfg.authBackend` is set to `"gitea"` the GitHub backend must be enabled with `cfg.gitea.enable`;
-          '';
+          name = "buildbot";
+          ensureDBOwnership = true;
         }
       ];
+    };
 
-      services.buildbot-master = {
-        enable = true;
-
-        # disable example workers from nixpkgs
-        builders = [ ];
-        schedulers = [ ];
-        workers = [ ];
-
-        home = "/var/lib/buildbot";
-        extraImports = ''
-          from datetime import timedelta
-          from buildbot_nix import (
-            NixConfigurator,
-            BuildbotNixConfig,
-          )
-          from pathlib import Path
-          import json
-        '';
-        configurators = [
-          ''
-            util.JanitorConfigurator(logHorizon=timedelta(weeks=4), hour=12, dayOfWeek=6)
-          ''
-          ''
-            NixConfigurator(
-              BuildbotNixConfig.model_validate(json.loads(Path("${
-                (pkgs.formats.json { }).generate "buildbot-nix-config.json" {
-                  db_url = cfg.dbUrl;
-                  auth_backend = cfg.authBackend;
-                  cachix =
-                    if !cfg.cachix.enable then
-                      null
-                    else
-                      {
-                        name = cfg.cachix.name;
-                        signing_key_file = if cfg.cachix.auth ? "signingKey" then "cachix-signing-key" else null;
-                        auth_token_file = if cfg.cachix.auth ? "authToken" then "cachix-auth-token" else null;
-                      };
-                  gitea =
-                    if !cfg.gitea.enable then
-                      null
-                    else
-                      {
-                        token_file = "gitea-token";
-                        webhook_secret_file = "gitea-webhook-secret";
-                        project_cache_file = "gitea-project-cache.json";
-                        oauth_secret_file = "gitea-oauth-secret";
-                        instance_url = cfg.gitea.instanceUrl;
-                        oauth_id = cfg.gitea.oauthId;
-                        topic = cfg.gitea.topic;
-                      };
-                  github =
-                    if !cfg.github.enable then
-                      null
-                    else
-                      {
-                        auth_type =
-                          if (cfg.github.authType ? "legacy") then
-                            { token_file = "github-token"; }
-                          else if (cfg.github.authType ? "app") then
-                            {
-                              id = cfg.github.authType.app.id;
-                              secret_key_file = "github-app-secret-key";
-                              installation_token_map_file = "github-app-installation-token-map.json";
-                              project_id_map_file = "github-app-project-id-map-name.json";
-                              jwt_token_map = "github-app-jwt-token";
-                            }
-                          else
-                            throw "authType is neither \"legacy\" nor \"app\"";
-                        project_cache_file = "github-project-cache-v1.json";
-                        webhook_secret_file = "github-webhook-secret";
-                        oauth_secret_file = "github-oauth-secret";
-                        oauth_id = cfg.github.oauthId;
-                        topic = cfg.github.topic;
-                      };
-                  pull_based =
-                    if cfg.pullBased.repositories == [ ] then
-                      null
-                    else
-                      {
-                        repositories = lib.flip lib.mapAttrs cfg.pullBased.repositories (
-                          name: repo: {
-                            inherit name;
-                            default_branch = repo.defaultBranch;
-                            url = repo.url;
-                            poll_interval = repo.pollInterval;
-                            ssh_private_key_file = repo.sshPrivateKeyFile;
-                            ssh_known_hosts_file = repo.sshKnownHostsFile;
-                          }
-                        );
-                        poll_spread = cfg.pullBased.pollSpread;
-                      };
-                  admins = cfg.admins;
-                  workers_file = cfg.workersFile;
-                  build_systems = cfg.buildSystems;
-                  eval_max_memory_size = cfg.evalMaxMemorySize;
-                  eval_worker_count = cfg.evalWorkerCount;
-                  domain = cfg.domain;
-                  webhook_base_url = cfg.webhookBaseUrl;
-                  use_https = cfg.useHTTPS;
-                  outputs_path = cfg.outputsPath;
-                  url = config.services.buildbot-nix.master.webhookBaseUrl;
-                  post_build_steps = cfg.postBuildSteps;
-                  job_report_limit = cfg.jobReportLimit;
-                  http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
-                  effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
-                    inherit name;
-                    value = "effects-secret__${cleanUpRepoName name}";
-                  }) cfg.effects.perRepoSecretFiles;
-                  branches = cfg.branches;
-                }
-              }").read_text()))
-            )
-          ''
-        ];
-        buildbotUrl =
-          let
-            host = config.services.nginx.virtualHosts.${cfg.domain};
-            hasSSL = host.forceSSL || host.addSSL || cfg.useHTTPS;
-          in
-          "${if hasSSL then "https" else "http"}://${cfg.domain}/";
-        dbUrl = config.services.buildbot-nix.master.dbUrl;
-
-        package = packages.buildbot;
-        pythonPackages = ps: [
-          (ps.toPythonModule packages.buildbot-worker)
-          packages.buildbot-nix
-          packages.buildbot-effects
-          packages.buildbot-plugins.www
-          packages.buildbot-gitea
-        ];
-      };
-
-      systemd.services.buildbot-master = {
-        after = [ "postgresql.service" ];
-        path = [ pkgs.openssl ];
-        serviceConfig = {
-          # in master.py we read secrets from $CREDENTIALS_DIRECTORY
-          LoadCredential =
-            [ "buildbot-nix-workers:${cfg.workersFile}" ]
-            ++ lib.optionals cfg.github.enable (
-              [ "github-webhook-secret:${cfg.github.webhookSecretFile}" ]
-              ++ lib.optional (
-                cfg.github.authType ? "legacy"
-              ) "github-token:${cfg.github.authType.legacy.tokenFile}"
-              ++ lib.optional (
-                cfg.github.authType ? "app"
-              ) "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
-            )
-            ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
-            ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
-            ++ lib.optional (
-              cfg.cachix.enable && cfg.cachix.auth ? "signingKey"
-            ) "cachix-signing-key:${builtins.toString cfg.cachix.auth.signingKey.file}"
-            ++ lib.optional (
-              cfg.cachix.enable && cfg.cachix.auth ? "authToken"
-            ) "cachix-auth-token:${builtins.toString cfg.cachix.auth.authToken.file}"
-            ++ lib.optionals cfg.gitea.enable [
-              "gitea-token:${cfg.gitea.tokenFile}"
-              "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
-            ]
-            ++ lib.mapAttrsToList (
-              repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
-            ) cfg.effects.perRepoSecretFiles
-            ++ lib.mapAttrsToList (
-              repoName: repo: "pull-based__${cleanUpRepoName repoName}:${repo.sshPrivateKeyFile}"
-            ) (lib.filterAttrs (_: repo: repo.sshPrivateKeyFile != null) cfg.pullBased.repositories);
-          RuntimeDirectory = "buildbot-master";
-        };
-      };
-
-      services.postgresql = {
-        enable = true;
-        ensureDatabases = [ "buildbot" ];
-        ensureUsers = [
-          {
-            name = "buildbot";
-            ensureDBOwnership = true;
-          }
-        ];
-      };
-
-      services.nginx.enable = true;
-      services.nginx.virtualHosts.${cfg.domain} = {
-        locations =
-          {
-            "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
-            "/sse" = {
-              proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
-              # proxy buffering will prevent sse to work
-              extraConfig = "proxy_buffering off;";
-            };
-            "/ws" = {
-              proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
-              proxyWebsockets = true;
-              # raise the proxy timeout for the websocket
-              extraConfig = "proxy_read_timeout 6000s;";
-            };
-          }
-          // lib.optionalAttrs (cfg.outputsPath != null) {
-            "/nix-outputs/" = {
-              alias = cfg.outputsPath;
-              extraConfig = ''
-                charset utf-8;
-                autoindex on;
-              '';
-            };
+    services.nginx.enable = true;
+    services.nginx.virtualHosts.${cfg.domain} = {
+      locations =
+        {
+          "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
+          "/sse" = {
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
+            # proxy buffering will prevent sse to work
+            extraConfig = "proxy_buffering off;";
           };
-      };
-
-      systemd.tmpfiles.rules =
-        lib.optional (cfg.outputsPath != null)
-          # Allow buildbot-master to write to this directory
-          "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
-
-      services.buildbot-nix.master.authBackend = lib.mkIf (
-        cfg.accessMode ? "fullyPrivate"
-      ) "httpbasicauth";
-
-      services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
-        enable = true;
-
-        clientID = cfg.accessMode.fullyPrivate.clientId;
-        clientSecret = null;
-        cookie.secret = null;
-
-        extraConfig = lib.mkMerge [
-          {
-            config = "/etc/oauth2-proxy/oauth2-proxy.toml";
-            redirect-url = "https://${cfg.domain}/oauth2/callback";
-
-            http-address = "127.0.0.1:${builtins.toString cfg.accessMode.fullyPrivate.port}";
-
-            upstream = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
-
-            cookie-secure = true;
-            skip-auth-route = [ "^/change_hook" ];
-            api-route = [
-              "^/api"
-              "^/ws$"
-            ];
-          }
-          (lib.mkIf (cfg.authBackend == "httpbasicauth") { set-basic-auth = true; })
-          (lib.mkIf
-            (lib.elem cfg.accessMode.fullyPrivate.backend [
-              "github"
-              "gitea"
-            ])
-            {
-              github-user = lib.concatStringsSep "," (cfg.accessMode.fullyPrivate.users ++ cfg.admins);
-              github-team = cfg.accessMode.fullyPrivate.teams;
-              email-domain = "*";
-            }
-          )
-          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") { provider = "github"; })
-          (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
-            provider = "github";
-            provider-display-name = "Gitea";
-            login-url = "${cfg.gitea.instanceUrl}/login/oauth/authorize";
-            redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
-            validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
-          })
-        ];
-      };
-
-      systemd.services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
-        serviceConfig = {
-          ConfigurationDirectory = "oauth2-proxy";
+          "/ws" = {
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
+            proxyWebsockets = true;
+            # raise the proxy timeout for the websocket
+            extraConfig = "proxy_read_timeout 6000s;";
+          };
+        }
+        // lib.optionalAttrs (cfg.outputsPath != null) {
+          "/nix-outputs/" = {
+            alias = cfg.outputsPath;
+            extraConfig = ''
+              charset utf-8;
+              autoindex on;
+            '';
+          };
         };
-        preStart = ''
-          cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
-          client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
-          cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
-          basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
-          # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
-          scope = "read:user user:email repo"
-          EOF
-        '';
+    };
+
+    systemd.tmpfiles.rules =
+      lib.optional (cfg.outputsPath != null)
+        # Allow buildbot-master to write to this directory
+        "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
+
+    services.buildbot-nix.master.authBackend = lib.mkIf (
+      cfg.accessMode ? "fullyPrivate"
+    ) "httpbasicauth";
+
+    services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
+      enable = true;
+
+      clientID = cfg.accessMode.fullyPrivate.clientId;
+      clientSecret = null;
+      cookie.secret = null;
+
+      extraConfig = lib.mkMerge [
+        {
+          config = "/etc/oauth2-proxy/oauth2-proxy.toml";
+          redirect-url = "https://${cfg.domain}/oauth2/callback";
+
+          http-address = "127.0.0.1:${builtins.toString cfg.accessMode.fullyPrivate.port}";
+
+          upstream = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
+
+          cookie-secure = true;
+          skip-auth-route = [ "^/change_hook" ];
+          api-route = [
+            "^/api"
+            "^/ws$"
+          ];
+        }
+        (lib.mkIf (cfg.authBackend == "httpbasicauth") { set-basic-auth = true; })
+        (lib.mkIf
+          (lib.elem cfg.accessMode.fullyPrivate.backend [
+            "github"
+            "gitea"
+          ])
+          {
+            github-user = lib.concatStringsSep "," (cfg.accessMode.fullyPrivate.users ++ cfg.admins);
+            github-team = cfg.accessMode.fullyPrivate.teams;
+            email-domain = "*";
+          }
+        )
+        (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") { provider = "github"; })
+        (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
+          provider = "github";
+          provider-display-name = "Gitea";
+          login-url = "${cfg.gitea.instanceUrl}/login/oauth/authorize";
+          redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
+          validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
+        })
+      ];
+    };
+
+    systemd.services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
+      serviceConfig = {
+        ConfigurationDirectory = "oauth2-proxy";
       };
-    })
-  ];
+      preStart = ''
+        cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
+        client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
+        cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
+        basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
+        # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
+        scope = "read:user user:email repo"
+        EOF
+      '';
+    };
+  };
 }
