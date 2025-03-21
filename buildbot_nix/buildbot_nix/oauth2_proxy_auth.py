@@ -29,7 +29,7 @@ class OAuth2ProxyAuth(AuthBase):
         return forbidden(message="URL is not supported for authentication")
 
     def getLogoutResource(self) -> IResource:  # noqa: N802
-        return typing.cast(IResource, Redirect(b"/oauth2/sign_out"))
+        return typing.cast("IResource", Redirect(b"/oauth2/sign_out"))
 
     async def maybeAutoLogin(  # noqa: N802
         self, request: Request
