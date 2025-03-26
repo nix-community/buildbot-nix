@@ -260,18 +260,11 @@ def run_effects(
         with pipe() as (r_file, w_file):
             if debug:
                 print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
-            proc = subprocess.Popen(
+            proc = subprocess.run(
                 bubblewrap_cmd,
-                text=True,
+                check=False,
                 stdin=subprocess.DEVNULL,
-                stdout=w_file,
-                stderr=w_file,
             )
-            w_file.close()
-            with proc:
-                for line in r_file:
-                    print(line, end="")
-                proc.wait()
-                if proc.returncode != 0:
-                    msg = f"command failed with exit code {proc.returncode}"
-                    raise BuildbotEffectsError(msg)
+            if proc.returncode != 0:
+                msg = f"command failed with exit code {proc.returncode}"
+                raise BuildbotEffectsError(msg)
