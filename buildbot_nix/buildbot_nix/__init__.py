@@ -988,6 +988,7 @@ class GitLocalPrMerge(steps.Git):
         pr_head = build_props.getProperty("github.head.sha") or build_props.getProperty(
             "head_sha"
         )
+        auth_workdir = self._get_auth_data_workdir()
 
         # Not a PR, fallback to default behavior
         if merge_base is None or pr_head is None:
@@ -1007,33 +1008,42 @@ class GitLocalPrMerge(steps.Git):
             self.build.path_module.join(self.workdir, ".git")
         )
 
-        if not has_git:
-            await self._dovccmd(["clone", "--recurse-submodules", self.repourl, "."])
+        try:
+            await self._git_auth.download_auth_files_if_needed(auth_workdir)
 
-        patched = await self.sourcedirIsPatched()
+            if not has_git:
+                await self._dovccmd(
+                    ["clone", "--recurse-submodules", self.repourl, "."]
+                )
 
-        if patched:
-            await self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
+            patched = await self.sourcedirIsPatched()
 
-        await self._dovccmd(["fetch", "-f", "-t", self.repourl, merge_base, pr_head])
+            if patched:
+                await self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
 
-        await self._dovccmd(["checkout", "--detach", "-f", pr_head])
+            await self._dovccmd(
+                ["fetch", "-f", "-t", self.repourl, merge_base, pr_head]
+            )
 
-        await self._dovccmd(
-            [
-                "-c",
-                "user.email=buildbot@example.com",
-                "-c",
-                "user.name=buildbot",
-                "merge",
-                "--no-ff",
-                "-m",
-                f"Merge {merge_base} into {pr_head}",
-                merge_base,
-            ]
-        )
-        self.updateSourceProperty("got_revision", pr_head)
-        return await self.parseCommitDescription()
+            await self._dovccmd(["checkout", "--detach", "-f", pr_head])
+
+            await self._dovccmd(
+                [
+                    "-c",
+                    "user.email=buildbot@example.com",
+                    "-c",
+                    "user.name=buildbot",
+                    "merge",
+                    "--no-ff",
+                    "-m",
+                    f"Merge {merge_base} into {pr_head}",
+                    merge_base,
+                ]
+            )
+            self.updateSourceProperty("got_revision", pr_head)
+            return await self.parseCommitDescription()
+        finally:
+            await self._git_auth.remove_auth_files_if_needed(auth_workdir)
 
 
 def nix_eval_config(
@@ -1060,6 +1070,12 @@ def nix_eval_config(
             submodules=True,
             haltOnFailure=True,
             logEnviron=False,
+            sshPrivateKey=project.private_key_path.read_text()
+            if project.private_key_path
+            else None,
+            sshKnownHosts=project.known_hosts_path.read_text()
+            if project.known_hosts_path
+            else None,
         ),
     )
     drv_gcroots_dir = util.Interpolate(
@@ -1368,6 +1384,8 @@ def nix_skipped_build_config(
         collapseRequests=False,
         env={},
         factory=factory,
+        do_build_if=lambda build: do_register_gcroot_if(build, branch_config_dict)
+        and outputs_path is not None,
     )
 
 
@@ -1417,6 +1435,12 @@ def buildbot_effects_config(
             method="clean",
             submodules=True,
             haltOnFailure=True,
+            sshPrivateKey=project.private_key_path.read_text()
+            if project.private_key_path
+            else None,
+            sshKnownHosts=project.known_hosts_path.read_text()
+            if project.known_hosts_path
+            else None,
         ),
     )
     secrets_list = []
