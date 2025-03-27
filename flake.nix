@@ -76,12 +76,7 @@
             in
             examplesFor "x86_64-linux" // examplesFor "aarch64-linux";
 
-          lib = {
-            interpolate = value: {
-              _type = "interpolate";
-              inherit value;
-            };
-          };
+          lib = import ./nix/lib.nix;
         };
         perSystem =
           {

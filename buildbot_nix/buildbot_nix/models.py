@@ -56,42 +56,6 @@ class Interpolate(BaseModel):
         super().__init__(nix_type="interpolate", value=value)
 
 
-class CachixConfig(BaseModel):
-    name: str
-
-    signing_key_file: Path | None
-    auth_token_file: Path | None
-
-    @property
-    def signing_key(self) -> str:
-        if self.signing_key_file is None:
-            raise InternalError
-        return read_secret_file(self.signing_key_file)
-
-    @property
-    def auth_token(self) -> str:
-        if self.auth_token_file is None:
-            raise InternalError
-        return read_secret_file(self.auth_token_file)
-
-    # TODO why did the original implementation return an empty env if both files were missing?
-    @property
-    def environment(self) -> Mapping[str, str | Interpolate]:
-        environment = {}
-        if self.signing_key_file is not None:
-            environment["CACHIX_SIGNING_KEY"] = Interpolate(
-                f"%(secret:{self.signing_key_file})s"
-            )
-        if self.auth_token_file is not None:
-            environment["CACHIX_AUTH_TOKEN"] = Interpolate(
-                f"%(secret:{self.auth_token_file})s"
-            )
-        return environment
-
-    class Config:
-        fields = exclude_fields(["signing_key", "auth_token"])
-
-
 class GiteaConfig(BaseModel):
     instance_url: str
     topic: str | None
@@ -297,7 +261,6 @@ class WorkerConfig(BaseModel):
 class BuildbotNixConfig(BaseModel):
     db_url: str
     auth_backend: AuthBackendConfig
-    cachix: CachixConfig | None
     gitea: GiteaConfig | None
     github: GitHubConfig | None
     pull_based: PullBasedConfig | None
