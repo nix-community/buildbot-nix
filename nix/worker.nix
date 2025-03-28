@@ -9,6 +9,7 @@ let
   inherit (config.services.buildbot-nix) packages;
   home = "/var/lib/buildbot-worker";
   buildbotDir = "${home}/worker";
+  minimumNixEvalJobsVersion = "2.26.0";
 in
 {
   _file = ./worker.nix;
@@ -67,6 +68,12 @@ in
     };
   };
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = lib.versionAtLeast config.services.buildbot-nix.worker.nixEvalJobs.package.version minimumNixEvalJobsVersion;
+        message = "buildbot-nix requires nix-eval-jobs >= ${minimumNixEvalJobsVersion}";
+      }
+    ];
     nix.settings.extra-allowed-users = [ "buildbot-worker" ];
 
     # Allow buildbot-worker to create gcroots
