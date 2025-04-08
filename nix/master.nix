@@ -313,6 +313,23 @@ in
             If null, all projects that the buildbot Gitea user has access to, are built.
           '';
         };
+
+        sshPrivateKeyFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          description = ''
+            If non-null the specified SSH key will be used to fetch all configured repositories.
+          '';
+        };
+
+        sshKnownHostsFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          description = ''
+            If non-null the specified known hosts file will be matched against when connecting to
+            repositories over SSH.
+          '';
+        };
       };
       github = {
         enable = lib.mkEnableOption "Enable GitHub integration" // {
@@ -702,6 +719,8 @@ in
                       instance_url = cfg.gitea.instanceUrl;
                       oauth_id = cfg.gitea.oauthId;
                       topic = cfg.gitea.topic;
+                      ssh_private_key_file = cfg.gitea.sshPrivateKeyFile;
+                      ssh_known_hosts_file = cfg.gitea.sshKnownHostsFile;
                     };
                 github =
                   if !cfg.github.enable then

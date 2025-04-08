@@ -56,6 +56,14 @@ in
         default = pkgs.nix-eval-jobs;
         description = "nix-eval-jobs to use for evaluation";
       };
+      workers = lib.mkOption {
+        type = lib.types.int;
+        default = 0;
+        description = ''
+          The number of workers to start (default: 0 == to the number of CPU cores).
+          If you experience flaky builds under high load, try to reduce this value.
+        '';
+      };
       masterUrl = lib.mkOption {
         type = lib.types.str;
         default = "tcp:host=localhost:port=9989";
@@ -114,6 +122,7 @@ in
       }/${packages.python.sitePackages}";
       environment.MASTER_URL = cfg.masterUrl;
       environment.BUILDBOT_DIR = buildbotDir;
+      environment.WORKER_COUNT = builtins.toString cfg.workers;
 
       serviceConfig = {
         # We rather want the CI job to fail on OOM than to have a broken buildbot worker.
