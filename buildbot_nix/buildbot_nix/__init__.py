@@ -1384,8 +1384,8 @@ def nix_skipped_build_config(
         collapseRequests=False,
         env={},
         factory=factory,
-        do_build_if=lambda build: do_register_gcroot_if(build, branch_config_dict)
-        and outputs_path is not None,
+        # FIXME: we can enable this after the next buildbot update.
+        # do_build_if=lambda build: do_register_gcroot_if(build, branch_config_dict) and outputs_path is not None,
     )
 
 
