@@ -25,11 +25,12 @@ class WorkerConfig:
     worker_name: str = field(
         default_factory=lambda: os.environ.get("WORKER_NAME", socket.gethostname())
     )
-    worker_count_str: str | None = os.environ.get("WORKER_COUNT")
-    if worker_count_str is not None:
-        worker_count = int(worker_count_str)
-    else:
+    worker_count_str: str = os.environ.get("WORKER_COUNT", "0")
+    worker_count = int(worker_count_str)
+
+    if worker_count == 0:
         worker_count = multiprocessing.cpu_count()
+
     buildbot_dir: Path = field(
         default_factory=lambda: Path(require_env("BUILDBOT_DIR"))
     )
