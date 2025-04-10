@@ -240,6 +240,9 @@ def run_effects(
         "--bind",
         "/nix/var/nix/daemon-socket/socket",
         "/nix/var/nix/daemon-socket/socket",
+        "--ro-bind",
+        "/bin/sh",
+        "/bin/sh",
     ]
 
     with NamedTemporaryFile() as tmp:
