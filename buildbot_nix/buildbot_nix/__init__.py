@@ -20,6 +20,7 @@ from .db_setup import DatabaseSetupService
 from .errors import BuildbotNixError
 from .gitea_projects import GiteaBackend
 from .github_projects import GithubBackend
+from .gitlab_project import GitlabBackend
 from .local_worker import NixLocalWorker
 from .models import AuthBackendConfig, BuildbotNixConfig
 from .nix_build import BuildConfig
@@ -64,6 +65,9 @@ class NixConfigurator(ConfiguratorBase):
 
         if self.config.gitea is not None:
             backends["gitea"] = GiteaBackend(self.config.gitea, self.config.url)
+
+        if self.config.gitlab is not None:
+            backends["gitlab"] = GitlabBackend(self.config.gitlab, self.config.url)
 
         if self.config.pull_based is not None:
             backends["pull_based"] = PullBasedBacked(self.config.pull_based)
