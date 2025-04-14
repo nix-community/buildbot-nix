@@ -167,6 +167,33 @@ class GitHubConfig(BaseModel):
         return read_secret_file(self.oauth_secret_file)
 
 
+class GitlabConfig(BaseModel):
+    instance_url: str = Field(default="https://gitlab.com")
+    topic: str | None
+
+    token_file: Path = Field(default=Path("gitlab-token"))
+    webhook_secret_file: Path = Field(default=Path("gitlab-webhook-secret"))
+
+    oauth_id: str | None
+    oauth_secret_file: Path | None
+
+    project_cache_file: Path = Field(default=Path("gitlab-project-cache.json"))
+
+    @property
+    def token(self) -> str:
+        return read_secret_file(self.token_file)
+
+    @property
+    def webhook_secret(self) -> str:
+        return read_secret_file(self.webhook_secret_file)
+
+    @property
+    def oauth_secret(self) -> str:
+        if self.oauth_secret_file is None:
+            raise InternalError
+        return read_secret_file(self.oauth_secret_file)
+
+
 class PostBuildStep(BaseModel):
     name: str
     environment: Mapping[str, str | Interpolate]
@@ -266,6 +293,7 @@ class BuildbotNixConfig(BaseModel):
     auth_backend: AuthBackendConfig
     gitea: GiteaConfig | None
     github: GitHubConfig | None
+    gitlab: GitlabConfig | None
     pull_based: PullBasedConfig | None
     admins: list[str]
     workers_file: Path
