@@ -144,7 +144,7 @@ class GitlabBackend(GitBackend):
 
     def create_reporter(self) -> ReporterBase:
         return GitLabStatusPush(
-            token=Interpolate(self.config.token),
+            token=self.config.token,
             context=Interpolate("buildbot/%(prop:status_name)s"),
             baseURL=self.config.instance_url,
             generators=[
@@ -309,11 +309,3 @@ def create_project_hook(
             resource_access_token_events=False,
         ),
     )
-
-
-if __name__ == "__main__":
-    c = GitlabConfig(
-        topic=None,
-    )
-
-    print(refresh_projects(c, Path("deleteme-gitlab-cache")))
