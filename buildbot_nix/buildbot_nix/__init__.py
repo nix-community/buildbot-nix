@@ -29,6 +29,7 @@ from buildbot.reporters.utils import getURLForBuildrequest
 from buildbot.schedulers.triggerable import Triggerable
 from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
+from buildbot.util.twisted import async_to_deferred
 from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
@@ -1145,6 +1146,7 @@ def nix_eval_config(
     )
 
 
+@async_to_deferred
 async def do_register_gcroot_if(
     s: steps.BuildStep | Build, branch_config: models.BranchConfigDict
 ) -> bool:
@@ -1154,10 +1156,10 @@ async def do_register_gcroot_if(
     out_path = s.getProperty("out_path")
 
     return (
-        branch_config.do_register_gcroot(
+        s.getProperty("event") == "push"
+        and branch_config.do_register_gcroot(
             s.getProperty("default_branch"), s.getProperty("branch")
         )
-        and s.getProperty("event") == "push"
         and not (
             Path(str(gc_root)).exists()
             and Path(str(gc_root)).readlink() == Path(out_path)
