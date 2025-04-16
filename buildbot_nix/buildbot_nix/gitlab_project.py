@@ -39,6 +39,7 @@ class NamespaceData(BaseModel):
 
 class RepoData(BaseModel):
     id: int
+    name: str
     name_with_namespace: str
     path: str
     path_with_namespace: str
@@ -86,7 +87,12 @@ class GitlabProject(GitProject):
 
     @property
     def name(self) -> str:
-        return self.data.name_with_namespace
+        # This needs to match what buildbot uses in change hooks to map an incoming change
+        # to a project: https://github.com/buildbot/buildbot/blob/master/master/buildbot/www/hooks/gitlab.py#L45
+        # I suspect this will result in clashes if you have identically-named projects in
+        # different namespaces, as is totally valid in gitlab.
+        # Using self.data.name_with_namespace would be more robust.
+        return self.data.name
 
     @property
     def url(self) -> str:
