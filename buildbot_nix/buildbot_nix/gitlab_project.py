@@ -100,7 +100,10 @@ class GitlabProject(GitProject):
 
     @property
     def url(self) -> str:
-        return self.data.web_url
+        # Not `web_url`: the buildbot gitlab hook dialect uses repository.url which seems
+        # to be the ssh url in practice.
+        # See: https://github.com/buildbot/buildbot/blob/master/master/buildbot/www/hooks/gitlab.py#L271
+        return self.data.ssh_url_to_repo
 
     @property
     def project_id(self) -> str:
