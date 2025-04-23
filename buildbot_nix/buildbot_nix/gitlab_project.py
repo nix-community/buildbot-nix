@@ -8,6 +8,7 @@ from urllib.parse import urlencode, urlparse
 from buildbot.changes.base import ChangeSource
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
+from buildbot.process.properties import Interpolate
 from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.gitlab import GitLabStatusPush
 from buildbot.util import httpclientservice
@@ -29,7 +30,7 @@ from buildbot_nix.common import (
     paginated_github_request,
     slugify_project_name,
 )
-from buildbot_nix.models import GitlabConfig, Interpolate
+from buildbot_nix.models import GitlabConfig
 from buildbot_nix.nix_status_generator import BuildNixEvalStatusGenerator
 from buildbot_nix.projects import GitBackend, GitProject
 
