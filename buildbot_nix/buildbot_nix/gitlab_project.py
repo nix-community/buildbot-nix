@@ -1,17 +1,21 @@
 import os
 import signal
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from buildbot.changes.base import ChangeSource
 from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.gitlab import GitLabStatusPush
+from buildbot.util import httpclientservice
+from buildbot.www import resource
 from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase
 from pydantic import BaseModel
+from twisted.internet import defer
 from twisted.logger import Logger
 from twisted.python import log
 
@@ -186,7 +190,7 @@ class GitlabBackend(GitBackend):
         raise NotImplementedError
 
     def create_avatar_method(self) -> AvatarBase | None:
-        return None
+        return AvatarGitlab(config=self.config)
 
     @property
     def reload_builder_name(self) -> str:
@@ -258,6 +262,99 @@ class CreateGitlabProjectHooks(ThreadDeferredBuildStep):
     def run_post(self) -> Any:
         os.kill(os.getpid(), signal.SIGHUP)
         return util.SUCCESS
+
+
+class AvatarGitlab(AvatarBase):
+    name = "gitlab"
+
+    config: GitlabConfig
+
+    def __init__(
+        self,
+        config: GitlabConfig,
+        debug: bool = False,
+        verify: bool = True,
+    ) -> None:
+        self.config = config
+        self.debug = debug
+        self.verify = verify
+
+        self.master = None
+        self.client: httpclientservice.HTTPSession | None = None
+
+    def _get_http_client(
+        self,
+    ) -> httpclientservice.HTTPSession:
+        if self.client is not None:
+            return self.client
+
+        headers = {
+            "User-Agent": "Buildbot",
+            "Authorization": f"Bearer {self.config.token}",
+        }
+
+        self.client = httpclientservice.HTTPSession(
+            self.master.httpservice,  # type: ignore[attr-defined]
+            self.config.instance_url,
+            headers=headers,
+            debug=self.debug,
+            verify=self.verify,
+        )
+
+        return self.client
+
+    @defer.inlineCallbacks
+    def getUserAvatar(  # noqa: N802
+        self,
+        email: str,
+        username: str | None,
+        size: str | int,
+        defaultAvatarUrl: str,  # noqa: N803
+    ) -> Generator[defer.Deferred, str | None, None]:
+        if isinstance(size, int):
+            size = str(size)
+        avatar_url = None
+        if username is not None:
+            avatar_url = yield self._get_avatar_by_username(username)
+        if avatar_url is None:
+            avatar_url = yield self._get_avatar_by_email(email, size)
+        if not avatar_url:
+            avatar_url = defaultAvatarUrl
+        raise resource.Redirect(avatar_url)
+
+    @defer.inlineCallbacks
+    def _get_avatar_by_username(
+        self, username: str
+    ) -> Generator[defer.Deferred, Any, str | None]:
+        qs = urlencode(dict(username=username))
+        http = self._get_http_client()
+        users = yield http.get(f"/api/v4/users?{qs}")
+        users = yield users.json()
+        if len(users) == 1:
+            return users[0]["avatar_url"]
+        if len(users) > 1:
+            # TODO: log warning
+            ...
+        return None
+
+    @defer.inlineCallbacks
+    def _get_avatar_by_email(
+        self, email: str, size: str | None
+    ) -> Generator[defer.Deferred, Any, str | None]:
+        http = self._get_http_client()
+        q = dict(email=email)
+        if size is not None:
+            q["size"] = size
+        qs = urlencode(q)
+        res = yield http.get(f"/api/v4/avatar?{qs}")
+        data = yield res.json()
+        # N.B: Gitlab's public avatar endpoint returns a gravatar url if there isn't an
+        # account with a matching public email - so it should always return *something*.
+        # See: https://docs.gitlab.com/api/avatar/#get-details-on-an-account-avatar
+        if "avatar_url" in data:
+            return data["avatar_url"]
+        else:
+            return None
 
 
 def refresh_projects(config: GitlabConfig, cache_file: Path) -> list[RepoData]:
