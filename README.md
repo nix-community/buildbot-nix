@@ -301,6 +301,15 @@ $ nix run github:nix-community/buildbot-nix#buildbot-effects -- --branch main ru
 Hello, world!
 ```
 
+## Incompabilities with the lix overlay
+
+The lix overlay overrides nix-eval-jobs with a version that doesn't work with
+buildbot-nix because of missing features and therefore cannot be used together
+with the buildbot-nix module.
+
+Possible workaround: Don't use the overlay and only set the
+`nix.package = pkgs.lix;` NixOS option.
+
 ## Real-World Deployments
 
 See Buildbot-nix in action in these deployments:
