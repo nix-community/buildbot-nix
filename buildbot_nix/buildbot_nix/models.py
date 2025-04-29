@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import sys
 from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
@@ -32,8 +31,7 @@ class AuthBackendConfig(str, Enum):
 def read_secret_file(secret_file: Path) -> str:
     directory = os.environ.get("CREDENTIALS_DIRECTORY")
     if directory is None:
-        print("directory not set", file=sys.stderr)
-        sys.exit(1)
+        return secret_file.read_text().rstrip()
     return Path(directory).joinpath(secret_file).read_text().rstrip()
 
 
