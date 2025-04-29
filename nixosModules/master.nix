@@ -764,7 +764,6 @@ in
                       poll_spread = cfg.pullBased.pollSpread;
                     };
                 admins = cfg.admins;
-                workers_file = cfg.workersFile;
                 build_systems = cfg.buildSystems;
                 eval_max_memory_size = cfg.evalMaxMemorySize;
                 eval_worker_count = cfg.evalWorkerCount;

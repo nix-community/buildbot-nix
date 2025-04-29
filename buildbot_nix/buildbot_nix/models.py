@@ -268,7 +268,6 @@ class BuildbotNixConfig(BaseModel):
     github: GitHubConfig | None
     pull_based: PullBasedConfig | None
     admins: list[str]
-    workers_file: Path
     build_systems: list[str]
     eval_max_memory_size: int
     eval_worker_count: int | None
