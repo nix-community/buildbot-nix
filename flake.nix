@@ -17,10 +17,11 @@
   };
 
   outputs =
-    inputs@{ self, flake-parts, ... }:
+    inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports =
         [
+          ./examples/flake-module.nix
           ./devShells/flake-module.nix
           ./nixosModules/flake-module.nix
           ./checks/flake-module.nix
@@ -31,24 +32,12 @@
           inputs.hercules-ci-effects.flakeModule
           ./herculesCI/flake-module.nix
         ];
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
         "aarch64-darwin"
       ];
 
-      flake = {
-        nixosConfigurations =
-          let
-            examplesFor =
-              system:
-              import ./examples {
-                inherit system;
-                inherit (inputs) nixpkgs;
-                buildbot-nix = self;
-              };
-          in
-          examplesFor "x86_64-linux" // examplesFor "aarch64-linux";
-      };
     };
 }
