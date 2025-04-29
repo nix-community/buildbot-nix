@@ -9,7 +9,7 @@
       packages =
         {
           # useful for checking what buildbot version is used.
-          buildbot = pkgs.buildbot;
+          buildbot = pkgs.callPackage ./buildbot.nix { };
           buildbot-nix = pkgs.python3.pkgs.callPackage ./buildbot-nix.nix { };
           buildbot-gitea = pkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
             buildbot = pkgs.buildbot;
