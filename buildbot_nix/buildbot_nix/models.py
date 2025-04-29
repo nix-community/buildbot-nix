@@ -269,7 +269,8 @@ class BuildbotNixConfig(BaseModel):
     build_systems: list[str]
     eval_max_memory_size: int
     eval_worker_count: int | None
-    nix_workers_secret_file: Path = Field(default=Path("buildbot-nix-workers"))
+    local_workers: int = 0
+    nix_workers_secret_file: Path | None = None
     domain: str
     webhook_base_url: str
     use_https: bool
@@ -282,6 +283,8 @@ class BuildbotNixConfig(BaseModel):
     branches: BranchConfigDict
 
     def nix_worker_secrets(self) -> WorkerConfig:
+        if self.nix_workers_secret_file is None:
+            return WorkerConfig(workers=[])
         try:
             data = json.loads(read_secret_file(self.nix_workers_secret_file))
         except json.JSONDecodeError as e:
