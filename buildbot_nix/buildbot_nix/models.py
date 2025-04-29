@@ -90,10 +90,10 @@ class PullBasedRepository(BaseModel):
     name: str
     default_branch: str
     url: str
-    poll_interval: int
+    poll_interval: int = 60
 
-    ssh_private_key_file: Path | None
-    ssh_known_hosts_file: Path | None
+    ssh_private_key_file: Path | None = None
+    ssh_known_hosts_file: Path | None = None
 
     @property
     def ssh_private_key(self) -> str | None:
@@ -110,7 +110,7 @@ class PullBasedRepository(BaseModel):
 
 class PullBasedConfig(BaseModel):
     repositories: dict[str, PullBasedRepository]
-    poll_spread: int | None
+    poll_spread: int | None = None
 
 
 class GitHubLegacyConfig(BaseModel):
