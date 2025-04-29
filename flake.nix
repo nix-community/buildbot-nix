@@ -31,6 +31,7 @@
             ./devShells/flake-module.nix
             ./nixosModules/flake-module.nix
             ./checks/flake-module.nix
+            ./packages/flake-module.nix
           ]
           ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./formatter/flake-module.nix
           ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
@@ -75,23 +76,10 @@
         perSystem =
           {
             self',
-            pkgs,
             system,
             ...
           }:
           {
-            packages =
-              {
-                # useful for checking what buildbot version is used.
-                buildbot = pkgs.buildbot;
-                buildbot-nix = pkgs.python3.pkgs.callPackage ./nix/buildbot-nix.nix { };
-                buildbot-gitea = pkgs.python3.pkgs.callPackage ./nix/buildbot-gitea.nix {
-                  buildbot = pkgs.buildbot;
-                };
-              }
-              // lib.optionalAttrs pkgs.stdenv.isLinux {
-                buildbot-effects = pkgs.python3.pkgs.callPackage ./nix/buildbot-effects.nix { };
-              };
             checks =
               let
                 nixosMachines = lib.mapAttrs' (
