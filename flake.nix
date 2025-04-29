@@ -21,8 +21,6 @@
     flake-parts.lib.mkFlake { inherit inputs; } (
       {
         lib,
-        config,
-        withSystem,
         ...
       }:
       {
@@ -36,21 +34,7 @@
           ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./formatter/flake-module.nix
           ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
             inputs.hercules-ci-effects.flakeModule
-            {
-              herculesCI = herculesCI: {
-                onPush.default.outputs.effects.deploy = withSystem config.defaultEffectSystem (
-                  { pkgs, hci-effects, ... }:
-                  hci-effects.runIf (herculesCI.config.repo.branch == "main") (
-                    hci-effects.mkEffect {
-                      effectScript = ''
-                        echo "${builtins.toJSON { inherit (herculesCI.config.repo) branch tag rev; }}"
-                        ${pkgs.hello}/bin/hello
-                      '';
-                    }
-                  )
-                );
-              };
-            }
+            ./herculesCI/flake-module.nix
           ];
         systems = [
           "x86_64-linux"
