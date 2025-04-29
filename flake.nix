@@ -28,6 +28,7 @@
       {
         imports =
           [
+            ./devShells/flake-module.nix
             ./nixosModules/flake-module.nix
             ./nix/checks/flake-module.nix
           ]
@@ -57,7 +58,6 @@
         ];
 
         flake = {
-
           nixosConfigurations =
             let
               examplesFor =
@@ -82,13 +82,6 @@
           {
             packages =
               {
-                default = pkgs.mkShell {
-                  packages = [
-                    pkgs.bashInteractive
-                    pkgs.mypy
-                    pkgs.ruff
-                  ];
-                };
                 # useful for checking what buildbot version is used.
                 buildbot = pkgs.buildbot;
                 buildbot-nix = pkgs.python3.pkgs.callPackage ./nix/buildbot-nix.nix { };
