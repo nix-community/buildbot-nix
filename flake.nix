@@ -71,7 +71,6 @@
             in
             examplesFor "x86_64-linux" // examplesFor "aarch64-linux";
 
-          lib = import ./nix/lib.nix;
         };
         perSystem =
           {
