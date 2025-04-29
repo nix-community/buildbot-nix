@@ -35,7 +35,7 @@ in
     };
 
     buildbot-nix = lib.mkOption {
-      default = cfg.python.pkgs.callPackage ./buildbot-nix.nix { };
+      default = cfg.python.pkgs.callPackage ../packages/buildbot-nix.nix { };
     };
 
     buildbot-plugins = lib.mkOption {
@@ -45,12 +45,12 @@ in
 
     buildbot-effects = lib.mkOption {
       type = lib.types.package;
-      default = cfg.python.pkgs.callPackage ./buildbot-effects.nix { };
+      default = cfg.python.pkgs.callPackage ../packages/buildbot-effects.nix { };
     };
 
     buildbot-gitea = lib.mkOption {
       default = (
-        cfg.python.pkgs.callPackage ./buildbot-gitea.nix {
+        cfg.python.pkgs.callPackage ../packages/buildbot-gitea.nix {
           buildbot = cfg.buildbot;
         }
       );

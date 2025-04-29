@@ -28,6 +28,7 @@
       {
         imports =
           [
+            ./nixosModules/flake-module.nix
             ./nix/checks/flake-module.nix
           ]
           ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix
@@ -56,13 +57,6 @@
         ];
 
         flake = {
-          nixosModules.buildbot-master.imports = [
-            ./nix/master.nix
-          ];
-
-          nixosModules.buildbot-worker.imports = [
-            ./nix/worker.nix
-          ];
 
           nixosConfigurations =
             let
