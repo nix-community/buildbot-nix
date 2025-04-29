@@ -1290,6 +1290,9 @@ class NixConfigurator(ConfiguratorBase):
         config.setdefault("secretsProviders", [])
         config.setdefault("www", {})
         config.setdefault("workers", [])
+        config.setdefault("services", [])
+        config.setdefault("schedulers", [])
+        config.setdefault("builders", [])
 
         worker_names = []
         for w in self.config.nix_worker_secrets().workers:
