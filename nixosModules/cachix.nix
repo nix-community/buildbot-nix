@@ -1,12 +1,14 @@
 {
   lib,
-  pkgs,
   config,
   ...
 }:
 let
   cfg = config.services.buildbot-nix.master;
-  bb-lib = import ./lib.nix;
+  interpolate = value: {
+    _type = "interpolate";
+    inherit value;
+  };
 in
 {
   options.services.buildbot-nix.master.cachix = {
@@ -117,17 +119,17 @@ in
         name = "Upload cachix";
         environment = lib.mkMerge [
           (lib.optionalAttrs (cfg.cachix.auth ? "signingKey") {
-            CACHIX_SIGNING_KEY = bb-lib.interpolate "%(secret:cachix-signing-key)s";
+            CACHIX_SIGNING_KEY = interpolate "%(secret:cachix-signing-key)s";
           })
           (lib.optionalAttrs (cfg.cachix.auth ? "authToken") {
-            CACHIX_AUTH_TOKEN = bb-lib.interpolate "%(secret:cachix-auth-token)s";
+            CACHIX_AUTH_TOKEN = interpolate "%(secret:cachix-auth-token)s";
           })
         ];
         command = [
           "cachix" # note that this is the cachix from the worker's $PATH
           "push"
           cfg.cachix.name
-          (bb-lib.interpolate "result-%(prop:attr)s")
+          (interpolate "result-%(prop:attr)s")
         ];
       }
     ];

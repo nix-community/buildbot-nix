@@ -6,7 +6,7 @@
       { pkgs, ... }:
       {
         environment.systemPackages = [
-          (pkgs.python3.pkgs.callPackage ../../nix/buildbot-effects.nix { })
+          (pkgs.python3.pkgs.callPackage ../packages/buildbot-effects.nix { })
         ];
       };
   };
