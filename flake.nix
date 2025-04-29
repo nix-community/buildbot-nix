@@ -30,7 +30,7 @@
           [
             ./devShells/flake-module.nix
             ./nixosModules/flake-module.nix
-            ./nix/checks/flake-module.nix
+            ./checks/flake-module.nix
           ]
           ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./nix/treefmt/flake-module.nix
           ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
