@@ -4,19 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "buildbot-nix"
+license = "MIT"
 authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
 description = "A nixos module to make buildbot a proper Nix-CI."
 readme = "README.rst"
 requires-python = ">=3.9"
-license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Topic :: Utilities",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python"
 ]
