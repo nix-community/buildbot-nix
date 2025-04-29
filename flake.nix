@@ -18,61 +18,37 @@
 
   outputs =
     inputs@{ self, flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; } (
-      {
-        lib,
-        ...
-      }:
-      {
-        imports =
-          [
-            ./devShells/flake-module.nix
-            ./nixosModules/flake-module.nix
-            ./checks/flake-module.nix
-            ./packages/flake-module.nix
-          ]
-          ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./formatter/flake-module.nix
-          ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
-            inputs.hercules-ci-effects.flakeModule
-            ./herculesCI/flake-module.nix
-          ];
-        systems = [
-          "x86_64-linux"
-          "aarch64-linux"
-          "aarch64-darwin"
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      imports =
+        [
+          ./devShells/flake-module.nix
+          ./nixosModules/flake-module.nix
+          ./checks/flake-module.nix
+          ./packages/flake-module.nix
+        ]
+        ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./formatter/flake-module.nix
+        ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
+          inputs.hercules-ci-effects.flakeModule
+          ./herculesCI/flake-module.nix
         ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ];
 
-        flake = {
-          nixosConfigurations =
-            let
-              examplesFor =
-                system:
-                import ./examples {
-                  inherit system;
-                  inherit (inputs) nixpkgs;
-                  buildbot-nix = self;
-                };
-            in
-            examplesFor "x86_64-linux" // examplesFor "aarch64-linux";
-
-        };
-        perSystem =
-          {
-            self',
-            system,
-            ...
-          }:
-          {
-            checks =
-              let
-                nixosMachines = lib.mapAttrs' (
-                  name: config: lib.nameValuePair "nixos-${name}" config.config.system.build.toplevel
-                ) ((lib.filterAttrs (name: _: lib.hasSuffix system name)) self.nixosConfigurations);
-                packages = lib.mapAttrs' (n: lib.nameValuePair "package-${n}") self'.packages;
-                devShells = lib.mapAttrs' (n: lib.nameValuePair "devShell-${n}") self'.devShells;
-              in
-              nixosMachines // packages // devShells;
-          };
-      }
-    );
+      flake = {
+        nixosConfigurations =
+          let
+            examplesFor =
+              system:
+              import ./examples {
+                inherit system;
+                inherit (inputs) nixpkgs;
+                buildbot-nix = self;
+              };
+          in
+          examplesFor "x86_64-linux" // examplesFor "aarch64-linux";
+      };
+    };
 }
