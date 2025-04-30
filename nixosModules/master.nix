@@ -768,7 +768,6 @@ in
                 eval_max_memory_size = cfg.evalMaxMemorySize;
                 eval_worker_count = cfg.evalWorkerCount;
                 domain = cfg.domain;
-                webhook_base_url = cfg.webhookBaseUrl;
                 use_https = cfg.useHTTPS;
                 outputs_path = cfg.outputsPath;
                 url = config.services.buildbot-nix.master.webhookBaseUrl;

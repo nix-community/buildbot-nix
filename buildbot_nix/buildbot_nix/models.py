@@ -263,7 +263,6 @@ class BuildbotNixConfig(BaseModel):
     db_url: str
     build_systems: list[str]
     domain: str
-    webhook_base_url: str
     url: str
 
     use_https: bool = False
