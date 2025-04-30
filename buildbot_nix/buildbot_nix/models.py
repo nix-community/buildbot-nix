@@ -261,26 +261,28 @@ class WorkerConfig(BaseModel):
 
 class BuildbotNixConfig(BaseModel):
     db_url: str
-    auth_backend: AuthBackendConfig
-    gitea: GiteaConfig | None
-    github: GitHubConfig | None
-    pull_based: PullBasedConfig | None
-    admins: list[str]
     build_systems: list[str]
-    eval_max_memory_size: int
-    eval_worker_count: int | None
-    local_workers: int = 0
-    nix_workers_secret_file: Path | None = None
     domain: str
     webhook_base_url: str
-    use_https: bool
-    outputs_path: Path | None
     url: str
-    post_build_steps: list[PostBuildStep]
-    job_report_limit: int | None
-    http_basic_auth_password_file: Path | None
-    effects_per_repo_secrets: dict[str, str]
-    branches: BranchConfigDict
+
+    use_https: bool = False
+    auth_backend: AuthBackendConfig = AuthBackendConfig.none
+    eval_max_memory_size: int = 4096
+    admins: list[str] = []
+    local_workers: int = 0
+    eval_worker_count: int | None = None
+    gitea: GiteaConfig | None = None
+    github: GitHubConfig | None = None
+    pull_based: PullBasedConfig | None
+    outputs_path: Path | None = None
+    post_build_steps: list[PostBuildStep] = []
+    job_report_limit: int | None = None
+    http_basic_auth_password_file: Path | None = None
+    branches: BranchConfigDict = BranchConfigDict({})
+
+    nix_workers_secret_file: Path | None = None
+    effects_per_repo_secrets: dict[str, str] = {}
 
     def nix_worker_secrets(self) -> WorkerConfig:
         if self.nix_workers_secret_file is None:

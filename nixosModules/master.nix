@@ -780,6 +780,7 @@ in
                   value = "effects-secret__${cleanUpRepoName name}";
                 }) cfg.effects.perRepoSecretFiles;
                 branches = cfg.branches;
+                nix_workers_secret_file = "buildbot-nix-workers";
               }
             }").read_text()))
           )
