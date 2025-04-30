@@ -13,7 +13,7 @@ let
     name = "interpolate";
 
     description = ''
-      A type represnting a Buildbot interpolation string, supports interpolations like `result-%(prop:attr)s`.
+      A type representing a Buildbot interpolation string, supports interpolations like `result-%(prop:attr)s`.
     '';
 
     check = x: x ? "_type" && x._type == "interpolate" && x ? "value";
@@ -453,7 +453,7 @@ in
           type = lib.types.addCheck lib.types.int (x: x > 0);
           default = 60;
           description = ''
-            How often to poll each repository by default expressed in seconds. This value can be overriden
+            How often to poll each repository by default expressed in seconds. This value can be overridden
             per repository.
           '';
         };
@@ -462,7 +462,7 @@ in
           type = lib.types.nullOr lib.types.int;
           default = null;
           description = ''
-            If non-null and non-zero pulls will be randomly spread apart up to the specificied
+            If non-null and non-zero pulls will be randomly spread apart up to the specified
             number of seconds. Can be used to avoid a thundering herd situation.
           '';
         };
@@ -472,7 +472,7 @@ in
           default = null;
           description = ''
             If non-null the specified SSH key will be used to fetch all configured repositories.
-            This option is overriden by the per-repository `sshPrivateKeyFile` option.
+            This option is overridden by the per-repository `sshPrivateKeyFile` option.
           '';
         };
 
@@ -481,7 +481,7 @@ in
           default = null;
           description = ''
             If non-null the specified known hosts file will be matched against when connecting to
-            repositories over SSH. This option is overriden by the per-repository `sshKnownHostsFile`
+            repositories over SSH. This option is overridden by the per-repository `sshKnownHostsFile`
             option.
           '';
         };
@@ -764,7 +764,6 @@ in
                       poll_spread = cfg.pullBased.pollSpread;
                     };
                 admins = cfg.admins;
-                workers_file = cfg.workersFile;
                 build_systems = cfg.buildSystems;
                 eval_max_memory_size = cfg.evalMaxMemorySize;
                 eval_worker_count = cfg.evalWorkerCount;
@@ -781,6 +780,7 @@ in
                   value = "effects-secret__${cleanUpRepoName name}";
                 }) cfg.effects.perRepoSecretFiles;
                 branches = cfg.branches;
+                nix_workers_secret_file = "buildbot-nix-workers";
               }
             }").read_text()))
           )

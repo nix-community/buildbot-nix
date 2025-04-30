@@ -1079,7 +1079,7 @@ def config_for_project(
     config["builders"].extend(
         [
             # Since all workers run on the same machine, we only assign one of them to do the evaluation.
-            # This should prevent exessive memory usage.
+            # This should prevent excessive memory usage.
             nix_eval_config(
                 project,
                 worker_names,
@@ -1289,6 +1289,10 @@ class NixConfigurator(ConfiguratorBase):
         config.setdefault("projects", [])
         config.setdefault("secretsProviders", [])
         config.setdefault("www", {})
+        config.setdefault("workers", [])
+        config.setdefault("services", [])
+        config.setdefault("schedulers", [])
+        config.setdefault("builders", [])
 
         worker_names = []
         for w in self.config.nix_worker_secrets().workers:
@@ -1297,8 +1301,13 @@ class NixConfigurator(ConfiguratorBase):
                 config["workers"].append(worker.Worker(worker_name, w.password))
                 worker_names.append(worker_name)
 
+        for i in range(self.config.local_workers):
+            worker_name = f"local-{i}"
+            config["workers"].append(worker.LocalWorker(worker_name))
+            worker_names.append(worker_name)
+
         if worker_names == []:
-            msg = f"No workers configured in {self.config.nix_workers_secret_file}"
+            msg = f"No workers configured in {self.config.nix_workers_secret_file} and {self.config.local_workers} local workers."
             raise BuildbotNixError(msg)
 
         eval_lock = util.MasterLock("nix-eval")
@@ -1362,9 +1371,9 @@ class NixConfigurator(ConfiguratorBase):
             config.setdefault("secretsProviders", [])
             config["secretsProviders"].extend(backend.create_secret_providers())
 
-        systemd_secrets = SecretInAFile(
-            dirname=os.environ["CREDENTIALS_DIRECTORY"],
-        )
+        credentials_directory = os.environ.get("CREDENTIALS_DIRECTORY", "./secrets")
+        Path(credentials_directory).mkdir(exist_ok=True, parents=True)
+        systemd_secrets = SecretInAFile(dirname=credentials_directory)
         config["secretsProviders"].append(systemd_secrets)
 
         config["www"].setdefault("plugins", {})

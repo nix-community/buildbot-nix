@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import sys
 from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
@@ -32,8 +31,7 @@ class AuthBackendConfig(str, Enum):
 def read_secret_file(secret_file: Path) -> str:
     directory = os.environ.get("CREDENTIALS_DIRECTORY")
     if directory is None:
-        print("directory not set", file=sys.stderr)
-        sys.exit(1)
+        return secret_file.read_text().rstrip()
     return Path(directory).joinpath(secret_file).read_text().rstrip()
 
 
@@ -92,10 +90,10 @@ class PullBasedRepository(BaseModel):
     name: str
     default_branch: str
     url: str
-    poll_interval: int
+    poll_interval: int = 60
 
-    ssh_private_key_file: Path | None
-    ssh_known_hosts_file: Path | None
+    ssh_private_key_file: Path | None = None
+    ssh_known_hosts_file: Path | None = None
 
     @property
     def ssh_private_key(self) -> str | None:
@@ -112,7 +110,7 @@ class PullBasedRepository(BaseModel):
 
 class PullBasedConfig(BaseModel):
     repositories: dict[str, PullBasedRepository]
-    poll_spread: int | None
+    poll_spread: int | None = None
 
 
 class GitHubLegacyConfig(BaseModel):
@@ -263,28 +261,32 @@ class WorkerConfig(BaseModel):
 
 class BuildbotNixConfig(BaseModel):
     db_url: str
-    auth_backend: AuthBackendConfig
-    gitea: GiteaConfig | None
-    github: GitHubConfig | None
-    pull_based: PullBasedConfig | None
-    admins: list[str]
-    workers_file: Path
     build_systems: list[str]
-    eval_max_memory_size: int
-    eval_worker_count: int | None
-    nix_workers_secret_file: Path = Field(default=Path("buildbot-nix-workers"))
     domain: str
     webhook_base_url: str
-    use_https: bool
-    outputs_path: Path | None
     url: str
-    post_build_steps: list[PostBuildStep]
-    job_report_limit: int | None
-    http_basic_auth_password_file: Path | None
-    effects_per_repo_secrets: dict[str, str]
-    branches: BranchConfigDict
+
+    use_https: bool = False
+    auth_backend: AuthBackendConfig = AuthBackendConfig.none
+    eval_max_memory_size: int = 4096
+    admins: list[str] = []
+    local_workers: int = 0
+    eval_worker_count: int | None = None
+    gitea: GiteaConfig | None = None
+    github: GitHubConfig | None = None
+    pull_based: PullBasedConfig | None
+    outputs_path: Path | None = None
+    post_build_steps: list[PostBuildStep] = []
+    job_report_limit: int | None = None
+    http_basic_auth_password_file: Path | None = None
+    branches: BranchConfigDict = BranchConfigDict({})
+
+    nix_workers_secret_file: Path | None = None
+    effects_per_repo_secrets: dict[str, str] = {}
 
     def nix_worker_secrets(self) -> WorkerConfig:
+        if self.nix_workers_secret_file is None:
+            return WorkerConfig(workers=[])
         try:
             data = json.loads(read_secret_file(self.nix_workers_secret_file))
         except json.JSONDecodeError as e:
