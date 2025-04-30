@@ -3,6 +3,7 @@ from buildbot_nix import (
     NixConfigurator,
     BuildbotNixConfig,
 )
+from buildbot.plugins import util
 from buildbot.process.factory import BuildFactory
 
 factory = BuildFactory()
@@ -30,6 +31,7 @@ buildbot_nix_config = BuildbotNixConfig(
     domain="localhost",
     webhook_base_url=url,
     url=url,
+    admins=["admin"],
 )
 
 c = BuildmasterConfig = dict(
@@ -40,5 +42,5 @@ c = BuildmasterConfig = dict(
         NixConfigurator(buildbot_nix_config),
     ],
     protocols={"pb": {"port": "tcp:9989:interface=\\:\\:1"}},
-    www=dict(port=PORT, plugins=dict()),
+    www=dict(port=PORT, plugins=dict(), auth=util.UserPasswordAuth({"admin": "admin"})),
 )
