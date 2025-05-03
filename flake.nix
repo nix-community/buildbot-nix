@@ -24,6 +24,7 @@
           ./examples/flake-module.nix
           ./devShells/flake-module.nix
           ./nixosModules/flake-module.nix
+          ./nix/flake-module.nix
           ./checks/flake-module.nix
           ./packages/flake-module.nix
         ]
@@ -38,6 +39,5 @@
         "aarch64-linux"
         "aarch64-darwin"
       ];
-
     };
 }
