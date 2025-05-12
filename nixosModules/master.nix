@@ -678,10 +678,10 @@ in
 
     assertions = [
       {
-        assertion = lib.versionAtLeast packages.buildbot.version "4.0.0";
+        assertion = lib.versionAtLeast packages.buildbot.version "4.3.0";
         message = ''
-          `buildbot-nix` requires `buildbot` 4.0.0 or greater to function.
-          Set services.buildbot-nix.packages.buildbot to a nixpkgs with buildbot >= 4.0.0,
+          `buildbot-nix` requires `buildbot` 4.3.0 or greater to function.
+          Set services.buildbot-nix.packages.buildbot to a nixpkgs with buildbot >= 4.3.0,
           i.e. nixpkgs-unstable.
         '';
       }
