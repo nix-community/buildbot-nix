@@ -9,7 +9,7 @@ authors = [
 ]
 description = "CI effects for buildbot-nix"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = {file = "../LICENSE.md"}
 classifiers = [
     "Programming Language :: Python :: 3",
     "Development Status :: 5 - Production/Stable",
