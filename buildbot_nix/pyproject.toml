@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "buildbot-nix"
-license = {text = "MIT"}
+license = {file = "../LICENSE.md"}
 authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
