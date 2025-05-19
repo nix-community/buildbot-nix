@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "buildbot-nix"
-license = "MIT"
+license = {file = "../LICENSE.md"}
 authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
