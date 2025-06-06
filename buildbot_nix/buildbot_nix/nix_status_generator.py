@@ -95,7 +95,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
     compare_attrs: ClassVar[list[str]] = ["start_formatter", "end_formatter"]
 
     start_formatter: MessageFormatterBase
-    endj_formatter: MessageFormatterBase
+    end_formatter: MessageFormatterBase
 
     def __init__(
         self,
