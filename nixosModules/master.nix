@@ -282,6 +282,18 @@ in
           default = cfg.authBackend == "gitea";
         };
 
+        userAllowlist = lib.mkOption {
+          type = lib.types.nullOr (lib.types.listOf lib.types.str);
+          default = null;
+          description = "If non-null, specifies users/organizations that are allowed to use buildbot, i.e. buildbot-nix will ignore any repositories not owned by these users/organizations.";
+        };
+
+        repoAllowlist = lib.mkOption {
+          type = lib.types.nullOr (lib.types.listOf lib.types.str);
+          default = null;
+          description = "If non-null, specifies an explicit set of repositories that are allowed to use buildbot, i.e. buildbot-nix will ignore any repositories not in this list.";
+        };
+
         tokenFile = lib.mkOption {
           type = lib.types.path;
           description = "Gitea token file";
@@ -334,6 +346,18 @@ in
       github = {
         enable = lib.mkEnableOption "Enable GitHub integration" // {
           default = cfg.authBackend == "github";
+        };
+
+        userAllowlist = lib.mkOption {
+          type = lib.types.nullOr (lib.types.listOf lib.types.str);
+          default = null;
+          description = "If non-null, specifies users/organizations that are allowed to use buildbot, i.e. buildbot-nix will ignore any repositories not owned by these users/organizations.";
+        };
+
+        repoAllowlist = lib.mkOption {
+          type = lib.types.nullOr (lib.types.listOf lib.types.str);
+          default = null;
+          description = "If non-null, specifies an explicit set of repositories that are allowed to use buildbot, i.e. buildbot-nix will ignore any repositories not in this list.";
         };
 
         authType = lib.mkOption {
@@ -492,6 +516,7 @@ in
         default = [ ];
         description = "Users that are allowed to login to buildbot, trigger builds and change settings";
       };
+
       workersFile = lib.mkOption {
         type = lib.types.path;
         description = "File containing a list of nix workers";
@@ -712,6 +737,8 @@ in
                     null
                   else
                     {
+                      user_allowlist = cfg.gitea.userAllowlist;
+                      repo_allowlist = cfg.gitea.repoAllowlist;
                       token_file = "gitea-token";
                       webhook_secret_file = "gitea-webhook-secret";
                       project_cache_file = "gitea-project-cache.json";
@@ -727,6 +754,8 @@ in
                     null
                   else
                     {
+                      user_allowlist = cfg.github.userAllowlist;
+                      repo_allowlist = cfg.github.repoAllowlist;
                       auth_type =
                         if (cfg.github.authType ? "legacy") then
                           { token_file = "github-token"; }
