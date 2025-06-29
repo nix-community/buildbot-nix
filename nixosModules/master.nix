@@ -804,7 +804,7 @@ in
     };
 
     systemd.services.buildbot-master = {
-      after = [ "postgresql.service" ];
+      after = [ "postgresql.target" ];
       path = [ pkgs.openssl ];
       serviceConfig = {
         # in master.py we read secrets from $CREDENTIALS_DIRECTORY

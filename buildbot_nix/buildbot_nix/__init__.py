@@ -603,7 +603,6 @@ def nix_eval_config(
             env={},
             name="Evaluate effects",
             command=[
-                # fmt: off
                 "buildbot-effects",
                 "--rev",
                 util.Property("revision"),
@@ -612,7 +611,6 @@ def nix_eval_config(
                 "--repo",
                 util.Property("github.repository.html_url"),
                 "list",
-                # fmt: on
             ],
             flunkOnFailure=True,
             # TODO: support other branches?
@@ -941,7 +939,6 @@ def buildbot_effects_config(
             steps.ShellCommand(
                 name="Run effects",
                 command=[
-                    # fmt: off
                     "buildbot-effects",
                     "--rev",
                     util.Property("revision"),
@@ -953,7 +950,6 @@ def buildbot_effects_config(
                     *secrets_args,
                     "run",
                     util.Property("command"),
-                    # fmt: on
                 ],
                 logEnviron=False,
             ),
