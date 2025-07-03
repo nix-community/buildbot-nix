@@ -9,6 +9,7 @@
 buildPythonPackage {
   pname = "buildbot-gitea";
   version = "1.8.0";
+  format = "setuptools";
 
   src = fetchFromGitHub {
     owner = "Mic92";
