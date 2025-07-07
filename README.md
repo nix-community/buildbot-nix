@@ -225,6 +225,7 @@ options.
 | :-------- | :---------- | :---- | :-------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | lock file | `lock_file` | `str` | dictates which lock file `buildbot-nix` will use when evaluating your flake | `flake.lock` | have multiple lockfiles, one for `nixpkgs-stable`, one for `nixpkgs-unstable` or by default pin an input to a private repo, but have a lockfile with that private repo replaced by a public repo for CI |
 | attribute | `attribute` | `str` | which attribute in the flake to evaluate and build                          | `checks`     | using a different attribute, like `hydraJobs`                                                                                                                                                           |
+| flake_dir | `flake_dir` | `str` | which directory the flake is located                                        | `.`          | using a different flake, like `./tests`                                                                                                                                                                 |
 
 ## Binary caches
 
