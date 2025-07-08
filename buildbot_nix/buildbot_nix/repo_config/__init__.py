@@ -1,9 +1,12 @@
 import tomllib
+from pathlib import Path
 from tomllib import TOMLDecodeError
 from typing import TYPE_CHECKING, Self
 
 from buildbot.process.buildstep import BuildStep, ShellMixin
 from pydantic import BaseModel, ValidationError
+
+from buildbot_nix.errors import BuildbotNixError
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
@@ -18,6 +21,7 @@ class RepoConfig(BaseModel):
 
 
 class BranchConfig(BaseModel):
+    flake_dir: str = "."
     lock_file: str = "flake.lock"
     attribute: str = "checks"
 
@@ -43,10 +47,16 @@ class BranchConfig(BaseModel):
             )
             return cls()
         try:
-            return cls.model_validate(tomllib.loads(cmd.stdout))
+            config = cls.model_validate(tomllib.loads(cmd.stdout))
+            flake_dir = Path(config.flake_dir).resolve()
+            root_dir = Path.cwd().resolve()
+            if ":" in config.flake_dir or not flake_dir.is_relative_to(root_dir):
+                msg = f"Invalid flake_dir {config.flake_dir}"
+                raise BuildbotNixError(msg)
         except ValidationError as e:
             stdio.addStderr(f"Failed to read repository local configuration, {e}.\n")
             return cls()
         except TOMLDecodeError as e:
             stdio.addStderr(f"Failed to read repository local configuration, {e}.\n")
             return cls()
+        return config

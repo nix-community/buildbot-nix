@@ -176,7 +176,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 "--force-recurse",
                 "--check-cache-status",
                 "--flake",
-                f".#{branch_config.attribute}",
+                f"{branch_config.flake_dir}#{branch_config.attribute}",
                 *(
                     ["--reference-lock-file", branch_config.lock_file]
                     if branch_config.lock_file != "flake.lock"
