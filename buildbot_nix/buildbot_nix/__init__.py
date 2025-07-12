@@ -179,7 +179,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 "--check-cache-status",
                 *(["--show-trace"] if self.show_trace else []),
                 "--flake",
-                f".#{branch_config.attribute}",
+                f"{branch_config.flake_dir}#{branch_config.attribute}",
                 *(
                     ["--reference-lock-file", branch_config.lock_file]
                     if branch_config.lock_file != "flake.lock"
