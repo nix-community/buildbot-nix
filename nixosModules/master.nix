@@ -563,6 +563,11 @@ in
           to force the endpoint to use https:// instead of http://.
         '';
       };
+      showTrace = lib.mkOption {
+        type = lib.types.nullOr lib.types.bool;
+        default = false;
+        description = "Show stack traces on failed evaluations";
+      };
 
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
@@ -809,6 +814,7 @@ in
                 }) cfg.effects.perRepoSecretFiles;
                 branches = cfg.branches;
                 nix_workers_secret_file = "buildbot-nix-workers";
+                show_trace_on_failure = cfg.showTrace;
               }
             }").read_text()))
           )

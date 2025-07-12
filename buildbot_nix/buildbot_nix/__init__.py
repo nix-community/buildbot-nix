@@ -125,6 +125,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         worker_count: int,
         max_memory_size: int,
         drv_gcroots_dir: util.Interpolate,
+        show_trace: bool = False,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
@@ -138,6 +139,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.worker_count = worker_count
         self.max_memory_size = max_memory_size
         self.drv_gcroots_dir = drv_gcroots_dir
+        self.show_trace = show_trace
 
     async def produce_event(self, event: str, result: None | int) -> None:
         build: dict[str, Any] = await self.master.data.get(
@@ -175,6 +177,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 str(self.drv_gcroots_dir),
                 "--force-recurse",
                 "--check-cache-status",
+                *(["--show-trace"] if self.show_trace else []),
                 "--flake",
                 f".#{branch_config.attribute}",
                 *(
@@ -311,6 +314,7 @@ class CachedFailureStep(steps.BuildStep):
     post_build_steps: list[models.PostBuildStep]
     branch_config_dict: models.BranchConfigDict
     outputs_path: Path | None
+    show_trace: bool
 
     def __init__(
         self,
@@ -319,6 +323,7 @@ class CachedFailureStep(steps.BuildStep):
         post_build_steps: list[models.PostBuildStep],
         branch_config_dict: models.BranchConfigDict,
         outputs_path: Path | None,
+        show_trace: bool = False,
         **kwargs: Any,
     ) -> None:
         self.project = project
@@ -326,6 +331,7 @@ class CachedFailureStep(steps.BuildStep):
         self.post_build_steps = post_build_steps
         self.branch_config_dict = branch_config_dict
         self.outputs_path = outputs_path
+        self.show_trace = show_trace
 
         super().__init__(**kwargs)
 
@@ -349,6 +355,7 @@ class CachedFailureStep(steps.BuildStep):
                 self.post_build_steps,
                 self.branch_config_dict,
                 self.outputs_path,
+                self.show_trace,
             )
         )
         return util.SUCCESS
@@ -543,6 +550,7 @@ def nix_eval_config(
     max_memory_size: int,
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
+    show_trace: bool = False,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -583,6 +591,7 @@ def nix_eval_config(
             max_memory_size=max_memory_size,
             drv_gcroots_dir=drv_gcroots_dir,
             logEnviron=False,
+            show_trace=show_trace,
         ),
     )
 
@@ -656,6 +665,7 @@ def nix_build_steps(
     post_build_steps: list[steps.BuildStep],
     branch_config: models.BranchConfigDict,
     outputs_path: Path | None = None,
+    show_trace: bool = False,
 ) -> list[steps.BuildStep]:
     out_steps = [
         NixBuildCommand(
@@ -666,6 +676,7 @@ def nix_build_steps(
                 "nix",
                 "build",
                 "-L",
+                *(["--show-trace"] if show_trace else []),
                 "--option",
                 "keep-going",
                 "true",
@@ -723,12 +734,18 @@ def nix_build_config(
     post_build_steps: list[steps.BuildStep],
     branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
+    show_trace: bool = False,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
     factory.addSteps(
         nix_build_steps(
-            project, worker_names, post_build_steps, branch_config_dict, outputs_path
+            project,
+            worker_names,
+            post_build_steps,
+            branch_config_dict,
+            outputs_path,
+            show_trace,
         )
     )
 
@@ -795,6 +812,7 @@ def nix_cached_failure_config(
     branch_config_dict: models.BranchConfigDict,
     post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
+    show_trace: bool = False,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is cached as failed."""
     factory = util.BuildFactory()
@@ -808,6 +826,7 @@ def nix_cached_failure_config(
             name="Cached failure",
             haltOnFailure=True,
             flunkOnFailure=True,
+            show_trace=show_trace,
         ),
     )
 
@@ -980,6 +999,7 @@ def config_for_project(
     per_repo_effects_secrets: dict[str, str],
     branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
+    show_trace: bool = False,
 ) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
@@ -1086,6 +1106,7 @@ def config_for_project(
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
                 failed_builds_db=failed_builds_db,
+                show_trace=show_trace,
             ),
             nix_build_config(
                 project,
@@ -1093,6 +1114,7 @@ def config_for_project(
                 outputs_path=outputs_path,
                 branch_config_dict=branch_config_dict,
                 post_build_steps=post_build_steps,
+                show_trace=show_trace,
             ),
             buildbot_effects_config(
                 project,
@@ -1115,6 +1137,7 @@ def config_for_project(
                 branch_config_dict=branch_config_dict,
                 post_build_steps=post_build_steps,
                 outputs_path=outputs_path,
+                show_trace=show_trace,
             ),
             nix_register_gcroot_config(project, worker_names),
         ],
@@ -1334,6 +1357,7 @@ class NixConfigurator(ConfiguratorBase):
                     failed_builds_db=DB,
                     branch_config_dict=self.config.branches,
                     outputs_path=self.config.outputs_path,
+                    show_trace=self.config.show_trace_on_failure,
                 )
             except Exception:  # noqa: BLE001
                 log.failure(f"Failed to configure project {project.name}")
