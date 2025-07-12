@@ -25,7 +25,7 @@ from twisted.python import log
 from .common import (
     ThreadDeferredBuildStep,
     atomic_write_file,
-    filter_repos_by_topic,
+    filter_repos,
     http_request,
     model_dump_project_cache,
     model_validate_project_cache,
@@ -145,6 +145,8 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
     installation_token_map_name: Path
     project_id_map_name: Path
     topic: str | None
+    user_allowlist: list[str] | None
+    repo_allowlist: list[str] | None
 
     def __init__(
         self,
@@ -153,6 +155,8 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
         installation_token_map_name: Path,
         project_id_map_name: Path,
         topic: str | None,
+        user_allowlist: list[str] | None,
+        repo_allowlist: list[str] | None,
         **kwargs: Any,
     ) -> None:
         self.jwt_token = jwt_token
@@ -160,6 +164,8 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
         self.project_id_map_name = project_id_map_name
         self.project_cache_file = project_cache_file
         self.topic = topic
+        self.user_allowlist = user_allowlist
+        self.repo_allowlist = repo_allowlist
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
@@ -179,7 +185,9 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
         repos = []
 
         for k, v in installation_token_map.items():
-            new_repos = filter_repos_by_topic(
+            new_repos = filter_repos(
+                self.repo_allowlist,
+                self.user_allowlist,
                 self.topic,
                 refresh_projects(
                     v.get(),
@@ -189,6 +197,8 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
                     subkey="repositories",
                     require_admin=False,
                 ),
+                lambda repo: repo.full_name,
+                lambda repo: repo.owner.login,
                 lambda repo: repo.topics,
             )
 
@@ -259,23 +269,33 @@ class ReloadGithubProjects(ThreadDeferredBuildStep):
     token: RepoToken
     project_cache_file: Path
     topic: str | None
+    user_allowlist: list[str] | None
+    repo_allowlist: list[str] | None
 
     def __init__(
         self,
         token: RepoToken,
         project_cache_file: Path,
         topic: str | None,
+        user_allowlist: list[str] | None,
+        repo_allowlist: list[str] | None,
         **kwargs: Any,
     ) -> None:
         self.token = token
         self.project_cache_file = project_cache_file
         self.topic = topic
+        self.user_allowlist = user_allowlist
+        self.repo_allowlist = repo_allowlist
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
-        repos: list[RepoData] = filter_repos_by_topic(
+        repos: list[RepoData] = filter_repos(
+            self.repo_allowlist,
+            self.user_allowlist,
             self.topic,
             refresh_projects(self.token.get(), self.project_cache_file),
+            lambda repo: repo.full_name,
+            lambda repo: repo.owner.login,
             lambda repo: repo.topics,
         )
 
@@ -309,6 +329,8 @@ class GithubAuthBackend(ABC):
         webhook_secret: str,
         webhook_url: str,
         topic: str | None,
+        user_allowlist: list[str] | None,
+        repo_allowlist: list[str] | None,
     ) -> list[BuildStep]:
         pass
 
@@ -349,12 +371,16 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
         webhook_secret: str,
         webhook_url: str,
         topic: str | None,
+        user_allowlist: list[str] | None,
+        repo_allowlist: list[str] | None,
     ) -> list[BuildStep]:
         return [
             ReloadGithubProjects(
                 token=self.token,
                 project_cache_file=project_cache_file,
                 topic=topic,
+                user_allowlist=user_allowlist,
+                repo_allowlist=repo_allowlist,
             ),
             CreateGitHubProjectHooks(
                 token=self.token,
@@ -447,6 +473,8 @@ class GithubAppAuthBackend(GithubAuthBackend):
         webhook_secret: str,
         webhook_url: str,
         topic: str | None,
+        user_allowlist: list[str] | None,
+        repo_allowlist: list[str] | None,
     ) -> list[BuildStep]:
         return [
             ReloadGithubInstallations(
@@ -454,7 +482,9 @@ class GithubAppAuthBackend(GithubAuthBackend):
                 project_cache_file,
                 self.auth_type.installation_token_map_file,
                 self.auth_type.project_id_map_file,
-                topic,
+                topic=topic,
+                user_allowlist=user_allowlist,
+                repo_allowlist=repo_allowlist,
             ),
             CreateGitHubInstallationHooks(
                 self.jwt_token,
@@ -564,6 +594,8 @@ class GithubBackend(GitBackend):
             self.webhook_secret,
             self.webhook_url,
             self.config.topic,
+            self.config.user_allowlist,
+            self.config.repo_allowlist,
         )
         for step in steps:
             factory.addStep(step)
@@ -610,12 +642,16 @@ class GithubBackend(GitBackend):
         if not self.config.project_cache_file.exists():
             return []
 
-        repos: list[RepoData] = filter_repos_by_topic(
+        repos: list[RepoData] = filter_repos(
+            self.config.repo_allowlist,
+            self.config.user_allowlist,
             self.config.topic,
             sorted(
                 model_validate_project_cache(RepoData, self.config.project_cache_file),
                 key=lambda repo: repo.full_name,
             ),
+            lambda repo: repo.full_name,
+            lambda repo: repo.owner.login,
             lambda repo: repo.topics,
         )
 
