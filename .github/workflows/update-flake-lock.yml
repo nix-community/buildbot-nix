@@ -4,9 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "38 0 * * 0,4"
-permissions:
-  pull-requests: write
-  contents: write
 jobs:
   createPullRequest:
     runs-on: ubuntu-latest
@@ -14,10 +11,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Nix
         uses: cachix/install-nix-action@v31
+      - name: Create GitHub App token
+        uses: actions/create-github-app-token@v2
+        id: app-token
         with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - name: Update flake.lock
         uses: DeterminateSystems/update-flake-lock@v26
-        with:
-          pr-labels: | # Labels to be set on the PR
-            merge-queue
+        id: pr
+      - name: Enable Automerge
+        run: gh pr merge --auto --merge ${{ steps.pr.outputs.pull-request-number }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
