@@ -19,20 +19,19 @@
   outputs =
     inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      imports =
-        [
-          ./examples/flake-module.nix
-          ./devShells/flake-module.nix
-          ./nixosModules/flake-module.nix
-          ./nix/flake-module.nix
-          ./checks/flake-module.nix
-          ./packages/flake-module.nix
-        ]
-        ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./formatter/flake-module.nix
-        ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
-          inputs.hercules-ci-effects.flakeModule
-          ./herculesCI/flake-module.nix
-        ];
+      imports = [
+        ./examples/flake-module.nix
+        ./devShells/flake-module.nix
+        ./nixosModules/flake-module.nix
+        ./nix/flake-module.nix
+        ./checks/flake-module.nix
+        ./packages/flake-module.nix
+      ]
+      ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./formatter/flake-module.nix
+      ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
+        inputs.hercules-ci-effects.flakeModule
+        ./herculesCI/flake-module.nix
+      ];
 
       systems = [
         "x86_64-linux"
