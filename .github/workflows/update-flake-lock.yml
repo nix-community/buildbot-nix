@@ -20,7 +20,7 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
       - name: Update flake.lock
-        uses: DeterminateSystems/update-flake-lock@v26
+        uses: DeterminateSystems/update-flake-lock@v27
         id: pr
       - name: Enable Automerge
         run: gh pr merge --auto --merge ${{ steps.pr.outputs.pull-request-number }}
