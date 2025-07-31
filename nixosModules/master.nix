@@ -843,29 +843,30 @@ in
       path = [ pkgs.openssl ];
       serviceConfig = {
         # in master.py we read secrets from $CREDENTIALS_DIRECTORY
-        LoadCredential =
-          [ "buildbot-nix-workers:${cfg.workersFile}" ]
-          ++ lib.optionals cfg.github.enable (
-            [ "github-webhook-secret:${cfg.github.webhookSecretFile}" ]
-            ++ lib.optional (
-              cfg.github.authType ? "legacy"
-            ) "github-token:${cfg.github.authType.legacy.tokenFile}"
-            ++ lib.optional (
-              cfg.github.authType ? "app"
-            ) "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
-          )
-          ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
-          ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
-          ++ lib.optionals cfg.gitea.enable [
-            "gitea-token:${cfg.gitea.tokenFile}"
-            "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
-          ]
-          ++ lib.mapAttrsToList (
-            repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
-          ) cfg.effects.perRepoSecretFiles
-          ++ lib.mapAttrsToList (
-            repoName: repo: "pull-based__${cleanUpRepoName repoName}:${repo.sshPrivateKeyFile}"
-          ) (lib.filterAttrs (_: repo: repo.sshPrivateKeyFile != null) cfg.pullBased.repositories);
+        LoadCredential = [
+          "buildbot-nix-workers:${cfg.workersFile}"
+        ]
+        ++ lib.optionals cfg.github.enable (
+          [ "github-webhook-secret:${cfg.github.webhookSecretFile}" ]
+          ++ lib.optional (
+            cfg.github.authType ? "legacy"
+          ) "github-token:${cfg.github.authType.legacy.tokenFile}"
+          ++ lib.optional (
+            cfg.github.authType ? "app"
+          ) "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
+        )
+        ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
+        ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
+        ++ lib.optionals cfg.gitea.enable [
+          "gitea-token:${cfg.gitea.tokenFile}"
+          "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
+        ]
+        ++ lib.mapAttrsToList (
+          repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
+        ) cfg.effects.perRepoSecretFiles
+        ++ lib.mapAttrsToList (
+          repoName: repo: "pull-based__${cleanUpRepoName repoName}:${repo.sshPrivateKeyFile}"
+        ) (lib.filterAttrs (_: repo: repo.sshPrivateKeyFile != null) cfg.pullBased.repositories);
         RuntimeDirectory = "buildbot-master";
       };
     };
@@ -883,30 +884,29 @@ in
 
     services.nginx.enable = true;
     services.nginx.virtualHosts.${cfg.domain} = {
-      locations =
-        {
-          "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
-          "/sse" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
-            # proxy buffering will prevent sse to work
-            extraConfig = "proxy_buffering off;";
-          };
-          "/ws" = {
-            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
-            proxyWebsockets = true;
-            # raise the proxy timeout for the websocket
-            extraConfig = "proxy_read_timeout 6000s;";
-          };
-        }
-        // lib.optionalAttrs (cfg.outputsPath != null) {
-          "/nix-outputs/" = {
-            alias = cfg.outputsPath;
-            extraConfig = ''
-              charset utf-8;
-              autoindex on;
-            '';
-          };
+      locations = {
+        "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
+        "/sse" = {
+          proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
+          # proxy buffering will prevent sse to work
+          extraConfig = "proxy_buffering off;";
         };
+        "/ws" = {
+          proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
+          proxyWebsockets = true;
+          # raise the proxy timeout for the websocket
+          extraConfig = "proxy_read_timeout 6000s;";
+        };
+      }
+      // lib.optionalAttrs (cfg.outputsPath != null) {
+        "/nix-outputs/" = {
+          alias = cfg.outputsPath;
+          extraConfig = ''
+            charset utf-8;
+            autoindex on;
+          '';
+        };
+      };
     };
 
     systemd.tmpfiles.rules =
