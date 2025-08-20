@@ -26,8 +26,9 @@ class PullBasedProject(GitProject):
         default_branch: str,
         poll_interval: int,
         poll_spread: int,
-        ssh_private_key: str | None,
         ssh_known_hosts: str | None,
+        ssh_private_key: str | None,
+        ssh_private_key_file: Path | None = None,
         **kwargs: Any,
     ) -> None:
         self.parsed_url = urlparse(url)
@@ -36,8 +37,9 @@ class PullBasedProject(GitProject):
         self._default_branch = default_branch
         self.poll_interval = poll_interval
         self.poll_spread = poll_spread
-        self.ssh_private_key = ssh_private_key
         self.ssh_known_hosts = ssh_known_hosts
+        self.ssh_private_key = ssh_private_key
+        self.ssh_private_key_file = ssh_private_key_file
         super().__init__(**kwargs)
 
     def get_project_url(self) -> str:
@@ -103,7 +105,7 @@ class PullBasedProject(GitProject):
 
     @property
     def private_key_path(self) -> Path | None:
-        return None
+        return self.ssh_private_key_file
 
     @property
     def known_hosts_path(self) -> Path | None:
