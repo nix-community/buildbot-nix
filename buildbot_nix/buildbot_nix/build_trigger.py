@@ -125,7 +125,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         if self.running and not self.ended:
             self.ended = True
             # if we are interrupted because of a connection lost, we interrupt synchronously
-            if self.build.conn is None and self.wait_for_finish_deferred is not None:
+            if (
+                self.build
+                and self.build.conn is None
+                and self.wait_for_finish_deferred is not None
+            ):
                 self.wait_for_finish_deferred.cancel()
 
     def get_scheduler_by_name(self, name: str) -> Triggerable:
@@ -232,7 +236,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             waited_for=True,
             sourcestamps=ss_for_trigger,
             set_props=props,
-            parent_buildid=self.build.buildid,
+            parent_buildid=self.build.buildid if self.build else None,
             parent_relationship="Triggered from",
         )
 
@@ -278,7 +282,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         dict[str, Any]
     ]:  # TODO: ISourceStamp? its defined but never used anywhere an doesn't include `asDict` method
         ss_for_trigger = {}
-        objs_from_build = self.build.getAllSourceStamps()
+        objs_from_build = self.build.getAllSourceStamps() if self.build else []
         for ss in objs_from_build:
             ss_for_trigger[ss.codebase] = ss.asDict()
 
@@ -340,15 +344,16 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         reports. The reporting is based on custom events and logic, see `BuildNixEvalStatusGenerator` for
         the receiving side.
         """
-        await CombinedBuildEvent.produce_event_for_build(
-            self.master, CombinedBuildEvent.STARTED_NIX_BUILD, self.build, None
-        )
+        if self.build:
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master, CombinedBuildEvent.STARTED_NIX_BUILD, self.build, None
+            )
 
         done: list[BuildTrigger.DoneJob] = []
         scheduled: list[BuildTrigger.ScheduledJob] = []
 
         self.running = True
-        build_props = self.build.getProperties()
+        build_props = self.build.getProperties() if self.build else Properties()
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
         scheduler_log: StreamLog = await self.addLog("scheduler")
 
@@ -394,7 +399,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 failed_build = self.failed_builds_db.check_build(build.drvPath)
                 if job_closures.get(build.drvPath):
                     pass
-                elif failed_build is not None and self.build.reason != "rebuild":
+                elif (
+                    failed_build is not None
+                    and self.build
+                    and self.build.reason != "rebuild"
+                ):
                     scheduler_log.addStdout(
                         f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
                         f"\t  see build at {failed_build.url}\n"
@@ -409,7 +418,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         BuildTrigger.ScheduledJob(build, brids, results_deferred)
                     )
                     self.brids.extend(brids.values())
-                elif failed_build is not None and self.build.reason == "rebuild":
+                elif (
+                    failed_build is not None
+                    and self.build
+                    and self.build.reason == "rebuild"
+                ):
                     self.failed_builds_db.remove_build(build.drvPath)
                     scheduler_log.addStdout(
                         f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
@@ -470,10 +483,10 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             if isinstance(job, NixEvalJobSuccess):
                 if result != SUCCESS:
                     if (
-                        self.build.reason == "rebuild"
+                        (self.build and self.build.reason == "rebuild")
                         or not self.failed_builds_db.check_build(job.drvPath)
                     ) and result == util.FAILURE:
-                        url = await self.build.getUrl()
+                        url = await self.build.getUrl() if self.build else ""
                         self.failed_builds_db.add_build(
                             job.drvPath, datetime.now(tz=UTC), url
                         )
@@ -513,12 +526,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         while self.update_result_futures:
             await self.update_result_futures.pop()
 
-        await CombinedBuildEvent.produce_event_for_build(
-            self.master,
-            CombinedBuildEvent.FINISHED_NIX_BUILD,
-            self.build,
-            overall_result,
-        )
+        if self.build:
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master,
+                CombinedBuildEvent.FINISHED_NIX_BUILD,
+                self.build,
+                overall_result,
+            )
         scheduler_log.addStdout("Done!\n")
         return overall_result
 

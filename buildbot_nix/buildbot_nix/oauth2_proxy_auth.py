@@ -3,6 +3,7 @@ import typing
 from typing import Any, ClassVar
 
 from buildbot.util import bytes2unicode, unicode2bytes
+from buildbot.util.twisted import async_to_deferred
 from buildbot.www.auth import AuthBase, UserInfoProviderBase
 from twisted.logger import Logger
 from twisted.web.error import Error
@@ -31,6 +32,7 @@ class OAuth2ProxyAuth(AuthBase):
     def getLogoutResource(self) -> IResource:  # noqa: N802
         return typing.cast("IResource", Redirect(b"/oauth2/sign_out"))
 
+    @async_to_deferred
     async def maybeAutoLogin(  # noqa: N802
         self, request: Request
     ) -> None:

@@ -142,6 +142,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         self.show_trace = show_trace
 
     async def produce_event(self, event: str, result: None | int) -> None:
+        if not self.build:
+            return
         build: dict[str, Any] = await self.master.data.get(
             ("builds", str(self.build.buildid))
         )
@@ -191,9 +193,10 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         # if the command passes extract the list of stages
         result = cmd.results()
-        await CombinedBuildEvent.produce_event_for_build(
-            self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result
-        )
+        if self.build:
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result
+            )
         if result == util.SUCCESS:
             # create a ShellCommand for each stage and add them to the build
             jobs: list[NixEvalJob] = []
@@ -221,26 +224,27 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
             self.number_of_jobs = len(successful_jobs)
 
-            self.build.addStepsAfterCurrentStep(
-                [
-                    BuildTrigger(
-                        project=self.project,
-                        builds_scheduler=f"{self.project.project_id}-nix-build",
-                        skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
-                        failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
-                        dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
-                        cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
-                        name="build flake",
-                        successful_jobs=successful_jobs,
-                        failed_jobs=failed_jobs,
-                        combine_builds=(
-                            self.job_report_limit is not None
-                            and self.number_of_jobs > self.job_report_limit
+            if self.build:
+                self.build.addStepsAfterCurrentStep(
+                    [
+                        BuildTrigger(
+                            project=self.project,
+                            builds_scheduler=f"{self.project.project_id}-nix-build",
+                            skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
+                            failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
+                            dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
+                            cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
+                            name="build flake",
+                            successful_jobs=successful_jobs,
+                            failed_jobs=failed_jobs,
+                            combine_builds=(
+                                self.job_report_limit is not None
+                                and self.number_of_jobs > self.job_report_limit
+                            ),
+                            failed_builds_db=self.failed_builds_db,
                         ),
-                        failed_builds_db=self.failed_builds_db,
-                    ),
-                ]
-            )
+                    ]
+                )
 
         return result
 
@@ -266,16 +270,17 @@ class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
             # create a ShellCommand for each stage and add them to the build
             effects = json.loads(self.observer.getStdout())
 
-            self.build.addStepsAfterCurrentStep(
-                [
-                    BuildbotEffectsTrigger(
-                        project=self.project,
-                        effects_scheduler=f"{self.project.project_id}-run-effect",
-                        name="Buildbot effect",
-                        effects=effects,
-                    ),
-                ],
-            )
+            if self.build:
+                self.build.addStepsAfterCurrentStep(
+                    [
+                        BuildbotEffectsTrigger(
+                            project=self.project,
+                            effects_scheduler=f"{self.project.project_id}-run-effect",
+                            name="Buildbot effect",
+                            effects=effects,
+                        ),
+                    ],
+                )
 
         return result
 
@@ -336,7 +341,7 @@ class CachedFailureStep(steps.BuildStep):
         super().__init__(**kwargs)
 
     async def run(self) -> int:
-        if self.build.reason != "rebuild":
+        if self.build and self.build.reason != "rebuild":
             attr = self.getProperty("attr")
             # show eval error
             error_log: StreamLog = await self.addLog("nix_error")
@@ -369,7 +374,11 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         super().__init__(**kwargs)
 
     async def run(self) -> int:
-        if self.build.reason == "rebuild" and not self.getProperty("combine_builds"):
+        if (
+            self.build
+            and self.build.reason == "rebuild"
+            and not self.getProperty("combine_builds")
+        ):
             await CombinedBuildEvent.produce_event_for_build(
                 self.master, CombinedBuildEvent.STARTED_NIX_BUILD, self.build, None
             )
@@ -380,7 +389,11 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
 
         res = cmd.results()
 
-        if self.build.reason == "rebuild" and not self.getProperty("combine_builds"):
+        if (
+            self.build
+            and self.build.reason == "rebuild"
+            and not self.getProperty("combine_builds")
+        ):
             await CombinedBuildEvent.produce_event_for_build(
                 self.master, CombinedBuildEvent.FINISHED_NIX_BUILD, self.build, res
             )

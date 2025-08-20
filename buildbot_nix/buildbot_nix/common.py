@@ -9,12 +9,12 @@ from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
-    from buildbot.process.log import StreamLog
     from pydantic import BaseModel
 
 
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
+from buildbot.util.twisted import async_to_deferred
 from twisted.internet import threads
 from twisted.python.failure import Failure
 
@@ -156,6 +156,7 @@ class ThreadDeferredBuildStep(BuildStep, ABC):
     def run_post(self) -> Any:
         pass
 
+    @async_to_deferred
     async def run(self) -> int:
         d = threads.deferToThread(self.run_deferred)  # type: ignore[no-untyped-call]
 
@@ -169,8 +170,8 @@ class ThreadDeferredBuildStep(BuildStep, ABC):
         res = await d
         if res == util.SUCCESS:
             return self.run_post()
-        log: StreamLog = await self.addLog("log")
-        log.addStderr(f"Failed to reload project list: {self.error_msg}")
+        log = await self.addLog("log")
+        log.addStderr(f"Failed to reload project list: {self.error_msg}")  # type: ignore[attr-defined]
         return util.FAILURE
 
 
