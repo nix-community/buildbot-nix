@@ -1,18 +1,15 @@
 import tomllib
 from pathlib import Path
 from tomllib import TOMLDecodeError
-from typing import TYPE_CHECKING, Self
+from typing import Self
 
 from buildbot.process.buildstep import BuildStep, ShellMixin
 from pydantic import BaseModel, ValidationError
 
 from buildbot_nix.errors import BuildbotNixError
 
-if TYPE_CHECKING:
-    from buildbot.process.log import StreamLog
 
-
-class BuildStepShellMixin(BuildStep, ShellMixin):
+class BuildStepShellMixin(BuildStep, ShellMixin):  # type: ignore[misc]
     pass
 
 
@@ -27,11 +24,11 @@ class BranchConfig(BaseModel):
 
     @classmethod
     async def extract_during_step(cls, buildstep: BuildStepShellMixin) -> Self:
-        stdio: StreamLog = await buildstep.addLog("stdio")
+        stdio = await buildstep.addLog("stdio")
         cmd = await buildstep.makeRemoteShellCommand(
             collectStdout=True,
             collectStderr=True,
-            stdioLogName=None,
+            stdioLogName="stdio",
             # TODO: replace this with something like buildbot.steps.transfer.StringUpload
             # in the future... this one doesn't not exist yet.
             command=[
@@ -42,7 +39,7 @@ class BranchConfig(BaseModel):
         )
         await buildstep.runCommand(cmd)
         if cmd.didFail():
-            stdio.addStderr(
+            stdio.addStderr(  # type: ignore[attr-defined]
                 f"Failed to read repository local configuration, {cmd.stderr}.\n"
             )
             return cls()
@@ -54,9 +51,13 @@ class BranchConfig(BaseModel):
                 msg = f"Invalid flake_dir {config.flake_dir}"
                 raise BuildbotNixError(msg)
         except ValidationError as e:
-            stdio.addStderr(f"Failed to read repository local configuration, {e}.\n")
+            stdio.addStderr(  # type: ignore[attr-defined]
+                f"Failed to read repository local configuration, {e}.\n"
+            )
             return cls()
         except TOMLDecodeError as e:
-            stdio.addStderr(f"Failed to read repository local configuration, {e}.\n")
+            stdio.addStderr(  # type: ignore[attr-defined]
+                f"Failed to read repository local configuration, {e}.\n"
+            )
             return cls()
         return config
