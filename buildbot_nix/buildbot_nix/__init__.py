@@ -354,14 +354,20 @@ class CachedFailureStep(steps.BuildStep):
                 error_log.addStderr("\n".join(msg) + "\n")
             return util.FAILURE
         self.build.addStepsAfterCurrentStep(
-            nix_build_steps(
-                self.project,
-                self.worker_names,
-                self.post_build_steps,
-                self.branch_config_dict,
-                self.outputs_path,
-                self.show_trace,
-            )
+            [
+                Trigger(
+                    name="Rebuild cached failure",
+                    waitForFinish=True,
+                    schedulerNames=[f"{self.project.project_id}-rebuild"],
+                    haltOnFailure=True,
+                    flunkOnFailure=True,
+                    sourceStamps=[],
+                    alwaysUseLatest=False,
+                    updateSourceStamp=False,
+                    copy_properties=["attr", "system", "branch", "revision"],
+                    set_properties={"reason": "rebuild"},
+                )
+            ]
         )
         return util.SUCCESS
 
@@ -1087,6 +1093,11 @@ def config_for_project(
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-register-gcroot",
                 builderNames=[f"{project.name}/nix-register-gcroot"],
+            ),
+            # this is triggered from cached failure rebuilds
+            schedulers.Triggerable(
+                name=f"{project.project_id}-rebuild",
+                builderNames=[f"{project.name}/nix-eval"],
             ),
             # allow to manually trigger a nix-build
             schedulers.ForceScheduler(
