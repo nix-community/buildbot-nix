@@ -1,4 +1,4 @@
-import dbm
+import dbm.gnu as dbm
 from datetime import datetime
 from pathlib import Path
 
