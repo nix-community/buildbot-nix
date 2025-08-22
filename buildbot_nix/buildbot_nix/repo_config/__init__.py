@@ -28,7 +28,7 @@ class BranchConfig(BaseModel):
         cmd = await buildstep.makeRemoteShellCommand(
             collectStdout=True,
             collectStderr=True,
-            stdioLogName="stdio",
+            stdioLogName=None,
             # TODO: replace this with something like buildbot.steps.transfer.StringUpload
             # in the future... this one doesn't not exist yet.
             command=[
