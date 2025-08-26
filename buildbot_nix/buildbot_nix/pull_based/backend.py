@@ -47,8 +47,9 @@ class PullBasedBacked(GitBackend):
                     name=name,
                     poll_interval=repo.poll_interval,
                     poll_spread=self.config.poll_spread or 0,
-                    ssh_private_key=repo.ssh_private_key,
                     ssh_known_hosts=repo.ssh_known_hosts,
+                    ssh_private_key=repo.ssh_private_key,
+                    ssh_private_key_file=repo.ssh_private_key_file,
                 )
             )
         return ret
