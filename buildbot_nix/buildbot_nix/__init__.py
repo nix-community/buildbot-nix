@@ -168,6 +168,9 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             stdioLogName="stdio",
             command=[
                 "nix-eval-jobs",
+                "--option",
+                "eval-cache",
+                "false",
                 "--workers",
                 str(self.worker_count),
                 "--max-memory-size",
