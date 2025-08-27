@@ -38,7 +38,7 @@ Buildbot masters and workers can be deployed either on the same machine or on
 separate machines. To support multiple architectures, configure them as
 [nix remote builders](https://nixos.org/manual/nix/stable/advanced-topics/distributed-builds).
 For a practical NixOS example, see
-[this remote builder configuration](https://github.com/Mic92/dotfiles/blob/main/nixos/eve/modules/remote-builder.nix).
+[this remote builder configuration](https://github.com/Mic92/dotfiles/blob/main/machines/eve/modules/remote-builder.nix).
 
 ## Using `buildbot` with NixOS 24.05 (stable release)
 
