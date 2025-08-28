@@ -31,6 +31,8 @@ examples:
   [master module](./nix/master.nix).
 - Understand how to set up a Buildbot worker in
   [worker module](./nix/worker.nix).
+- For local development, see
+  [Local Development Guide](./docs/LOCAL_DEVELOPMENT.md).
 
 Additionally, you can find real-world examples at the end of this document.
 
