@@ -81,7 +81,7 @@ def http_request(
     headers = headers.copy()
     headers["User-Agent"] = "buildbot-nix"
 
-    if not (url.startswith("https:") or url.startswith("http:")):
+    if not (url.startswith(("https:", "http:"))):
         msg = f"url must be http or https: {url}"
         raise HttpError(msg)
 

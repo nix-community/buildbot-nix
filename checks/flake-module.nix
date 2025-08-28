@@ -29,6 +29,7 @@
           worker = import ./worker.nix checkArgs;
           effects = import ./effects.nix checkArgs;
           poller = import ./poller.nix checkArgs;
+          gitea = import ./gitea.nix checkArgs;
         };
     };
 }
