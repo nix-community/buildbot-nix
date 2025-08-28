@@ -41,6 +41,7 @@ buildbot_nix_config = BuildbotNixConfig(
     webhook_base_url=url,
     url=url,
     gcroots_dir=gcroots_dir,
+    gcroots_user=getpass.getuser(),
     admins=["admin"],
 )
 

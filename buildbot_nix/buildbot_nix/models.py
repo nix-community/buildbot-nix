@@ -284,6 +284,7 @@ class BuildbotNixConfig(BaseModel):
     job_report_limit: int | None = None
     http_basic_auth_password_file: Path | None = None
     branches: BranchConfigDict = BranchConfigDict({})
+    gcroots_user: str = "buildbot-worker"
 
     nix_workers_secret_file: Path | None = None
     effects_per_repo_secrets: dict[str, str] = {}
