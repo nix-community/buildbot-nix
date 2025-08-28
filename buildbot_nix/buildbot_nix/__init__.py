@@ -572,6 +572,7 @@ def nix_eval_config(
     max_memory_size: int,
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
+    gcroots_user: str = "buildbot-worker",
     show_trace: bool = False,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
@@ -596,7 +597,7 @@ def nix_eval_config(
         ),
     )
     drv_gcroots_dir = util.Interpolate(
-        "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/drvs/",
+        f"/nix/var/nix/gcroots/per-user/{gcroots_user}/%(prop:project)s/drvs/",
     )
 
     factory.addStep(
@@ -662,10 +663,12 @@ def nix_eval_config(
 
 @async_to_deferred
 async def do_register_gcroot_if(
-    s: steps.BuildStep | Build, branch_config: models.BranchConfigDict
+    s: steps.BuildStep | Build,
+    branch_config: models.BranchConfigDict,
+    gcroots_user: str,
 ) -> bool:
     gc_root = await util.Interpolate(
-        "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s"
+        f"/nix/var/nix/gcroots/per-user/{gcroots_user}/%(prop:project)s/%(prop:attr)s"
     ).getRenderingFor(s.getProperties())
     out_path = s.getProperty("out_path")
 
@@ -686,6 +689,7 @@ def nix_build_steps(
     worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
     branch_config: models.BranchConfigDict,
+    gcroots_user: str = "buildbot-worker",
     outputs_path: Path | None = None,
     show_trace: bool = False,
 ) -> list[steps.BuildStep]:
@@ -726,7 +730,7 @@ def nix_build_steps(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=lambda s: do_register_gcroot_if(s, branch_config),
+            doStepIf=lambda s: do_register_gcroot_if(s, branch_config, gcroots_user),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
@@ -755,6 +759,7 @@ def nix_build_config(
     worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
     branch_config_dict: models.BranchConfigDict,
+    gcroots_user: str = "buildbot-worker",
     outputs_path: Path | None = None,
     show_trace: bool = False,
 ) -> BuilderConfig:
@@ -766,6 +771,7 @@ def nix_build_config(
             worker_names,
             post_build_steps,
             branch_config_dict,
+            gcroots_user,
             outputs_path,
             show_trace,
         )
@@ -866,6 +872,7 @@ def nix_skipped_build_config(
     project: GitProject,
     worker_names: list[str],
     branch_config_dict: models.BranchConfigDict,
+    gcroots_user: str = "buildbot-worker",
     outputs_path: Path | None = None,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is skipped."""
@@ -890,7 +897,9 @@ def nix_skipped_build_config(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=lambda s: do_register_gcroot_if(s, branch_config_dict),
+            doStepIf=lambda s: do_register_gcroot_if(
+                s, branch_config_dict, gcroots_user
+            ),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
@@ -911,7 +920,9 @@ def nix_skipped_build_config(
         collapseRequests=False,
         env={},
         factory=factory,
-        do_build_if=lambda build: do_register_gcroot_if(build, branch_config_dict)
+        do_build_if=lambda build: do_register_gcroot_if(
+            build, branch_config_dict, gcroots_user
+        )
         and outputs_path is not None,
     )
 
@@ -919,6 +930,7 @@ def nix_skipped_build_config(
 def nix_register_gcroot_config(
     project: GitProject,
     worker_names: list[str],
+    gcroots_user: str = "buildbot-worker",
 ) -> BuilderConfig:
     factory = util.BuildFactory()
 
@@ -931,7 +943,7 @@ def nix_register_gcroot_config(
                 "--add-root",
                 # FIXME: cleanup old build attributes
                 util.Interpolate(
-                    "/nix/var/nix/gcroots/per-user/buildbot-worker/%(prop:project)s/%(prop:attr)s",
+                    f"/nix/var/nix/gcroots/per-user/{gcroots_user}/%(prop:project)s/%(prop:attr)s",
                 ),
                 "-r",
                 util.Property("out_path"),
@@ -1018,6 +1030,7 @@ def config_for_project(
     post_build_steps: list[steps.BuildStep],
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
+    gcroots_user: str,
     per_repo_effects_secrets: dict[str, str],
     branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
@@ -1133,6 +1146,7 @@ def config_for_project(
                 max_memory_size=nix_eval_max_memory_size,
                 eval_lock=eval_lock,
                 failed_builds_db=failed_builds_db,
+                gcroots_user=gcroots_user,
                 show_trace=show_trace,
             ),
             nix_build_config(
@@ -1141,6 +1155,7 @@ def config_for_project(
                 outputs_path=outputs_path,
                 branch_config_dict=branch_config_dict,
                 post_build_steps=post_build_steps,
+                gcroots_user=gcroots_user,
                 show_trace=show_trace,
             ),
             buildbot_effects_config(
@@ -1153,6 +1168,7 @@ def config_for_project(
                 project=project,
                 worker_names=SKIPPED_BUILDER_NAMES,
                 branch_config_dict=branch_config_dict,
+                gcroots_user=gcroots_user,
                 outputs_path=outputs_path,
             ),
             nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
@@ -1166,7 +1182,7 @@ def config_for_project(
                 outputs_path=outputs_path,
                 show_trace=show_trace,
             ),
-            nix_register_gcroot_config(project, worker_names),
+            nix_register_gcroot_config(project, worker_names, gcroots_user),
         ],
     )
 
@@ -1382,6 +1398,7 @@ class NixConfigurator(ConfiguratorBase):
                     job_report_limit=self.config.job_report_limit,
                     per_repo_effects_secrets=self.config.effects_per_repo_secrets,
                     failed_builds_db=DB,
+                    gcroots_user=self.config.gcroots_user,
                     branch_config_dict=self.config.branches,
                     outputs_path=self.config.outputs_path,
                     show_trace=self.config.show_trace_on_failure,
