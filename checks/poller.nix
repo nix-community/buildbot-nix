@@ -122,7 +122,7 @@
             git config user.name 'Test User'
             git config user.email 'test@example.com'
 
-            # Create a minimal flake with checks that doesn't require network
+            # Create a minimal flake with checks and effects that doesn't require network
             cat > flake.nix << 'EOF'
             {
               outputs = { self }: {
@@ -131,6 +131,19 @@
                   system = "${pkgs.stdenv.hostPlatform.system}";
                   builder = "/bin/sh";
                   args = [ "-c" "echo 'Hello from test' > $out" ];
+                };
+
+                herculesCI = { ... }: {
+                  onPush.default.outputs.effects = {
+                    test-effect = {
+                      type = "derivation";
+                      name = "test-effect";
+                      system = "${pkgs.stdenv.hostPlatform.system}";
+                      builder = "/bin/sh";
+                      args = [ "-c" "echo 'Effect executed successfully!' > $out" ];
+                      outputs = [ "out" ];
+                    };
+                  };
                 };
               };
             }
