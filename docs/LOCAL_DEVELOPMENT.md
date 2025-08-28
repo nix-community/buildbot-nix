@@ -58,9 +58,31 @@ nix run .#flake-fmt
 
 # Type checking
 nix develop -c mypy buildbot_nix
+```
 
-# Python tests
-nix develop -c pytest
+# Debugging NixOS Tests
+
+## Quick Start
+
+Build and run test driver with port forwarding:
+
+```bash
+nix build .#checks.x86_64-linux.poller.driver
+QEMU_NET_OPTS="hostfwd=tcp:127.0.0.1:8010-:8010" ./result/bin/nixos-test-driver
+```
+
+Access Buildbot web UI at http://localhost:8010
+
+## Using Breakpoints
+
+Add `breakpoint()` in test script to pause execution:
+
+```python
+testScript = ''
+    buildbot.wait_for_unit("buildbot-master.service")
+    breakpoint()  # Drops into Python debugger
+    # Continue with 'c', quit with 'q'
+''
 ```
 
 ## Cleanup
@@ -72,5 +94,4 @@ rm -rf .buildbot-dev
 ## Troubleshooting
 
 - **Port conflict**: Change `PORT = 8012` in `packages/master.cfg.py`
-- **Build failures**: Check `systemctl status nix-daemon`
-- **Logs**: See `.buildbot-dev/twistd.log`
+- **Logs**: See `.buildbot-dev/twistd.log` or console
