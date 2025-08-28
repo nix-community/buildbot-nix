@@ -73,6 +73,15 @@ QEMU_NET_OPTS="hostfwd=tcp:127.0.0.1:8010-:8010" ./result/bin/nixos-test-driver
 
 Access Buildbot web UI at http://localhost:8010
 
+For the Gitea integration test:
+
+```bash
+nix build .#checks.x86_64-linux.gitea.driver
+QEMU_NET_OPTS="hostfwd=tcp:127.0.0.1:8010-:8010,hostfwd=tcp:127.0.0.1:3742-:3742" ./result/bin/nixos-test-driver
+```
+
+Access Buildbot at http://localhost:8010 and Gitea at http://localhost:3742
+
 ## Using Breakpoints
 
 Add `breakpoint()` in test script to pause execution:
