@@ -70,6 +70,17 @@ class NixLocalWorker(worker.LocalWorker):
         self.remote_worker.bot.max_line_length = 10485760  # 10MB
 
 
+
+class NixLocalWorker(worker.LocalWorker):
+    """LocalWorker with increased max_line_length for nix-eval-jobs output."""
+
+    @async_to_deferred
+    async def reconfigService(self, name: str, **kwargs: Any) -> None:
+        # First do the normal reconfiguration
+        await super().reconfigService(name, **kwargs)
+        self.remote_worker.bot.max_line_length = 10485760  # 10MB
+
+
 log = Logger()
 
 
