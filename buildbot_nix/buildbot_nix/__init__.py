@@ -58,6 +58,16 @@ SKIPPED_BUILDER_NAMES = [
     f"skipped-builds-{n:03}" for n in range(int(max(4, int(cpu_count() * 0.25))))
 ]
 
+class NixLocalWorker(worker.LocalWorker):
+    """LocalWorker with increased max_line_length for nix-eval-jobs output."""
+
+    @async_to_deferred
+    async def reconfigService(self, name: str, **kwargs: Any) -> None:
+        # First do the normal reconfiguration
+        await super().reconfigService(name, **kwargs)
+        self.remote_worker.bot.max_line_length = 10485760  # 10MB
+
+
 log = Logger()
 
 
@@ -1365,7 +1375,8 @@ class NixConfigurator(ConfiguratorBase):
 
         for i in range(self.config.local_workers):
             worker_name = f"local-{i}"
-            config["workers"].append(worker.LocalWorker(worker_name))
+            local_worker = NixLocalWorker(worker_name)
+            config["workers"].append(local_worker)
             worker_names.append(worker_name)
 
         if worker_names == []:
