@@ -9,7 +9,7 @@ from buildbot.plugins import steps, util
 from buildbot.process import buildstep
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, SUCCESS, statusToString, worst_status
-from buildbot.reporters.utils import getURLForBuildrequest
+from buildbot.reporters.utils import getURLForBuild, getURLForBuildrequest
 from buildbot.schedulers.triggerable import Triggerable
 from twisted.internet import defer
 from twisted.python.failure import Failure
@@ -486,7 +486,21 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                         (self.build and self.build.reason == "rebuild")
                         or not self.failed_builds_db.check_build(job.drvPath)
                     ) and result == util.FAILURE:
-                        url = await self.build.getUrl() if self.build else ""
+                        # Get the URL of the actual failed build, not the parent
+                        url = ""
+                        for brid in brids.values():
+                            builds: list[
+                                BuildModel
+                            ] = await self.master.db.builds.getBuilds(
+                                buildrequestid=brid
+                            )
+                            for db_build in builds:
+                                url = getURLForBuild(
+                                    self.master, db_build.builderid, db_build.number
+                                )
+                                break  # We only need the first build's URL
+                            if url:
+                                break
                         self.failed_builds_db.add_build(
                             job.drvPath, datetime.now(tz=UTC), url
                         )
