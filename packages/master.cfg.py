@@ -5,6 +5,8 @@ from buildbot_nix import (
 )
 import getpass
 import os
+import platform
+import subprocess
 import multiprocessing
 from buildbot.plugins import util
 from buildbot.process.factory import BuildFactory
@@ -17,20 +19,76 @@ class EvalWorkerConfig:
     max_memory_mib: int
 
 
-def calculate_eval_workers() -> EvalWorkerConfig:
-    """Calculate optimal eval workers based on system resources."""
-    # Get system resources
-    cpu_count = multiprocessing.cpu_count()
+@dataclass
+class MemoryInfo:
+    total_memory_mib: int
+    available_memory_mib: int
+    zfs_arc_used: int = 0
 
-    # Get memory using os.sysconf()
-    total_pages = os.sysconf("SC_PHYS_PAGES")
-    page_size = os.sysconf("SC_PAGE_SIZE")
-    available_pages = os.sysconf("SC_AVPHYS_PAGES")
 
-    total_memory_mib = (total_pages * page_size) // (1024 * 1024)
-    available_memory_mib = (available_pages * page_size) // (1024 * 1024)
+def get_memory_info_macos() -> MemoryInfo:
+    """Get memory information on macOS using vm_stat and sysctl."""
+    try:
+        # Use vm_stat to get memory information on macOS
+        result = subprocess.run(["vm_stat"], capture_output=True, text=True, check=True)
 
-    # Check for ZFS ARC usage
+        # Parse vm_stat output
+        lines = result.stdout.strip().split("\n")
+        page_size = None
+        free_pages = 0
+        inactive_pages = 0
+
+        for line in lines:
+            if "page size of" in line:
+                # Extract page size from "Mach Virtual Memory Statistics: (page size of 4096 bytes)"
+                page_size = int(line.split("page size of ")[1].split(" bytes")[0])
+            elif line.startswith("Pages free:"):
+                free_pages = int(line.split(":")[1].strip().rstrip("."))
+            elif line.startswith("Pages inactive:"):
+                inactive_pages = int(line.split(":")[1].strip().rstrip("."))
+
+        if page_size is None:
+            raise ValueError("Could not determine page size from vm_stat")
+
+        # Available memory is free + inactive pages
+        available_memory_bytes = (free_pages + inactive_pages) * page_size
+        available_memory_mib = available_memory_bytes // (1024 * 1024)
+
+        # Get total memory using sysctl
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, check=True
+        )
+        total_memory_bytes = int(result.stdout.strip())
+        total_memory_mib = total_memory_bytes // (1024 * 1024)
+
+        return MemoryInfo(total_memory_mib, available_memory_mib)
+
+    except (subprocess.CalledProcessError, ValueError, IndexError) as e:
+        print(f"Warning: Could not get accurate memory info on macOS: {e}")
+        # Fallback to conservative estimates
+        return MemoryInfo(8192, 4096)  # 8GB total, 4GB available
+
+
+def get_memory_info_linux() -> MemoryInfo:
+    """Get memory information on Linux using os.sysconf and ZFS ARC detection."""
+    try:
+        # Try Linux-specific methods first
+        total_pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        available_pages = os.sysconf("SC_AVPHYS_PAGES")
+
+        total_memory_mib = (total_pages * page_size) // (1024 * 1024)
+        available_memory_mib = (available_pages * page_size) // (1024 * 1024)
+
+    except (ValueError, OSError):
+        # Fallback for other systems
+        print(
+            "Warning: Could not get memory info via sysconf, using conservative estimates"
+        )
+        total_memory_mib = 8192  # 8GB default
+        available_memory_mib = 4096  # 4GB available
+
+    # Check for ZFS ARC usage on Linux
     zfs_arc_used = 0
     try:
         with open("/proc/spl/kstat/zfs/arcstats", "r") as f:
@@ -44,6 +102,26 @@ def calculate_eval_workers() -> EvalWorkerConfig:
     except (FileNotFoundError, PermissionError, ValueError):
         # Not a ZFS system or can't read ARC stats
         pass
+
+    return MemoryInfo(total_memory_mib, available_memory_mib, zfs_arc_used)
+
+
+def calculate_eval_workers() -> EvalWorkerConfig:
+    """Calculate optimal eval workers based on system resources."""
+    # Get system resources
+    cpu_count = multiprocessing.cpu_count()
+
+    # Get memory using platform-specific methods
+    system = platform.system()
+
+    if system == "Darwin":  # macOS
+        memory_info = get_memory_info_macos()
+    else:  # Linux and other Unix-like systems
+        memory_info = get_memory_info_linux()
+
+    total_memory_mib = memory_info.total_memory_mib
+    available_memory_mib = memory_info.available_memory_mib
+    zfs_arc_used = memory_info.zfs_arc_used
 
     # If ZFS is present, account for ARC cache which can be reclaimed
     effective_available_memory = available_memory_mib

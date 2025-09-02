@@ -13,10 +13,10 @@
         buildbot-dev = pkgs.python3.pkgs.callPackage ./buildbot-dev.nix {
           inherit (self'.packages)
             buildbot-gitea
-            buildbot-effects
             buildbot-nix
             buildbot
             ;
+          buildbot-effects = self'.packages.buildbot-effects or null;
           inherit (pkgs) buildbot-worker buildbot-plugins;
         };
         buildbot-nix = pkgs.python3.pkgs.callPackage ./buildbot-nix.nix { };
