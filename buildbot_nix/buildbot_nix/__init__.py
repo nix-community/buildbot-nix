@@ -1,5 +1,6 @@
 import atexit
 import copy
+import html
 import json
 import multiprocessing
 import os
@@ -57,6 +58,7 @@ from .repo_config import BranchConfig
 SKIPPED_BUILDER_NAMES = [
     f"skipped-builds-{n:03}" for n in range(int(max(4, int(cpu_count() * 0.25))))
 ]
+
 
 class NixLocalWorker(worker.LocalWorker):
     """LocalWorker with increased max_line_length for nix-eval-jobs output."""
@@ -357,14 +359,25 @@ class CachedFailureStep(steps.BuildStep):
         if self.build and self.build.reason != "rebuild":
             attr = self.getProperty("attr")
             # show eval error
-            error_log: StreamLog = await self.addLog("nix_error")
-            msg = [
-                f"{attr} was failed because it has failed previously and its failure has been cached.",
-            ]
+            # Create expanded HTML log with clickable link
             url = self.getProperty("first_failure_url")
             if url:
-                msg.append(f"  failed build: {url}")
-                error_log.addStderr("\n".join(msg) + "\n")
+                escaped_attr = html.escape(attr)
+                escaped_url = html.escape(url)
+                html_content = f"""
+                <div style="font-family: monospace; background-color: #f8f9fa; padding: 10px; border-left: 4px solid #dc3545;">
+                    <div style="color: #721c24; margin-bottom: 10px;">
+                        {escaped_attr} was failed because it has failed previously and its failure has been cached.
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <strong>First failed build:</strong>
+                        <a href="{escaped_url}" target="_blank" style="color: #0066cc; text-decoration: underline;">
+                            {escaped_url}
+                        </a>
+                    </div>
+                </div>
+                """
+                await self.addHTMLLog("cached_failure_info", html_content)
             return util.FAILURE
         self.build.addStepsAfterCurrentStep(
             [
