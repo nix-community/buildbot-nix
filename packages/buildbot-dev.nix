@@ -16,6 +16,7 @@
   python,
   writeShellScriptBin,
   stdenv,
+  darwin,
 }:
 let
   pythonEnv = python.withPackages (
@@ -47,6 +48,7 @@ writeShellScriptBin "buildbot-dev" ''
         buildbot-effects
       ]
       ++ lib.optional stdenv.isLinux buildbot-effects
+      ++ lib.optional stdenv.isDarwin darwin.system_cmds
     )
   }
   mkdir -p "$git_root/.buildbot-dev"
