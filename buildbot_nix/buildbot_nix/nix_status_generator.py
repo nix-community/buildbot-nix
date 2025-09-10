@@ -29,6 +29,8 @@ class CombinedBuildEvent(Enum):
     FINISHED_NIX_EVAL = "finished-nix-eval"
     STARTED_NIX_BUILD = "started-nix-build"
     FINISHED_NIX_BUILD = "finished-nix-build"
+    STARTED_NIX_EFFECTS = "started-nix-effects"
+    FINISHED_NIX_EFFECTS = "finished-nix-effects"
 
     @staticmethod
     async def produce_event_for_build_requests_by_id(
@@ -70,26 +72,26 @@ class CombinedBuildEvent(Enum):
             build_db: Any = await master.data.get(("builds", str(build.buildid)))
             if result is not None:
                 build_db["results"] = result
-            master.mq.produce(
-                ("builds", str(build.buildid), event.name), copy.deepcopy(build_db)
-            )
+            event_key = ("builds", str(build.buildid), event.value)
+            master.mq.produce(event_key, copy.deepcopy(build_db))
         elif isinstance(build, dict):
             if result is not None:
                 build["results"] = result
-            master.mq.produce(
-                ("builds", str(build["buildid"]), event.name), copy.deepcopy(build)
-            )
+            event_key = ("builds", str(build["buildid"]), event.value)
+            master.mq.produce(event_key, copy.deepcopy(build))
 
 
 @implementer(IReportGenerator)
 class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
     wanted_event_keys: ClassVar[list[Any]] = [
-        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_EVAL.name)),
-        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_EVAL.name)),
-        ("builds", None, str(CombinedBuildEvent.STARTED_NIX_BUILD.name)),
-        ("builds", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD.name)),
-        ("buildrequests", None, str(CombinedBuildEvent.STARTED_NIX_BUILD.name)),
-        ("buildrequests", None, str(CombinedBuildEvent.FINISHED_NIX_BUILD.name)),
+        ("builds", None, CombinedBuildEvent.STARTED_NIX_EVAL.value),
+        ("builds", None, CombinedBuildEvent.FINISHED_NIX_EVAL.value),
+        ("builds", None, CombinedBuildEvent.STARTED_NIX_BUILD.value),
+        ("builds", None, CombinedBuildEvent.FINISHED_NIX_BUILD.value),
+        ("builds", None, CombinedBuildEvent.STARTED_NIX_EFFECTS.value),
+        ("builds", None, CombinedBuildEvent.FINISHED_NIX_EFFECTS.value),
+        ("buildrequests", None, CombinedBuildEvent.STARTED_NIX_BUILD.value),
+        ("buildrequests", None, CombinedBuildEvent.FINISHED_NIX_BUILD.value),
     ]
 
     compare_attrs: ClassVar[list[str]] = ["start_formatter", "end_formatter"]
@@ -181,9 +183,14 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
     ) -> None | dict[str, Any]:
         what, _, event = key
         if what == "builds":
-            is_new = event == "new"
+            # Check if this is a start event
+            is_start_event = event in [
+                CombinedBuildEvent.STARTED_NIX_EVAL.value,
+                CombinedBuildEvent.STARTED_NIX_BUILD.value,
+                CombinedBuildEvent.STARTED_NIX_EFFECTS.value,
+            ]
 
-            formatter = self.start_formatter if is_new else self.end_formatter
+            formatter = self.start_formatter if is_start_event else self.end_formatter
 
             await getDetailsForBuild(
                 master,
@@ -200,9 +207,8 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
             report: dict[str, Any] = await self.build_message(
                 formatter, master, reporter, data
             )
-
-            event_typed: CombinedBuildEvent = CombinedBuildEvent.__members__[event]
-            match event_typed:
+            event_type = CombinedBuildEvent(event)
+            match event_type:
                 case (
                     CombinedBuildEvent.STARTED_NIX_EVAL
                     | CombinedBuildEvent.FINISHED_NIX_EVAL
@@ -223,14 +229,23 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
                             "nix-build",
                             "generator",
                         )
+                case (
+                    CombinedBuildEvent.STARTED_NIX_EFFECTS
+                    | CombinedBuildEvent.FINISHED_NIX_EFFECTS
+                ):
+                    report["builds"][0]["properties"]["status_name"] = (
+                        "nix-effects",
+                        "generator",
+                    )
                 case _:
-                    msg = f"Unexpected event: {event_typed}"
+                    msg = f"Unexpected event: {event_type}"
                     raise ValueError(msg)
 
-            match event_typed:
+            match event_type:
                 case (
                     CombinedBuildEvent.FINISHED_NIX_EVAL
                     | CombinedBuildEvent.FINISHED_NIX_BUILD
+                    | CombinedBuildEvent.FINISHED_NIX_EFFECTS
                 ):
                     report["builds"][0]["complete"] = True
                     report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
