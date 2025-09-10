@@ -100,6 +100,21 @@ class BuildbotEffectsTrigger(Trigger):
             **kwargs,
         )
 
+    async def run(self) -> int:  # type: ignore[override]
+        if self.build:
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master, CombinedBuildEvent.STARTED_NIX_EFFECTS, self.build, None
+            )
+
+        results = await super().run()
+
+        if self.build:
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master, CombinedBuildEvent.FINISHED_NIX_EFFECTS, self.build, None
+            )
+
+        return results
+
     def createTriggerProperties(self, props: Any) -> Any:  # noqa: N802
         return props
 
