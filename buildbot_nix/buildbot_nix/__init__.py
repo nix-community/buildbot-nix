@@ -101,14 +101,14 @@ class BuildbotEffectsTrigger(Trigger):
         )
 
     async def run(self) -> int:  # type: ignore[override]
-        if self.build:
+        if self.build and self.master:
             await CombinedBuildEvent.produce_event_for_build(
                 self.master, CombinedBuildEvent.STARTED_NIX_EFFECTS, self.build, None
             )
 
         results = await super().run()
 
-        if self.build:
+        if self.build and self.master:
             await CombinedBuildEvent.produce_event_for_build(
                 self.master, CombinedBuildEvent.FINISHED_NIX_EFFECTS, self.build, None
             )
@@ -176,9 +176,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         )
         if result is not None:
             build["results"] = result
-        self.master.mq.produce(
-            ("builds", str(self.build.buildid), event), copy.deepcopy(build)
-        )
+        event_key = ("builds", str(self.build.buildid), event)
+        self.master.mq.produce(event_key, copy.deepcopy(build))
 
     async def run(self) -> int:
         await self.produce_event(CombinedBuildEvent.STARTED_NIX_EVAL.value, None)
