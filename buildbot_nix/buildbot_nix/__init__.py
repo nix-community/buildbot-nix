@@ -110,7 +110,10 @@ class BuildbotEffectsTrigger(Trigger):
 
         if self.build and self.master:
             await CombinedBuildEvent.produce_event_for_build(
-                self.master, CombinedBuildEvent.FINISHED_NIX_EFFECTS, self.build, None
+                self.master,
+                CombinedBuildEvent.FINISHED_NIX_EFFECTS,
+                self.build,
+                results,
             )
 
         return results
