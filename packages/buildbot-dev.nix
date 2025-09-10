@@ -15,32 +15,41 @@
   openssh,
   python,
   writeShellScriptBin,
+  stdenv,
+  darwin,
 }:
 let
-  pythonEnv = python.withPackages (ps: [
-    ps.twisted
-    (ps.toPythonModule buildbot)
-    (ps.toPythonModule buildbot-worker)
-    buildbot-nix
-    buildbot-gitea
-    buildbot-effects
-    buildbot-plugins.www
-  ]);
+  pythonEnv = python.withPackages (
+    ps:
+    [
+      ps.twisted
+      (ps.toPythonModule buildbot)
+      (ps.toPythonModule buildbot-worker)
+      buildbot-gitea
+      buildbot-nix
+      buildbot-plugins.www
+    ]
+    ++ lib.optional stdenv.isLinux buildbot-effects
+  );
 in
 writeShellScriptBin "buildbot-dev" ''
   set -xeuo pipefail
   git_root=$(git rev-parse --show-toplevel)
   export PATH=${
-    lib.makeBinPath [
-      nix-eval-jobs
-      cachix
-      git
-      openssh
-      nix
-      bash
-      coreutils
-      buildbot-effects
-    ]
+    lib.makeBinPath (
+      [
+        nix-eval-jobs
+        cachix
+        git
+        openssh
+        nix
+        bash
+        coreutils
+        buildbot-effects
+      ]
+      ++ lib.optional stdenv.isLinux buildbot-effects
+      ++ lib.optional stdenv.isDarwin darwin.system_cmds
+    )
   }
   mkdir -p "$git_root/.buildbot-dev"
   cd "$git_root/.buildbot-dev"
