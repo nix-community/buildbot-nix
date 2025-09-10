@@ -1,5 +1,5 @@
 import copy
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -15,6 +15,7 @@ from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.generators.utils import BuildStatusGeneratorMixin
 from buildbot.reporters.message import MessageFormatterBase, MessageFormatterRenderable
 from buildbot.reporters.utils import getDetailsForBuild
+from buildbot.util.twisted import async_to_deferred
 from twisted.logger import Logger
 from zope.interface import implementer  # type: ignore[import]
 
@@ -22,6 +23,40 @@ if TYPE_CHECKING:
     from buildbot.db.buildrequests import BuildRequestModel
 
 log = Logger()
+
+
+class NixEvalWarningsFormatter(MessageFormatterRenderable):
+    """Custom message formatter that includes evaluation warnings count only for nix-eval builders."""
+
+    def __init__(self, template: str, subject: str | None = None) -> None:
+        super().__init__(template, subject)
+
+    @async_to_deferred
+    async def format_message_for_build(
+        self, master: BuildMaster, build: dict[str, Any], **kwargs: Any
+    ) -> Any:
+        # Get the basic message from parent
+        msgdict = await super().format_message_for_build(master, build, **kwargs)
+
+        # Only show warnings count for nix-eval builder
+        builder_name = build.get("builder", {}).get("name", "")
+
+        # Only add warnings count if this is a nix-eval builder
+        if builder_name.endswith("/nix-eval"):
+            # Extract warnings count from build properties
+            warnings_count = build.get("properties", {}).get("warnings_count", [0, ""])[
+                0
+            ]
+
+            # Modify the description to include warnings count
+            original_body = msgdict.get("body", "")
+            if warnings_count > 0:
+                warning_suffix = (
+                    f" ({warnings_count} warning{'s' if warnings_count != 1 else ''})"
+                )
+                msgdict["body"] = original_body + warning_suffix
+
+        return msgdict
 
 
 class CombinedBuildEvent(Enum):
@@ -94,7 +129,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         ("buildrequests", None, CombinedBuildEvent.FINISHED_NIX_BUILD.value),
     ]
 
-    compare_attrs: ClassVar[list[str]] = ["start_formatter", "end_formatter"]
+    compare_attrs: ClassVar[Sequence[str]] = ["start_formatter", "end_formatter"]
 
     start_formatter: MessageFormatterBase
     end_formatter: MessageFormatterBase
@@ -121,10 +156,10 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
             add_patch=add_patch,
         )
 
-        self.start_formatter = start_formatter or MessageFormatterRenderable(
+        self.start_formatter = start_formatter or NixEvalWarningsFormatter(
             "Build started."
         )
-        self.end_formatter = end_formatter or MessageFormatterRenderable("Build done.")
+        self.end_formatter = end_formatter or NixEvalWarningsFormatter("Build done.")
 
     # TODO: copy pasted from buildbot, make it static upstream and reuse
     @staticmethod

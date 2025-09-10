@@ -305,7 +305,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         # Build HTML for each warning as a separate item
         warnings_html = []
-        for idx, warning in enumerate(warnings_list, 1):
+        for _idx, warning in enumerate(warnings_list, 1):
             escaped_warning = html.escape(warning)
             # Create a nice card for each warning
             warnings_html.append(
@@ -333,6 +333,9 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         # Set step to WARNINGS status if we have warnings but succeeded
         if result == util.SUCCESS and self.warnings_count > 0:
             result = util.WARNINGS
+
+        # Set warnings count as a build property for status reporting
+        self.setProperty("warnings_count", self.warnings_count, "NixEvalCommand")
 
         return result
 
