@@ -181,7 +181,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         )
 
     async def run(self) -> int:
-        await self.produce_event("started-nix-eval", None)
+        await self.produce_event(CombinedBuildEvent.STARTED_NIX_EVAL.value, None)
 
         branch_config: BranchConfig = await BranchConfig.extract_during_step(self)
 
