@@ -158,10 +158,12 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
         self.project = project
-        self.observer = logobserver.BufferLogObserver()
+        self.observer = logobserver.BufferLogObserver(wantStderr=True)
         self.addLogObserver("stdio", self.observer)
         self.supported_systems = supported_systems
         self.job_report_limit = job_report_limit
+        self.warnings_count = 0
+        self.warnings_processed = False
         self.failed_builds_db = failed_builds_db
         self.worker_count = worker_count
         self.max_memory_size = max_memory_size
@@ -222,11 +224,15 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         # if the command passes extract the list of stages
         result = cmd.results()
+
+        # Process warnings if any
+        result = await self._process_warnings(result)
+
         if self.build:
             await CombinedBuildEvent.produce_event_for_build(
                 self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result
             )
-        if result == util.SUCCESS:
+        if result in (util.SUCCESS, util.WARNINGS):
             # create a ShellCommand for each stage and add them to the build
             jobs: list[NixEvalJob] = []
 
@@ -276,6 +282,113 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 )
 
         return result
+
+    async def _process_warnings(self, result: int) -> int:
+        """Process stderr output for warnings and update build status."""
+        # Only process warnings once
+        if self.warnings_processed:
+            return result
+
+        stderr_output = self.observer.getStderr()
+        if not stderr_output:
+            return result
+
+        self.warnings_processed = True
+        warning_lines = stderr_output.strip().split("\n")
+        warnings_list = self._format_warnings(warning_lines)
+
+        if not warnings_list:
+            return result
+
+        # Build HTML for each warning as a separate item
+        warnings_html = []
+        for idx, warning in enumerate(warnings_list, 1):
+            escaped_warning = html.escape(warning)
+            # Create a nice card for each warning
+            warnings_html.append(
+                f"""<div style="background-color: #fefefe; border-left: 4px solid #ffc107;
+                padding: 10px 15px; margin-bottom: 10px; border-radius: 3px;">
+                <pre style="margin: 0; white-space: pre-wrap; color: #664d03; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px;">{escaped_warning}</pre>
+                </div>"""
+            )
+
+        # Add HTML log with formatted warnings
+        await self.addHTMLLog(
+            "Evaluation Warnings",
+            f"""<div style="background-color: #fff3cd; border: 1px solid #ffc107;
+            border-radius: 6px; padding: 20px; margin: 10px 0;">
+            <h3 style="color: #856404; margin: 0 0 20px 0; font-size: 18px; display: flex; align-items: center;">
+                <span style="margin-right: 10px;">⚠️</span>
+                <span>Found {self.warnings_count} Evaluation Warning{"s" if self.warnings_count != 1 else ""}</span>
+            </h3>
+            <div style="space-y: 10px;">
+                {"".join(warnings_html)}
+            </div>
+            </div>""",
+        )
+
+        # Set step to WARNINGS status if we have warnings but succeeded
+        if result == util.SUCCESS and self.warnings_count > 0:
+            result = util.WARNINGS
+
+        return result
+
+    def _format_warnings(self, warning_lines: list[str]) -> list[str]:
+        """Extract and format evaluation warnings, returning a list of warning messages."""
+        if not warning_lines:
+            return []
+
+        # Only keep evaluation warnings, filter out Nix configuration warnings
+        eval_warnings = []
+        i = 0
+
+        while i < len(warning_lines):
+            line = warning_lines[i]
+            # Check if this is the start of an evaluation warning
+            if "evaluation warning:" in line:
+                # Remove the "evaluation warning:" prefix since we're already in that context
+                first_line = line.replace("evaluation warning:", "").strip()
+                warning_block = [first_line] if first_line else []
+                self.warnings_count += 1
+                i += 1
+
+                # Collect all continuation lines (indented or empty lines followed by indented)
+                while i < len(warning_lines):
+                    next_line = warning_lines[i]
+                    if next_line.startswith((" ", "\t")):
+                        # Indented line - part of the warning, remove leading spaces
+                        warning_block.append(next_line.strip())
+                        i += 1
+                    elif not next_line.strip():
+                        # Empty line - might be part of multi-line warning
+                        # Check if there's an indented line after it
+                        if i + 1 < len(warning_lines) and warning_lines[
+                            i + 1
+                        ].startswith((" ", "\t")):
+                            # Keep empty lines within warnings for readability
+                            warning_block.append("")
+                            i += 1
+                        else:
+                            # No indented line after empty line, warning is done
+                            break
+                    else:
+                        # Non-indented, non-empty line - new warning or other output
+                        break
+
+                if warning_block:
+                    eval_warnings.append("\n".join(warning_block))
+            else:
+                i += 1
+
+        return eval_warnings
+
+    def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
+        """Show warning count in the step summary."""
+        if self.warnings_count > 0:
+            return {
+                "step": f"({self.warnings_count} warning{'s' if self.warnings_count != 1 else ''})"
+            }
+        return {"step": "running"}
 
 
 class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
