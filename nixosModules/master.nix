@@ -888,7 +888,16 @@ in
     services.nginx.enable = true;
     services.nginx.virtualHosts.${cfg.domain} = {
       locations = {
-        "/".proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
+        "/" = {
+          proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
+
+          # Big build matrixes can generated quiet a bit of concurrent requests
+          extraConfig = ''
+            proxy_connect_timeout 120s;
+            proxy_send_timeout 120s;
+            proxy_read_timeout 120s;
+          '';
+        };
         "/sse" = {
           proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
           # proxy buffering will prevent sse to work
