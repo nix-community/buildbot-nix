@@ -223,7 +223,9 @@ class BranchConfigDict(dict[str, BranchConfig]):
             cls, handler(dict[str, BranchConfig])
         )
 
-    def lookup_branch_config(self, branch: str) -> BranchConfig | None:
+    def lookup_branch_config(self, branch: str | None) -> BranchConfig | None:
+        if branch is None:
+            return None
         ret = None
         for branch_config in self.values():
             if (
@@ -237,20 +239,23 @@ class BranchConfigDict(dict[str, BranchConfig]):
         return ret
 
     def check_lookup(
-        self, default_branch: str, branch: str, fn: Callable[[BranchConfig], bool]
+        self,
+        default_branch: str,
+        branch: str | None,
+        fn: Callable[[BranchConfig], bool],
     ) -> bool:
         branch_config = self.lookup_branch_config(branch)
         return branch == default_branch or (
             branch_config is not None and fn(branch_config)
         )
 
-    def do_run(self, default_branch: str, branch: str) -> bool:
+    def do_run(self, default_branch: str, branch: str | None) -> bool:
         return self.check_lookup(default_branch, branch, lambda _: True)
 
-    def do_register_gcroot(self, default_branch: str, branch: str) -> bool:
+    def do_register_gcroot(self, default_branch: str, branch: str | None) -> bool:
         return self.check_lookup(default_branch, branch, lambda bc: bc.register_gcroots)
 
-    def do_update_outputs(self, default_branch: str, branch: str) -> bool:
+    def do_update_outputs(self, default_branch: str, branch: str | None) -> bool:
         return self.check_lookup(default_branch, branch, lambda bc: bc.update_outputs)
 
 
