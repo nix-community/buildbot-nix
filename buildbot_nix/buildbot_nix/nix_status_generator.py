@@ -220,6 +220,110 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
             "extra_info": buildmsg["extra_info"],
         }
 
+    def _get_status_name_for_event(
+        self, event_type: CombinedBuildEvent, current_status_name: tuple[str, str]
+    ) -> tuple[str, str]:
+        """Determine the status name based on the event type."""
+        match event_type:
+            case (
+                CombinedBuildEvent.STARTED_NIX_EVAL
+                | CombinedBuildEvent.FINISHED_NIX_EVAL
+            ):
+                return ("nix-eval", "generator")
+            case (
+                CombinedBuildEvent.STARTED_NIX_BUILD
+                | CombinedBuildEvent.FINISHED_NIX_BUILD
+            ):
+                # Only update from nix-eval to nix-build
+                if current_status_name[0] == "nix-eval":
+                    return ("nix-build", "generator")
+                return current_status_name
+            case (
+                CombinedBuildEvent.STARTED_NIX_EFFECTS
+                | CombinedBuildEvent.FINISHED_NIX_EFFECTS
+            ):
+                return ("nix-effects", "generator")
+            case _:
+                msg = f"Unexpected event: {event_type}"
+                raise ValueError(msg)
+
+    def _is_finish_event(self, event_type: CombinedBuildEvent) -> bool:
+        """Check if the event is a finish event."""
+        return event_type in [
+            CombinedBuildEvent.FINISHED_NIX_EVAL,
+            CombinedBuildEvent.FINISHED_NIX_BUILD,
+            CombinedBuildEvent.FINISHED_NIX_EFFECTS,
+        ]
+
+    async def _handle_build_event(
+        self,
+        master: BuildMaster,
+        reporter: ReporterBase,
+        event: str,
+        data: dict[str, Any],
+    ) -> None | dict[str, Any]:
+        """Handle build-related events."""
+        # Check if this is a start event
+        is_start_event = event in [
+            CombinedBuildEvent.STARTED_NIX_EVAL.value,
+            CombinedBuildEvent.STARTED_NIX_BUILD.value,
+            CombinedBuildEvent.STARTED_NIX_EFFECTS.value,
+        ]
+
+        formatter = self.start_formatter if is_start_event else self.end_formatter
+
+        await getDetailsForBuild(
+            master,
+            data,
+            want_properties=formatter.want_properties,
+            want_steps=formatter.want_steps,
+            want_logs=formatter.want_logs,
+            want_logs_content=formatter.want_logs_content,
+        )
+
+        if not self.is_message_needed_by_props(data):
+            return None
+
+        # Add the event type to the build data so formatter can use it
+        data["_event_type"] = event
+
+        report: dict[str, Any] = await self.build_message(
+            formatter, master, reporter, data
+        )
+        event_type = CombinedBuildEvent(event)
+
+        # Update status name
+        current_status = report["builds"][0]["properties"].get("status_name", ("", ""))
+        report["builds"][0]["properties"]["status_name"] = (
+            self._get_status_name_for_event(event_type, current_status)
+        )
+
+        # Mark as complete if it's a finish event
+        if self._is_finish_event(event_type):
+            report["builds"][0]["complete"] = True
+            report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
+
+        return report
+
+    async def _handle_buildrequest_event(
+        self,
+        master: BuildMaster,
+        event: str,
+        data: dict[str, Any],
+    ) -> None | dict[str, Any]:
+        """Handle buildrequest-related events."""
+        build: dict[str, Any] = await self.partial_build_dict(master, data)
+
+        # TODO: figure out when do we trigger this
+        if event == "canceled-nix-build":
+            build["complete"] = True
+            build["results"] = CANCELLED
+
+        if not self.is_message_needed_by_props(build):
+            return None
+
+        return await self.buildrequest_message(master, build)
+
     async def generate(
         self,
         master: BuildMaster,
@@ -228,88 +332,11 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         data: dict[str, Any],  # TODO database types
     ) -> None | dict[str, Any]:
         what, _, event = key
+
         if what == "builds":
-            # Check if this is a start event
-            is_start_event = event in [
-                CombinedBuildEvent.STARTED_NIX_EVAL.value,
-                CombinedBuildEvent.STARTED_NIX_BUILD.value,
-                CombinedBuildEvent.STARTED_NIX_EFFECTS.value,
-            ]
+            return await self._handle_build_event(master, reporter, event, data)
 
-            formatter = self.start_formatter if is_start_event else self.end_formatter
-
-            await getDetailsForBuild(
-                master,
-                data,
-                want_properties=formatter.want_properties,
-                want_steps=formatter.want_steps,
-                want_logs=formatter.want_logs,
-                want_logs_content=formatter.want_logs_content,
-            )
-
-            if not self.is_message_needed_by_props(data):
-                return None
-
-            # Add the event type to the build data so formatter can use it
-            data["_event_type"] = event
-
-            report: dict[str, Any] = await self.build_message(
-                formatter, master, reporter, data
-            )
-            event_type = CombinedBuildEvent(event)
-            match event_type:
-                case (
-                    CombinedBuildEvent.STARTED_NIX_EVAL
-                    | CombinedBuildEvent.FINISHED_NIX_EVAL
-                ):
-                    report["builds"][0]["properties"]["status_name"] = (
-                        "nix-eval",
-                        "generator",
-                    )
-                case (
-                    CombinedBuildEvent.STARTED_NIX_BUILD
-                    | CombinedBuildEvent.FINISHED_NIX_BUILD
-                ):
-                    if (
-                        report["builds"][0]["properties"]["status_name"][0]
-                        == "nix-eval"
-                    ):
-                        report["builds"][0]["properties"]["status_name"] = (
-                            "nix-build",
-                            "generator",
-                        )
-                case (
-                    CombinedBuildEvent.STARTED_NIX_EFFECTS
-                    | CombinedBuildEvent.FINISHED_NIX_EFFECTS
-                ):
-                    report["builds"][0]["properties"]["status_name"] = (
-                        "nix-effects",
-                        "generator",
-                    )
-                case _:
-                    msg = f"Unexpected event: {event_type}"
-                    raise ValueError(msg)
-
-            match event_type:
-                case (
-                    CombinedBuildEvent.FINISHED_NIX_EVAL
-                    | CombinedBuildEvent.FINISHED_NIX_BUILD
-                    | CombinedBuildEvent.FINISHED_NIX_EFFECTS
-                ):
-                    report["builds"][0]["complete"] = True
-                    report["builds"][0]["complete_at"] = datetime.now(tz=UTC)
-
-            return report
         if what == "buildrequests":
-            build: dict[str, Any] = await self.partial_build_dict(master, data)
+            return await self._handle_buildrequest_event(master, event, data)
 
-            # TODO: figure out when do we trigger this
-            if event == "canceled-nix-build":
-                build["complete"] = True
-                build["results"] = CANCELLED
-
-            if not self.is_message_needed_by_props(build):
-                return None
-
-            return await self.buildrequest_message(master, build)
         return None

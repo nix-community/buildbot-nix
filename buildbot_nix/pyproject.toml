@@ -66,8 +66,6 @@ ignore = [
   # Too many arguments in function definition
   "PLR0913",
   "PLR0912", # Too many branches
-  # $X is too complex
-  "C901",
 
   "E501", # line too long
   "T201", # `print` found
