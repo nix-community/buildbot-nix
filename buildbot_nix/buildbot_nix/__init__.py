@@ -233,7 +233,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         if self.build:
             await CombinedBuildEvent.produce_event_for_build(
-                self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result
+                self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result,
+                warnings_count=self.warnings_count
             )
         if result in (util.SUCCESS, util.WARNINGS):
             # create a ShellCommand for each stage and add them to the build
@@ -333,9 +334,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         # Set step to WARNINGS status if we have warnings but succeeded
         if result == util.SUCCESS and self.warnings_count > 0:
             result = util.WARNINGS
-
-        # Set warnings count as a build property for status reporting
-        self.setProperty("warnings_count", self.warnings_count, "NixEvalCommand")
 
         return result
 

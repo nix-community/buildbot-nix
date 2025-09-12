@@ -38,15 +38,17 @@ class NixEvalWarningsFormatter(MessageFormatterRenderable):
         # Get the basic message from parent
         msgdict = await super().format_message_for_build(master, build, **kwargs)
 
-        # Only show warnings count for nix-eval builder
-        builder_name = build.get("builder", {}).get("name", "")
+        # Get the event type if available (set by the generator)
+        event_type = build.get("_event_type", "unknown")
 
-        # Only add warnings count if this is a nix-eval builder
-        if builder_name.endswith("/nix-eval"):
-            # Extract warnings count from build properties
-            warnings_count = build.get("properties", {}).get("warnings_count", [0, ""])[
-                0
-            ]
+        # Only add warnings count if this is actually the nix-eval phase
+        # Check for warnings_count in the event data (prefixed with _)
+        is_nix_eval_event = event_type in ["started-nix-eval", "finished-nix-eval"]
+
+        if is_nix_eval_event:
+            # Get warnings from the event data (for finished-nix-eval)
+            # This is passed directly when the event is produced
+            warnings_count = build.get("_warnings_count", 0)
 
             # Modify the description to include warnings count
             original_body = msgdict.get("body", "")
@@ -102,16 +104,23 @@ class CombinedBuildEvent(Enum):
         event: "CombinedBuildEvent",
         build: Build | dict[str, Any],
         result: None | int,
+        **extra_data: Any,
     ) -> None:
         if isinstance(build, Build):
             build_db: Any = await master.data.get(("builds", str(build.buildid)))
             if result is not None:
                 build_db["results"] = result
+            # Add any extra data passed to the event
+            for key, value in extra_data.items():
+                build_db[f"_{key}"] = value
             event_key = ("builds", str(build.buildid), event.value)
             master.mq.produce(event_key, copy.deepcopy(build_db))
         elif isinstance(build, dict):
             if result is not None:
                 build["results"] = result
+            # Add any extra data passed to the event
+            for key, value in extra_data.items():
+                build[f"_{key}"] = value
             event_key = ("builds", str(build["buildid"]), event.value)
             master.mq.produce(event_key, copy.deepcopy(build))
 
@@ -238,6 +247,9 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
 
             if not self.is_message_needed_by_props(data):
                 return None
+
+            # Add the event type to the build data so formatter can use it
+            data["_event_type"] = event
 
             report: dict[str, Any] = await self.build_message(
                 formatter, master, reporter, data
