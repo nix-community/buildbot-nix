@@ -814,7 +814,7 @@ def nix_eval_config(
         workernames=worker_names,
         project=project.name,
         factory=factory,
-        properties=dict(status_name="nix-eval"),
+        properties={"status_name": "nix-eval"},
     )
 
 

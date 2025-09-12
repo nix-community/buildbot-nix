@@ -726,13 +726,18 @@ def create_project_hook(
         f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100",
         token.get(),
     )
-    config = dict(
-        url=webhook_url + "change_hook/github",
-        content_type="json",
-        insecure_ssl="0",
-        secret=webhook_secret,
-    )
-    data = dict(name="web", active=True, events=["push", "pull_request"], config=config)
+    config = {
+        "url": webhook_url + "change_hook/github",
+        "content_type": "json",
+        "insecure_ssl": "0",
+        "secret": webhook_secret,
+    }
+    data = {
+        "name": "web",
+        "active": True,
+        "events": ["push", "pull_request"],
+        "config": config,
+    }
     headers = {
         "Authorization": f"Bearer {token.get()}",
         "Accept": "application/vnd.github+json",

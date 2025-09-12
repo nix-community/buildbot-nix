@@ -243,19 +243,19 @@ def create_repo_hook(
         f"{gitea_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
         token,
     )
-    config = dict(
-        url=instance_url + "change_hook/gitea",
-        content_type="json",
-        insecure_ssl="0",
-        secret=webhook_secret,
-    )
-    data = dict(
-        name="web",
-        active=True,
-        events=["push", "pull_request"],
-        config=config,
-        type="gitea",
-    )
+    config = {
+        "url": instance_url + "change_hook/gitea",
+        "content_type": "json",
+        "insecure_ssl": "0",
+        "secret": webhook_secret,
+    }
+    data = {
+        "name": "web",
+        "active": True,
+        "events": ["push", "pull_request"],
+        "config": config,
+        "type": "gitea",
+    }
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/json",
