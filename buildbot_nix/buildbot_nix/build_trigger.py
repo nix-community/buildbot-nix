@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from buildbot.plugins import steps, util
 from buildbot.process import buildstep
+from buildbot.process.log import StreamLog
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, SUCCESS, statusToString, worst_status
 from buildbot.reporters.utils import getURLForBuild, getURLForBuildrequest
@@ -29,7 +30,6 @@ from .projects import GitProject
 if TYPE_CHECKING:
     from buildbot.db.buildrequests import BuildRequestModel
     from buildbot.db.builds import BuildModel
-    from buildbot.process.log import StreamLog
 
 
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
@@ -109,7 +109,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.update_result_futures: list[Coroutine[Any, Any, None]] = []
         super().__init__(**kwargs)
 
-    def interrupt(self, reason: str | Failure) -> None:
+    def interrupt(self, reason: str | Failure) -> None:  # noqa: ARG002
         # We cancel the buildrequests, as the data api handles
         # both cases:
         # - build started: stop is sent,
@@ -334,6 +334,140 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         return removed
 
+    async def _schedule_failed_evaluations(
+        self,
+        ss_for_trigger: list[dict[str, Any]],
+        scheduled: list[ScheduledJob],
+        scheduler_log: StreamLog,
+    ) -> int:
+        """Schedule builds for failed evaluation jobs."""
+        overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
+
+        if self.failed_jobs:
+            scheduler_log.addStdout("The following jobs failed to evaluate:\n")
+            for failed_job in self.failed_jobs:
+                scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
+                brids, results_deferred = await self.schedule(
+                    ss_for_trigger,
+                    *self.schedule_eval_failure(failed_job),
+                )
+                scheduled.append(
+                    BuildTrigger.ScheduledJob(failed_job, brids, results_deferred)
+                )
+                self.brids.extend(brids)
+
+        return overall_result
+
+    async def _process_build_for_scheduling(
+        self,
+        build: NixEvalJobSuccess,
+        build_schedule_order: list[NixEvalJobSuccess],
+        job_closures: dict[str, set[str]],
+        ss_for_trigger: list[dict[str, Any]],
+        scheduled: list[ScheduledJob],
+        schedule_now: list[NixEvalJobSuccess],
+        scheduler_log: StreamLog,
+    ) -> None:
+        """Process a single build to determine if it should be scheduled."""
+        failed_build = self.failed_builds_db.check_build(build.drvPath)
+
+        if job_closures.get(build.drvPath):
+            # Has dependencies, skip for now
+            return
+
+        if failed_build is not None and self.build:
+            if self.build.reason != "rebuild":
+                # Skip due to cached failure
+                scheduler_log.addStdout(
+                    f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
+                    f"\t  see build at {failed_build.url}\n"
+                )
+                build_schedule_order.remove(build)
+
+                brids, results_deferred = await self.schedule(
+                    ss_for_trigger,
+                    *self.schedule_cached_failure(build, failed_build),
+                )
+                scheduled.append(
+                    BuildTrigger.ScheduledJob(build, brids, results_deferred)
+                )
+                self.brids.extend(brids.values())
+            else:
+                # Rebuild requested, remove from cache and schedule
+                self.failed_builds_db.remove_build(build.drvPath)
+                scheduler_log.addStdout(
+                    f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
+                )
+                build_schedule_order.remove(build)
+                schedule_now.append(build)
+        else:
+            # No cached failure, schedule normally
+            build_schedule_order.remove(build)
+            schedule_now.append(build)
+
+    async def _get_failed_build_url(self, brids: dict[str, Any]) -> str:
+        """Get the URL of the actual failed build."""
+        url = ""
+        for brid in brids.values():
+            builds: list[BuildModel] = await self.master.db.builds.getBuilds(
+                buildrequestid=brid
+            )
+            for db_build in builds:
+                url = getURLForBuild(self.master, db_build.builderid, db_build.number)
+                break  # We only need the first build's URL
+            if url:
+                break
+        return url
+
+    async def _handle_failed_job(
+        self,
+        job: NixEvalJob,
+        brids: dict[str, Any],
+        result: int,
+        build_schedule_order: list[NixEvalJobSuccess],
+        job_closures: dict[str, set[str]],
+        ss_for_trigger: list[dict[str, Any]],
+        scheduled: list[ScheduledJob],
+        scheduler_log: StreamLog,
+    ) -> None:
+        """Handle a failed job by removing dependents and updating cache."""
+        if not isinstance(job, NixEvalJobSuccess) or result == SUCCESS:
+            return
+
+        # Update failed builds cache if needed
+        if result == util.FAILURE:
+            should_add_to_cache = (
+                self.build and self.build.reason == "rebuild"
+            ) or not self.failed_builds_db.check_build(job.drvPath)
+            if should_add_to_cache:
+                url = await self._get_failed_build_url(brids)
+                self.failed_builds_db.add_build(job.drvPath, datetime.now(tz=UTC), url)
+
+        # Schedule dependent failures
+        removed = self.get_failed_dependents(job, build_schedule_order, job_closures)
+        for removed_job in removed:
+            scheduler, props = self.schedule_dependency_failed(removed_job, job)
+            dep_brids, results_deferred = await self.schedule(
+                ss_for_trigger, scheduler, props
+            )
+            build_schedule_order.remove(removed_job)
+            scheduled.append(
+                BuildTrigger.ScheduledJob(removed_job, dep_brids, results_deferred)
+            )
+            self.brids.extend(dep_brids.values())
+
+        if removed:
+            scheduler_log.addStdout(
+                "\t- removed jobs: "
+                + ", ".join([job.drvPath for job in removed])
+                + "\n"
+            )
+
+        # Update job closures
+        for job_closure in job_closures.values():
+            if job.drvPath in job_closure:
+                job_closure.remove(job.drvPath)
+
     async def run(self) -> int:
         """
         This function implements a relatively simple scheduling algorithm. At the start we compute the
@@ -357,26 +491,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         ss_for_trigger = self.prepare_sourcestamp_list_for_trigger()
         scheduler_log: StreamLog = await self.addLog("scheduler")
 
-        # inject failed buildsteps for any failed eval jobs we got
-        overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
-        # inject failed buildsteps for any failed eval jobs we got
-        if self.failed_jobs:
-            scheduler_log.addStdout("The following jobs failed to evaluate:\n")
-            for failed_job in self.failed_jobs:
-                scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
-                brids, results_deferred = await self.schedule(
-                    ss_for_trigger,
-                    *self.schedule_eval_failure(failed_job),
-                )
-                scheduled.append(
-                    BuildTrigger.ScheduledJob(failed_job, brids, results_deferred)
-                )
-                self.brids.extend(brids)
+        # Schedule failed evaluations
+        overall_result = await self._schedule_failed_evaluations(
+            ss_for_trigger, scheduled, scheduler_log
+        )
 
-        # get all job derivations
+        # Prepare job dependencies
         job_set = {job.drvPath for job in self.successful_jobs}
-
-        # restrict the set of input derivations for all jobs to those which themselves are jobs
         job_closures = {
             k.drvPath: set(k.neededSubstitutes)
             .union(set(k.neededBuilds))
@@ -384,76 +505,45 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             .difference({k.drvPath})
             for k in self.successful_jobs
         }
-
-        # sort them according to their dependencies
         build_schedule_order = self.sort_jobs_by_closures(
             self.successful_jobs, job_closures
         )
 
+        # Main scheduling loop
         while build_schedule_order or scheduled:
             scheduler_log.addStdout("Scheduling...\n")
 
-            # check which jobs should be scheduled now
-            schedule_now = []
+            # Determine which jobs to schedule now
+            schedule_now: list[NixEvalJobSuccess] = []
             for build in list(build_schedule_order):
-                failed_build = self.failed_builds_db.check_build(build.drvPath)
-                if job_closures.get(build.drvPath):
-                    pass
-                elif (
-                    failed_build is not None
-                    and self.build
-                    and self.build.reason != "rebuild"
-                ):
-                    scheduler_log.addStdout(
-                        f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
-                        f"\t  see build at {failed_build.url}\n"
-                    )
-                    build_schedule_order.remove(build)
-
-                    brids, results_deferred = await self.schedule(
-                        ss_for_trigger,
-                        *self.schedule_cached_failure(build, failed_build),
-                    )
-                    scheduled.append(
-                        BuildTrigger.ScheduledJob(build, brids, results_deferred)
-                    )
-                    self.brids.extend(brids.values())
-                elif (
-                    failed_build is not None
-                    and self.build
-                    and self.build.reason == "rebuild"
-                ):
-                    self.failed_builds_db.remove_build(build.drvPath)
-                    scheduler_log.addStdout(
-                        f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
-                    )
-
-                    build_schedule_order.remove(build)
-                    schedule_now.append(build)
-                else:
-                    build_schedule_order.remove(build)
-                    schedule_now.append(build)
+                await self._process_build_for_scheduling(
+                    build,
+                    build_schedule_order,
+                    job_closures,
+                    ss_for_trigger,
+                    scheduled,
+                    schedule_now,
+                    scheduler_log,
+                )
 
             if not schedule_now:
                 scheduler_log.addStdout("\tNo builds to schedule found.\n")
 
-            # schedule said jobs
+            # Schedule ready jobs
             for job in schedule_now:
                 scheduler_log.addStdout(f"\t- {job.attr}\n")
                 brids, results_deferred = await self.schedule(
                     ss_for_trigger,
                     *self.schedule_success(build_props, job),
                 )
-
                 scheduled.append(
                     BuildTrigger.ScheduledJob(job, brids, results_deferred)
                 )
-
                 self.brids.extend(brids.values())
 
             scheduler_log.addStdout("Waiting...\n")
 
-            # wait for one to complete
+            # Wait for a job to complete
             self.wait_for_finish_deferred = defer.DeferredList(
                 [job.results for job in scheduled],
                 fireOnOneCallback=True,
@@ -464,13 +554,16 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             index: int
             results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
 
+            # Process completed job
             job, brids, _ = scheduled[index]
             done.append(BuildTrigger.DoneJob(job, brids, results))
             del scheduled[index]
             result = results[0]
+
             scheduler_log.addStdout(
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
+
             if not self.combine_builds:
                 await CombinedBuildEvent.produce_event_for_build_requests_by_id(
                     self.master,
@@ -479,58 +572,17 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     result,
                 )
 
-            # if it failed, remove all dependent jobs, schedule placeholders and add them to the list of scheduled jobs
-            if isinstance(job, NixEvalJobSuccess):
-                if result != SUCCESS:
-                    if (
-                        (self.build and self.build.reason == "rebuild")
-                        or not self.failed_builds_db.check_build(job.drvPath)
-                    ) and result == util.FAILURE:
-                        # Get the URL of the actual failed build, not the parent
-                        url = ""
-                        for brid in brids.values():
-                            builds: list[
-                                BuildModel
-                            ] = await self.master.db.builds.getBuilds(
-                                buildrequestid=brid
-                            )
-                            for db_build in builds:
-                                url = getURLForBuild(
-                                    self.master, db_build.builderid, db_build.number
-                                )
-                                break  # We only need the first build's URL
-                            if url:
-                                break
-                        self.failed_builds_db.add_build(
-                            job.drvPath, datetime.now(tz=UTC), url
-                        )
-
-                    removed = self.get_failed_dependents(
-                        job, build_schedule_order, job_closures
-                    )
-                    for removed_job in removed:
-                        scheduler, props = self.schedule_dependency_failed(
-                            removed_job, job
-                        )
-                        brids, results_deferred = await self.schedule(
-                            ss_for_trigger, scheduler, props
-                        )
-                        build_schedule_order.remove(removed_job)
-                        scheduled.append(
-                            BuildTrigger.ScheduledJob(
-                                removed_job, brids, results_deferred
-                            )
-                        )
-                        self.brids.extend(brids.values())
-                    scheduler_log.addStdout(
-                        "\t- removed jobs: "
-                        + ", ".join([job.drvPath for job in removed])
-                        + "\n"
-                    )
-
-                for job_closure in job_closures.values():
-                    if job.drvPath in job_closure:
-                        job_closure.remove(job.drvPath)
+            # Handle failed jobs and their dependents
+            await self._handle_failed_job(
+                job,
+                brids,
+                result,
+                build_schedule_order,
+                job_closures,
+                ss_for_trigger,
+                scheduled,
+                scheduler_log,
+            )
 
             overall_result = worst_status(result, overall_result)
             scheduler_log.addStdout(

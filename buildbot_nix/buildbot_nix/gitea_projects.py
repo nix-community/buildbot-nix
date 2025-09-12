@@ -174,7 +174,9 @@ class GiteaBackend(GitBackend):
         return None
 
     def create_auth(self) -> AuthBase:
-        assert self.config.oauth_id is not None, "Gitea requires an OAuth ID to be set"
+        if self.config.oauth_id is None:
+            msg = "Gitea requires an OAuth ID to be set"
+            raise ValueError(msg)
         return GiteaAuth(
             self.config.instance_url,
             self.config.oauth_id,
@@ -241,19 +243,19 @@ def create_repo_hook(
         f"{gitea_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
         token,
     )
-    config = dict(
-        url=instance_url + "change_hook/gitea",
-        content_type="json",
-        insecure_ssl="0",
-        secret=webhook_secret,
-    )
-    data = dict(
-        name="web",
-        active=True,
-        events=["push", "pull_request"],
-        config=config,
-        type="gitea",
-    )
+    config = {
+        "url": instance_url + "change_hook/gitea",
+        "content_type": "json",
+        "insecure_ssl": "0",
+        "secret": webhook_secret,
+    }
+    data = {
+        "name": "web",
+        "active": True,
+        "events": ["push", "pull_request"],
+        "config": config,
+        "type": "gitea",
+    }
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/json",
@@ -328,7 +330,7 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
             self.config.repo_allowlist,
             self.config.user_allowlist,
             self.config.topic,
-            refresh_projects(self.config, self.project_cache_file),
+            refresh_projects(self.config),
             lambda repo: repo.full_name,
             lambda repo: repo.owner.login,
             lambda repo: repo.topics,
@@ -340,7 +342,7 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
         return util.SUCCESS
 
 
-def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> list[RepoData]:
+def refresh_projects(config: GiteaConfig) -> list[RepoData]:
     repos = []
 
     for repo in paginated_github_request(

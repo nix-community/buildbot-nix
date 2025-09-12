@@ -50,7 +50,7 @@ class JWTToken(RepoToken):
             return (jwt_payload, exp)
 
         def rs256_sign(data: str, private_key_file: Path) -> str:
-            signature = subprocess.run(
+            signature = subprocess.run(  # noqa: S603
                 [
                     "openssl",
                     "dgst",

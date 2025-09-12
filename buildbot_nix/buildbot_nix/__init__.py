@@ -30,8 +30,8 @@ from buildbot_nix.pull_based.backend import PullBasedBacked
 
 if TYPE_CHECKING:
     from buildbot.process.log import StreamLog
-    from buildbot.www.auth import AuthBase
 
+from buildbot.www.auth import AuthBase
 from twisted.logger import Logger
 
 from . import models
@@ -155,6 +155,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         worker_count: int,
         max_memory_size: int,
         drv_gcroots_dir: util.Interpolate,
+        *,
         show_trace: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -233,7 +234,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         if self.build:
             await CombinedBuildEvent.produce_event_for_build(
-                self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result
+                self.master,
+                CombinedBuildEvent.FINISHED_NIX_EVAL,
+                self.build,
+                result,
+                warnings_count=self.warnings_count,
             )
         if result in (util.SUCCESS, util.WARNINGS):
             # create a ShellCommand for each stage and add them to the build
@@ -333,9 +338,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         # Set step to WARNINGS status if we have warnings but succeeded
         if result == util.SUCCESS and self.warnings_count > 0:
             result = util.WARNINGS
-
-        # Set warnings count as a build property for status reporting
-        self.setProperty("warnings_count", self.warnings_count, "NixEvalCommand")
 
         return result
 
@@ -476,6 +478,7 @@ class CachedFailureStep(steps.BuildStep):
         post_build_steps: list[models.PostBuildStep],
         branch_config_dict: models.BranchConfigDict,
         outputs_path: Path | None,
+        *,
         show_trace: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -729,6 +732,7 @@ def nix_eval_config(
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
     gcroots_user: str = "buildbot-worker",
+    *,
     show_trace: bool = False,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
@@ -813,7 +817,7 @@ def nix_eval_config(
         workernames=worker_names,
         project=project.name,
         factory=factory,
-        properties=dict(status_name="nix-eval"),
+        properties={"status_name": "nix-eval"},
     )
 
 
@@ -842,11 +846,11 @@ async def do_register_gcroot_if(
 
 def nix_build_steps(
     project: GitProject,
-    worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
     branch_config: models.BranchConfigDict,
     gcroots_user: str = "buildbot-worker",
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> list[steps.BuildStep]:
     out_steps = [
@@ -917,6 +921,7 @@ def nix_build_config(
     branch_config_dict: models.BranchConfigDict,
     gcroots_user: str = "buildbot-worker",
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
@@ -924,12 +929,11 @@ def nix_build_config(
     factory.addSteps(
         nix_build_steps(
             project,
-            worker_names,
             post_build_steps,
             branch_config_dict,
             gcroots_user,
             outputs_path,
-            show_trace,
+            show_trace=show_trace,
         )
     )
 
@@ -996,6 +1000,7 @@ def nix_cached_failure_config(
     branch_config_dict: models.BranchConfigDict,
     post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is cached as failed."""
@@ -1190,6 +1195,7 @@ def config_for_project(
     per_repo_effects_secrets: dict[str, str],
     branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> None:
     config["projects"].append(Project(project.name))
@@ -1398,12 +1404,12 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         self,
         epobject: Any,
         epdict: dict[str, Any],
-        options: dict[str, Any],
+        _options: dict[str, Any],
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "build")
 
     async def match_BuildEndpoint_rebuild(  # noqa: N802
-        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+        self, epobject: Any, epdict: dict[str, Any], _options: dict[str, Any]
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "build")
 
@@ -1411,7 +1417,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         self,
         epobject: Any,
         epdict: dict[str, Any],
-        options: dict[str, Any],
+        _options: dict[str, Any],
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "build")
 
@@ -1419,7 +1425,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         self,
         epobject: Any,
         epdict: dict[str, Any],
-        options: dict[str, Any],
+        _options: dict[str, Any],
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "buildrequest")
 
@@ -1479,7 +1485,8 @@ class NixConfigurator(ConfiguratorBase):
 
         self.config = config
 
-    def configure(self, config: dict[str, Any]) -> None:
+    def _initialize_backends(self) -> dict[str, GitBackend]:
+        """Initialize git backends based on configuration."""
         backends: dict[str, GitBackend] = {}
 
         if self.config.github is not None:
@@ -1491,53 +1498,52 @@ class NixConfigurator(ConfiguratorBase):
         if self.config.pull_based is not None:
             backends["pull_based"] = PullBasedBacked(self.config.pull_based)
 
-        auth: AuthBase | None = None
+        return backends
+
+    def _setup_auth(self, backends: dict[str, GitBackend]) -> AuthBase | None:
+        """Setup authentication based on configuration."""
         if self.config.auth_backend == AuthBackendConfig.httpbasicauth:
-            auth = OAuth2ProxyAuth(self.config.http_basic_auth_password)
-        elif self.config.auth_backend == AuthBackendConfig.none:
-            pass
-        elif backends[self.config.auth_backend] is not None:
-            auth = backends[self.config.auth_backend].create_auth()
+            return OAuth2ProxyAuth(self.config.http_basic_auth_password)
+        if self.config.auth_backend == AuthBackendConfig.none:
+            return None
+        if backends[self.config.auth_backend] is not None:
+            return backends[self.config.auth_backend].create_auth()
+        return None
 
-        projects: list[GitProject] = []
-
-        for backend in backends.values():
-            projects += backend.load_projects()
-
-        config.setdefault("projects", [])
-        config.setdefault("secretsProviders", [])
-        config.setdefault("www", {})
-        config.setdefault("workers", [])
-        config.setdefault("services", [])
-        config.setdefault("schedulers", [])
-        config.setdefault("builders", [])
-
+    def _setup_workers(self, config: dict[str, Any]) -> list[str]:
+        """Configure workers and return worker names."""
         worker_names = []
+
+        # Add nix workers
         for w in self.config.nix_worker_secrets().workers:
             for i in range(w.cores):
                 worker_name = f"{w.name}-{i:03}"
                 config["workers"].append(worker.Worker(worker_name, w.password))
                 worker_names.append(worker_name)
 
+        # Add local workers
         for i in range(self.config.local_workers):
             worker_name = f"local-{i}"
             local_worker = NixLocalWorker(worker_name)
             config["workers"].append(local_worker)
             worker_names.append(worker_name)
 
-        if worker_names == []:
+        if not worker_names:
             msg = f"No workers configured in {self.config.nix_workers_secret_file} and {self.config.local_workers} local workers."
             raise BuildbotNixError(msg)
 
-        eval_lock = util.MasterLock("nix-eval")
+        return worker_names
 
-        global DB  # noqa: PLW0603
-        if DB is None:
-            DB = FailedBuildDB(Path("failed_builds.dbm"))
-            # Hacky but we have no other hooks just now to run code on shutdown.
-            atexit.register(lambda: DB.close() if DB is not None else None)
-
+    def _configure_projects(
+        self,
+        config: dict[str, Any],
+        projects: list[GitProject],
+        worker_names: list[str],
+        eval_lock: util.MasterLock,
+    ) -> list[GitProject]:
+        """Configure individual projects and return succeeded projects."""
         succeeded_projects = []
+
         for project in projects:
             try:
                 config_for_project(
@@ -1554,7 +1560,7 @@ class NixConfigurator(ConfiguratorBase):
                     ],
                     job_report_limit=self.config.job_report_limit,
                     per_repo_effects_secrets=self.config.effects_per_repo_secrets,
-                    failed_builds_db=DB,
+                    failed_builds_db=DB,  # type: ignore[arg-type]  # DB is guaranteed to be initialized above
                     gcroots_user=self.config.gcroots_user,
                     branch_config_dict=self.config.branches,
                     outputs_path=self.config.outputs_path,
@@ -1565,8 +1571,15 @@ class NixConfigurator(ConfiguratorBase):
             else:
                 succeeded_projects.append(project)
 
-        config["workers"].extend(worker.LocalWorker(w) for w in SKIPPED_BUILDER_NAMES)
+        return succeeded_projects
 
+    def _setup_backend_services(
+        self,
+        config: dict[str, Any],
+        backends: dict[str, GitBackend],
+        worker_names: list[str],
+    ) -> None:
+        """Setup backend-specific services, schedulers, and reporters."""
         for backend in backends.values():
             # Reload backend projects
             reload_builder = backend.create_reload_builder([worker_names[0]])
@@ -1579,47 +1592,43 @@ class NixConfigurator(ConfiguratorBase):
                             builderNames=[reload_builder.name],
                             buttonName="Update projects",
                         ),
-                        # project list twice a day and on startup
                         PeriodicWithStartup(
                             name=f"reload-{backend.type}-projects-bidaily",
                             builderNames=[reload_builder.name],
                             periodicBuildTimer=12 * 60 * 60,
                             run_on_startup=not backend.are_projects_cached(),
                         ),
-                    ],
+                    ]
                 )
+
             config["services"].append(backend.create_reporter())
             config.setdefault("secretsProviders", [])
             config["secretsProviders"].extend(backend.create_secret_providers())
 
-        credentials_directory = os.environ.get("CREDENTIALS_DIRECTORY", "./secrets")
-        Path(credentials_directory).mkdir(exist_ok=True, parents=True)
-        systemd_secrets = SecretInAFile(dirname=credentials_directory)
-        config["secretsProviders"].append(systemd_secrets)
-
+    def _setup_www_config(
+        self,
+        config: dict[str, Any],
+        backends: dict[str, GitBackend],
+        succeeded_projects: list[GitProject],
+        auth: AuthBase | None,
+    ) -> None:
+        """Configure WWW settings including auth, change hooks, and avatar methods."""
         config["www"].setdefault("plugins", {})
-
         config["www"].setdefault("change_hook_dialects", {})
+        config["www"].setdefault("avatar_methods", [])
+
+        # Setup change hooks and avatar methods for backends
         for backend in backends.values():
             config["www"]["change_hook_dialects"][backend.change_hook_name] = (
                 backend.create_change_hook()
             )
 
-        config.setdefault("change_source", [])
-        for project in succeeded_projects:
-            change_source = project.create_change_source()
-            if change_source is not None:
-                config["change_source"].append(change_source)
-
-        config["www"].setdefault("avatar_methods", [])
-
-        for backend in backends.values():
             avatar_method = backend.create_avatar_method()
             if avatar_method is not None:
                 config["www"]["avatar_methods"].append(avatar_method)
 
+        # Setup authentication and authorization
         if "auth" not in config["www"]:
-            # TODO one cannot have multiple auth backends...
             if auth is not None:
                 config["www"]["auth"] = auth
 
@@ -1628,3 +1637,64 @@ class NixConfigurator(ConfiguratorBase):
                 backends=list(backends.values()),
                 projects=succeeded_projects,
             )
+
+    def configure(self, config: dict[str, Any]) -> None:
+        # Initialize config defaults
+        config.setdefault("projects", [])
+        config.setdefault("secretsProviders", [])
+        config.setdefault("www", {})
+        config.setdefault("workers", [])
+        config.setdefault("services", [])
+        config.setdefault("schedulers", [])
+        config.setdefault("builders", [])
+        config.setdefault("change_source", [])
+
+        # Setup components
+        backends = self._initialize_backends()
+        auth = self._setup_auth(backends)
+
+        # Load projects from backends
+        projects: list[GitProject] = []
+        for backend in backends.values():
+            projects += backend.load_projects()
+
+        # Setup workers
+        worker_names = self._setup_workers(config)
+
+        # Initialize database and eval lock
+        eval_lock = util.MasterLock("nix-eval")
+
+        global DB  # noqa: PLW0603
+        if DB is None:
+            DB = FailedBuildDB(Path("failed_builds.dbm"))
+            atexit.register(lambda: DB.close() if DB is not None else None)
+
+        if DB is None:
+            msg = "Database initialization failed"
+            raise RuntimeError(msg)
+
+        # Configure projects
+        succeeded_projects = self._configure_projects(
+            config, projects, worker_names, eval_lock
+        )
+
+        # Add skipped builder workers
+        config["workers"].extend(worker.LocalWorker(w) for w in SKIPPED_BUILDER_NAMES)
+
+        # Setup backend services
+        self._setup_backend_services(config, backends, worker_names)
+
+        # Setup systemd secrets
+        credentials_directory = os.environ.get("CREDENTIALS_DIRECTORY", "./secrets")
+        Path(credentials_directory).mkdir(exist_ok=True, parents=True)
+        systemd_secrets = SecretInAFile(dirname=credentials_directory)
+        config["secretsProviders"].append(systemd_secrets)
+
+        # Setup change sources for projects
+        for project in succeeded_projects:
+            change_source = project.create_change_source()
+            if change_source is not None:
+                config["change_source"].append(change_source)
+
+        # Setup WWW configuration
+        self._setup_www_config(config, backends, succeeded_projects, auth)

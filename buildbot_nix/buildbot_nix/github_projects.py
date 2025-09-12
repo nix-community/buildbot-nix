@@ -191,8 +191,6 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
                 self.topic,
                 refresh_projects(
                     v.get(),
-                    self.project_cache_file,
-                    clear=True,
                     api_endpoint="/installation/repositories",
                     subkey="repositories",
                     require_admin=False,
@@ -293,7 +291,7 @@ class ReloadGithubProjects(ThreadDeferredBuildStep):
             self.repo_allowlist,
             self.user_allowlist,
             self.topic,
-            refresh_projects(self.token.get(), self.project_cache_file),
+            refresh_projects(self.token.get()),
             lambda repo: repo.full_name,
             lambda repo: repo.owner.login,
             lambda repo: repo.topics,
@@ -347,7 +345,7 @@ class GithubLegacyAuthBackend(GithubAuthBackend):
     def get_general_token(self) -> RepoToken:
         return self.token
 
-    def get_repo_token(self, repo_full_name: str) -> RepoToken:
+    def get_repo_token(self, repo_full_name: str) -> RepoToken:  # noqa: ARG002
         return self.token
 
     def create_secret_providers(self) -> list[SecretProviderBase]:
@@ -628,7 +626,9 @@ class GithubBackend(GitBackend):
         return AvatarGitHub()
 
     def create_auth(self) -> AuthBase:
-        assert self.config.oauth_id is not None, "GitHub OAuth ID is required"
+        if self.config.oauth_id is None:
+            msg = "GitHub OAuth ID is required"
+            raise ValueError(msg)
         return GitHubAuth(
             self.config.oauth_id,
             self.config.oauth_secret,
@@ -726,13 +726,18 @@ def create_project_hook(
         f"https://api.github.com/repos/{owner}/{repo}/hooks?per_page=100",
         token.get(),
     )
-    config = dict(
-        url=webhook_url + "change_hook/github",
-        content_type="json",
-        insecure_ssl="0",
-        secret=webhook_secret,
-    )
-    data = dict(name="web", active=True, events=["push", "pull_request"], config=config)
+    config = {
+        "url": webhook_url + "change_hook/github",
+        "content_type": "json",
+        "insecure_ssl": "0",
+        "secret": webhook_secret,
+    }
+    data = {
+        "name": "web",
+        "active": True,
+        "events": ["push", "pull_request"],
+        "config": config,
+    }
     headers = {
         "Authorization": f"Bearer {token.get()}",
         "Accept": "application/vnd.github+json",
@@ -831,11 +836,10 @@ class GithubProject(GitProject):
 
 def refresh_projects(
     github_token: str,
-    repo_cache_file: Path,
     repos: list[Any] | None = None,
-    clear: bool = True,
     api_endpoint: str = "/user/repos",
     subkey: None | str = None,
+    *,
     require_admin: bool = True,
 ) -> list[RepoData]:
     if repos is None:
