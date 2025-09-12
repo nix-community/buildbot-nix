@@ -110,7 +110,8 @@ class CombinedBuildEvent(Enum):
             build_db: Any = await master.data.get(("builds", str(build.buildid)))
             if result is not None:
                 build_db["results"] = result
-            # Add any extra data passed to the event
+            # Add event type and any extra data passed to the event
+            build_db["_event_type"] = event.value
             for key, value in extra_data.items():
                 build_db[f"_{key}"] = value
             event_key = ("builds", str(build.buildid), event.value)
@@ -118,7 +119,8 @@ class CombinedBuildEvent(Enum):
         elif isinstance(build, dict):
             if result is not None:
                 build["results"] = result
-            # Add any extra data passed to the event
+            # Add event type and any extra data passed to the event
+            build["_event_type"] = event.value
             for key, value in extra_data.items():
                 build[f"_{key}"] = value
             event_key = ("builds", str(build["buildid"]), event.value)
@@ -283,9 +285,6 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
 
         if not self.is_message_needed_by_props(data):
             return None
-
-        # Add the event type to the build data so formatter can use it
-        data["_event_type"] = event
 
         report: dict[str, Any] = await self.build_message(
             formatter, master, reporter, data
