@@ -50,7 +50,7 @@ class Interpolate(BaseModel):
             return value
         return util.Interpolate(value.value)
 
-    def __init__(self, value: str, **kwargs: Any) -> None:
+    def __init__(self, value: str, **kwargs: Any) -> None:  # noqa: ARG002
         super().__init__(nix_type="interpolate", value=value)
 
 

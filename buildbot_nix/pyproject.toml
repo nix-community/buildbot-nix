@@ -48,10 +48,6 @@ ignore = [
   # commented out code
   "ERA001",
 
-  # Unused function argument
-  "ARG001",
-  "ARG002",
-
   # Dynamically typed expressions (typing.Any)
   "ANN401",
   # Trailing comma missing

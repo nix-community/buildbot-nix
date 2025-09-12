@@ -109,7 +109,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.update_result_futures: list[Coroutine[Any, Any, None]] = []
         super().__init__(**kwargs)
 
-    def interrupt(self, reason: str | Failure) -> None:
+    def interrupt(self, reason: str | Failure) -> None:  # noqa: ARG002
         # We cancel the buildrequests, as the data api handles
         # both cases:
         # - build started: stop is sent,

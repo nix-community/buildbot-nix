@@ -233,8 +233,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         if self.build:
             await CombinedBuildEvent.produce_event_for_build(
-                self.master, CombinedBuildEvent.FINISHED_NIX_EVAL, self.build, result,
-                warnings_count=self.warnings_count
+                self.master,
+                CombinedBuildEvent.FINISHED_NIX_EVAL,
+                self.build,
+                result,
+                warnings_count=self.warnings_count,
             )
         if result in (util.SUCCESS, util.WARNINGS):
             # create a ShellCommand for each stage and add them to the build
@@ -840,7 +843,6 @@ async def do_register_gcroot_if(
 
 def nix_build_steps(
     project: GitProject,
-    worker_names: list[str],
     post_build_steps: list[steps.BuildStep],
     branch_config: models.BranchConfigDict,
     gcroots_user: str = "buildbot-worker",
@@ -922,7 +924,6 @@ def nix_build_config(
     factory.addSteps(
         nix_build_steps(
             project,
-            worker_names,
             post_build_steps,
             branch_config_dict,
             gcroots_user,
@@ -1396,12 +1397,12 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         self,
         epobject: Any,
         epdict: dict[str, Any],
-        options: dict[str, Any],
+        _options: dict[str, Any],
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "build")
 
     async def match_BuildEndpoint_rebuild(  # noqa: N802
-        self, epobject: Any, epdict: dict[str, Any], options: dict[str, Any]
+        self, epobject: Any, epdict: dict[str, Any], _options: dict[str, Any]
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "build")
 
@@ -1409,7 +1410,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         self,
         epobject: Any,
         epdict: dict[str, Any],
-        options: dict[str, Any],
+        _options: dict[str, Any],
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "build")
 
@@ -1417,7 +1418,7 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
         self,
         epobject: Any,
         epdict: dict[str, Any],
-        options: dict[str, Any],
+        _options: dict[str, Any],
     ) -> Match | None:
         return await self.check_builder(epobject, epdict, "buildrequest")
 

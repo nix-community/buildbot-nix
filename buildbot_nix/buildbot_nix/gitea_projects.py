@@ -328,7 +328,7 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
             self.config.repo_allowlist,
             self.config.user_allowlist,
             self.config.topic,
-            refresh_projects(self.config, self.project_cache_file),
+            refresh_projects(self.config),
             lambda repo: repo.full_name,
             lambda repo: repo.owner.login,
             lambda repo: repo.topics,
@@ -340,7 +340,7 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
         return util.SUCCESS
 
 
-def refresh_projects(config: GiteaConfig, repo_cache_file: Path) -> list[RepoData]:
+def refresh_projects(config: GiteaConfig) -> list[RepoData]:
     repos = []
 
     for repo in paginated_github_request(

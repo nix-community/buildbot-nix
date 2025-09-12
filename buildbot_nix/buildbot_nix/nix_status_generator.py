@@ -149,7 +149,7 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         builders: None | list[str] = None,
         schedulers: None | list[str] = None,
         branches: None | list[str] = None,
-        add_logs: bool | None = None,
+        _add_logs: bool | None = None,
         add_patch: bool = False,
         start_formatter: None | MessageFormatterBase = None,
         end_formatter: None | MessageFormatterBase = None,
