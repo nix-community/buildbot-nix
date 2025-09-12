@@ -27,16 +27,17 @@ class WorkerConfig:
     worker_name: str = field(
         default_factory=lambda: os.environ.get("WORKER_NAME", socket.gethostname())
     )
-    worker_count_str: str = os.environ.get("WORKER_COUNT", "0")
-    worker_count = int(worker_count_str)
-
-    if worker_count == 0:
-        worker_count = multiprocessing.cpu_count()
-
+    worker_count: int = field(init=False)
     buildbot_dir: Path = field(
         default_factory=lambda: Path(require_env("BUILDBOT_DIR"))
     )
     master_url: str = field(default_factory=lambda: require_env("MASTER_URL"))
+
+    def __post_init__(self) -> None:
+        worker_count_str = os.environ.get("WORKER_COUNT", "0")
+        self.worker_count = int(worker_count_str)
+        if self.worker_count == 0:
+            self.worker_count = multiprocessing.cpu_count()
 
 
 def setup_worker(
