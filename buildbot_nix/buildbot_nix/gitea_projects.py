@@ -174,7 +174,9 @@ class GiteaBackend(GitBackend):
         return None
 
     def create_auth(self) -> AuthBase:
-        assert self.config.oauth_id is not None, "Gitea requires an OAuth ID to be set"
+        if self.config.oauth_id is None:
+            msg = "Gitea requires an OAuth ID to be set"
+            raise ValueError(msg)
         return GiteaAuth(
             self.config.instance_url,
             self.config.oauth_id,

@@ -178,7 +178,9 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         buildrequest_model: (
             BuildRequestModel | None
         ) = await master.db.buildrequests.getBuildRequest(brdict["buildrequestid"])
-        assert buildrequest_model is not None
+        if buildrequest_model is None:
+            msg = f"Failed to get build request for id {brdict['buildrequestid']}"
+            raise RuntimeError(msg)
 
         bdict = {}
 

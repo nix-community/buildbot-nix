@@ -11,7 +11,9 @@ from twisted.python import components
 
 def require_env(key: str) -> str:
     val = os.environ.get(key)
-    assert val is not None, f"{key} environment variable is not set"
+    if val is None:
+        msg = f"{key} environment variable is not set"
+        raise ValueError(msg)
     return val
 
 

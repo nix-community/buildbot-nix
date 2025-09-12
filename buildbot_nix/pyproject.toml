@@ -60,8 +60,6 @@ ignore = [
   "G004",
   # disabled on ruff's recommendation as causes problems with the formatter
   "ISC001",
-  # Use of `assert` detected
-  "S101",
   # `subprocess` call: check for execution of untrusted input
   "S603",
   # Starting a process with a partial executable path

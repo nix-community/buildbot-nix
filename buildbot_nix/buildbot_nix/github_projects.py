@@ -626,7 +626,9 @@ class GithubBackend(GitBackend):
         return AvatarGitHub()
 
     def create_auth(self) -> AuthBase:
-        assert self.config.oauth_id is not None, "GitHub OAuth ID is required"
+        if self.config.oauth_id is None:
+            msg = "GitHub OAuth ID is required"
+            raise ValueError(msg)
         return GitHubAuth(
             self.config.oauth_id,
             self.config.oauth_secret,

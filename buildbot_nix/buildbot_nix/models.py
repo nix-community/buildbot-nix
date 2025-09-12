@@ -204,8 +204,12 @@ class BranchConfig(BaseModel):
         self.match_regex = glob_to_regex(match_glob)
 
     def __or__(self, other: "BranchConfig") -> "BranchConfig":
-        assert self.match_glob == other.match_glob
-        assert self.match_regex == other.match_regex
+        if self.match_glob != other.match_glob:
+            msg = "Cannot merge BranchConfig with different match_glob values"
+            raise ValueError(msg)
+        if self.match_regex != other.match_regex:
+            msg = "Cannot merge BranchConfig with different match_regex values"
+            raise ValueError(msg)
 
         return BranchConfig(
             match_glob=self.match_glob,
