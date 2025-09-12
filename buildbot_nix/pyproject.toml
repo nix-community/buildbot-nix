@@ -60,8 +60,6 @@ ignore = [
   "ISC001",
   # Starting a process with a partial executable path
   "S607",
-  # Boolean default positional argument in function definition
-  "FBT002",
 
   # Too many statements
   "PLR0915",

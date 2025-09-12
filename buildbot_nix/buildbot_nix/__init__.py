@@ -155,6 +155,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         worker_count: int,
         max_memory_size: int,
         drv_gcroots_dir: util.Interpolate,
+        *,
         show_trace: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -477,6 +478,7 @@ class CachedFailureStep(steps.BuildStep):
         post_build_steps: list[models.PostBuildStep],
         branch_config_dict: models.BranchConfigDict,
         outputs_path: Path | None,
+        *,
         show_trace: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -730,6 +732,7 @@ def nix_eval_config(
     job_report_limit: int | None,
     failed_builds_db: FailedBuildDB,
     gcroots_user: str = "buildbot-worker",
+    *,
     show_trace: bool = False,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
@@ -847,6 +850,7 @@ def nix_build_steps(
     branch_config: models.BranchConfigDict,
     gcroots_user: str = "buildbot-worker",
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> list[steps.BuildStep]:
     out_steps = [
@@ -917,6 +921,7 @@ def nix_build_config(
     branch_config_dict: models.BranchConfigDict,
     gcroots_user: str = "buildbot-worker",
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> BuilderConfig:
     """Builds one nix flake attribute."""
@@ -928,7 +933,7 @@ def nix_build_config(
             branch_config_dict,
             gcroots_user,
             outputs_path,
-            show_trace,
+            show_trace=show_trace,
         )
     )
 
@@ -995,6 +1000,7 @@ def nix_cached_failure_config(
     branch_config_dict: models.BranchConfigDict,
     post_build_steps: list[steps.BuildStep],
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is cached as failed."""
@@ -1189,6 +1195,7 @@ def config_for_project(
     per_repo_effects_secrets: dict[str, str],
     branch_config_dict: models.BranchConfigDict,
     outputs_path: Path | None = None,
+    *,
     show_trace: bool = False,
 ) -> None:
     config["projects"].append(Project(project.name))

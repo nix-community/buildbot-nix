@@ -839,6 +839,7 @@ def refresh_projects(
     repos: list[Any] | None = None,
     api_endpoint: str = "/user/repos",
     subkey: None | str = None,
+    *,
     require_admin: bool = True,
 ) -> list[RepoData]:
     if repos is None:
