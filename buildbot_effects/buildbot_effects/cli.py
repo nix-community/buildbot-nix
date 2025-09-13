@@ -7,7 +7,7 @@ from . import instantiate_effects, list_effects, parse_derivation, run_effects
 from .options import EffectsOptions
 
 
-def list_command(args: argparse.Namespace, options: EffectsOptions) -> None:
+def list_command(_args: argparse.Namespace, options: EffectsOptions) -> None:
     json.dump(list_effects(options), fp=sys.stdout, indent=2)
 
 
@@ -24,7 +24,7 @@ def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
     run_effects(drv_path, drv, secrets=secrets)
 
 
-def run_all_command(args: argparse.Namespace, options: EffectsOptions) -> None:
+def run_all_command(_args: argparse.Namespace, _options: EffectsOptions) -> None:
     print("TODO")
 
 

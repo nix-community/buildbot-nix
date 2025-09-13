@@ -61,13 +61,8 @@ ignore = [
   # Starting a process with a partial executable path
   "S607",
 
-  # Too many statements
-  "PLR0915",
-  "PLR0912", # Too many branches
-
   "E501", # line too long
   "T201", # `print` found
-  "PLR2004", # Magic value used in comparison
 
   # not compatible with twisted logger: https://docs.twisted.org/en/twisted-18.7.0/core/howto/logger.html
   "G010",  # Logging statement uses `warn` instead of `warning`
