@@ -569,6 +569,13 @@ in
         description = "Show stack traces on failed evaluations";
       };
 
+      cacheFailedBuilds = lib.mkEnableOption ''
+        cache failed builds in local database to avoid retrying them.
+        When enabled, failed builds will be remembered and skipped in subsequent evaluations
+        unless explicitly rebuilt. When disabled (the default), all builds will be attempted
+        regardless of previous failures
+      '';
+
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
@@ -815,6 +822,7 @@ in
                 branches = cfg.branches;
                 nix_workers_secret_file = "buildbot-nix-workers";
                 show_trace_on_failure = cfg.showTrace;
+                cache_failed_builds = cfg.cacheFailedBuilds;
               }
             }").read_text()))
           )

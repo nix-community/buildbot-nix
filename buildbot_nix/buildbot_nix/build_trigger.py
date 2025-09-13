@@ -50,7 +50,7 @@ class JobsConfig:
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
     combine_builds: bool
-    failed_builds_db: FailedBuildDB
+    failed_builds_db: FailedBuildDB | None
 
 
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
@@ -72,7 +72,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None
     brids: list[int]
     consumers: dict[int, Any]
-    failed_builds_db: FailedBuildDB
+    failed_builds_db: FailedBuildDB | None
 
     @dataclass
     class ScheduledJob:
@@ -382,7 +382,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         context: SchedulingContext,
     ) -> None:
         """Process a single build to determine if it should be scheduled."""
-        failed_build = self.jobs_config.failed_builds_db.check_build(build.drvPath)
+        failed_build = None
+        if self.jobs_config.failed_builds_db is not None:
+            failed_build = self.jobs_config.failed_builds_db.check_build(build.drvPath)
 
         if context.job_closures.get(build.drvPath):
             # Has dependencies, skip for now
@@ -407,7 +409,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 self.brids.extend(brids.values())
             else:
                 # Rebuild requested, remove from cache and schedule
-                self.jobs_config.failed_builds_db.remove_build(build.drvPath)
+                if self.jobs_config.failed_builds_db is not None:
+                    self.jobs_config.failed_builds_db.remove_build(build.drvPath)
                 context.scheduler_log.addStdout(
                     f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
                 )
@@ -444,7 +447,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             return
 
         # Update failed builds cache if needed
-        if result == util.FAILURE:
+        if result == util.FAILURE and self.jobs_config.failed_builds_db is not None:
             should_add_to_cache = (
                 self.build and self.build.reason == "rebuild"
             ) or not self.jobs_config.failed_builds_db.check_build(job.drvPath)
