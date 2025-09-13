@@ -7,6 +7,7 @@ import os
 import re
 import urllib.parse
 from collections import defaultdict
+from dataclasses import dataclass
 from multiprocessing import cpu_count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,7 +36,7 @@ from buildbot.www.auth import AuthBase
 from twisted.logger import Logger
 
 from . import models
-from .build_trigger import BuildTrigger
+from .build_trigger import BuildTrigger, JobsConfig, TriggerConfig
 from .errors import BuildbotNixError
 from .failed_builds import FailedBuildDB
 from .gitea_projects import GiteaBackend
@@ -58,6 +59,41 @@ from .repo_config import BranchConfig
 SKIPPED_BUILDER_NAMES = [
     f"skipped-builds-{n:03}" for n in range(int(max(4, int(cpu_count() * 0.25))))
 ]
+
+
+@dataclass
+class BuildConfig:
+    """Configuration for build commands."""
+
+    post_build_steps: list[steps.BuildStep] | list[models.PostBuildStep]
+    branch_config_dict: models.BranchConfigDict
+    outputs_path: Path | None = None
+
+
+@dataclass
+class NixEvalConfig:
+    """Configuration for nix evaluation."""
+
+    supported_systems: list[str]
+    job_report_limit: int | None
+    worker_count: int
+    max_memory_size: int
+
+    eval_lock: MasterLock
+    failed_builds_db: FailedBuildDB
+    gcroots_user: str = "buildbot-worker"
+
+    show_trace: bool = False
+
+
+@dataclass
+class ProjectConfig:
+    """Configuration for config_for_project function."""
+
+    worker_names: list[str]
+    nix_eval_config: NixEvalConfig
+    build_config: BuildConfig
+    per_repo_effects_secrets: dict[str, str]
 
 
 class NixLocalWorker(worker.LocalWorker):
@@ -149,30 +185,19 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
     def __init__(
         self,
         project: GitProject,
-        supported_systems: list[str],
-        job_report_limit: int | None,
-        failed_builds_db: FailedBuildDB,
-        worker_count: int,
-        max_memory_size: int,
+        nix_eval_config: NixEvalConfig,
         drv_gcroots_dir: util.Interpolate,
-        *,
-        show_trace: bool = False,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
         self.project = project
+        self.nix_eval_config = nix_eval_config
         self.observer = logobserver.BufferLogObserver(wantStderr=True)
         self.addLogObserver("stdio", self.observer)
-        self.supported_systems = supported_systems
-        self.job_report_limit = job_report_limit
         self.warnings_count = 0
         self.warnings_processed = False
-        self.failed_builds_db = failed_builds_db
-        self.worker_count = worker_count
-        self.max_memory_size = max_memory_size
         self.drv_gcroots_dir = drv_gcroots_dir
-        self.show_trace = show_trace
 
     async def produce_event(self, event: str, result: None | int) -> None:
         if not self.build:
@@ -204,9 +229,9 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 "eval-cache",
                 "false",
                 "--workers",
-                str(self.worker_count),
+                str(self.nix_eval_config.worker_count),
                 "--max-memory-size",
-                str(self.max_memory_size),
+                str(self.nix_eval_config.max_memory_size),
                 "--option",
                 "accept-flake-config",
                 "true",
@@ -214,7 +239,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 str(self.drv_gcroots_dir),
                 "--force-recurse",
                 "--check-cache-status",
-                *(["--show-trace"] if self.show_trace else []),
+                *(["--show-trace"] if self.nix_eval_config.show_trace else []),
                 "--flake",
                 f"{branch_config.flake_dir}#{branch_config.attribute}",
                 *(
@@ -260,31 +285,38 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 # report unbuildable jobs
                 if isinstance(job, NixEvalJobError):
                     failed_jobs.append(job)
-                elif job.system in self.supported_systems and isinstance(
-                    job, NixEvalJobSuccess
+                elif (
+                    job.system in self.nix_eval_config.supported_systems
+                    and isinstance(job, NixEvalJobSuccess)
                 ):
                     successful_jobs.append(job)
 
             self.number_of_jobs = len(successful_jobs)
 
             if self.build:
+                trigger_config = TriggerConfig(
+                    builds_scheduler=f"{self.project.project_id}-nix-build",
+                    skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
+                    failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
+                    dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
+                    cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
+                )
+                jobs_config = JobsConfig(
+                    successful_jobs=successful_jobs,
+                    failed_jobs=failed_jobs,
+                    combine_builds=(
+                        self.nix_eval_config.job_report_limit is not None
+                        and self.number_of_jobs > self.nix_eval_config.job_report_limit
+                    ),
+                    failed_builds_db=self.nix_eval_config.failed_builds_db,
+                )
                 self.build.addStepsAfterCurrentStep(
                     [
                         BuildTrigger(
                             project=self.project,
-                            builds_scheduler=f"{self.project.project_id}-nix-build",
-                            skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
-                            failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
-                            dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
-                            cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
+                            trigger_config=trigger_config,
+                            jobs_config=jobs_config,
                             name="build flake",
-                            successful_jobs=successful_jobs,
-                            failed_jobs=failed_jobs,
-                            combine_builds=(
-                                self.job_report_limit is not None
-                                and self.number_of_jobs > self.job_report_limit
-                            ),
-                            failed_builds_db=self.failed_builds_db,
                         ),
                     ]
                 )
@@ -474,20 +506,11 @@ class CachedFailureStep(steps.BuildStep):
     def __init__(
         self,
         project: GitProject,
-        worker_names: list[str],
-        post_build_steps: list[models.PostBuildStep],
-        branch_config_dict: models.BranchConfigDict,
-        outputs_path: Path | None,
-        *,
-        show_trace: bool = False,
+        build_config: BuildConfig,
         **kwargs: Any,
     ) -> None:
         self.project = project
-        self.worker_names = worker_names
-        self.post_build_steps = post_build_steps
-        self.branch_config_dict = branch_config_dict
-        self.outputs_path = outputs_path
-        self.show_trace = show_trace
+        self.build_config = build_config
 
         super().__init__(**kwargs)
 
@@ -725,15 +748,7 @@ def nix_eval_config(
     project: GitProject,
     worker_names: list[str],
     git_url: str,
-    supported_systems: list[str],
-    eval_lock: MasterLock,
-    worker_count: int,
-    max_memory_size: int,
-    job_report_limit: int | None,
-    failed_builds_db: FailedBuildDB,
-    gcroots_user: str = "buildbot-worker",
-    *,
-    show_trace: bool = False,
+    nix_eval_config: NixEvalConfig,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -757,7 +772,7 @@ def nix_eval_config(
         ),
     )
     drv_gcroots_dir = util.Interpolate(
-        f"/nix/var/nix/gcroots/per-user/{gcroots_user}/%(prop:project)s/drvs/",
+        f"/nix/var/nix/gcroots/per-user/{nix_eval_config.gcroots_user}/%(prop:project)s/drvs/",
     )
 
     factory.addStep(
@@ -765,16 +780,11 @@ def nix_eval_config(
             project=project,
             env={"CLICOLOR_FORCE": "1"},
             name="Evaluate flake",
-            supported_systems=supported_systems,
-            job_report_limit=job_report_limit,
-            failed_builds_db=failed_builds_db,
+            nix_eval_config=nix_eval_config,
             haltOnFailure=True,
-            locks=[eval_lock.access("exclusive")],
-            worker_count=worker_count,
-            max_memory_size=max_memory_size,
+            locks=[nix_eval_config.eval_lock.access("exclusive")],
             drv_gcroots_dir=drv_gcroots_dir,
             logEnviron=False,
-            show_trace=show_trace,
         ),
     )
 
@@ -846,10 +856,8 @@ async def do_register_gcroot_if(
 
 def nix_build_steps(
     project: GitProject,
-    post_build_steps: list[steps.BuildStep],
-    branch_config: models.BranchConfigDict,
+    build_config: BuildConfig,
     gcroots_user: str = "buildbot-worker",
-    outputs_path: Path | None = None,
     *,
     show_trace: bool = False,
 ) -> list[steps.BuildStep]:
@@ -880,7 +888,7 @@ def nix_build_steps(
             haltOnFailure=True,
             logEnviron=False,
         ),
-        *post_build_steps,
+        *build_config.post_build_steps,
         Trigger(
             name="Register gcroot",
             waitForFinish=True,
@@ -890,7 +898,9 @@ def nix_build_steps(
             sourceStamps=[],
             alwaysUseLatest=False,
             updateSourceStamp=False,
-            doStepIf=lambda s: do_register_gcroot_if(s, branch_config, gcroots_user),
+            doStepIf=lambda s: do_register_gcroot_if(
+                s, build_config.branch_config_dict, gcroots_user
+            ),
             copy_properties=["out_path", "attr"],
             set_properties={"report_status": False},
         ),
@@ -901,13 +911,13 @@ def nix_build_steps(
         ),
     ]
 
-    if outputs_path is not None:
+    if build_config.outputs_path is not None:
         out_steps.append(
             UpdateBuildOutput(
                 project=project,
                 name="Update build output",
-                path=outputs_path,
-                branch_config=branch_config,
+                path=build_config.outputs_path,
+                branch_config=build_config.branch_config_dict,
             ),
         )
 
@@ -917,10 +927,8 @@ def nix_build_steps(
 def nix_build_config(
     project: GitProject,
     worker_names: list[str],
-    post_build_steps: list[steps.BuildStep],
-    branch_config_dict: models.BranchConfigDict,
+    build_config: BuildConfig,
     gcroots_user: str = "buildbot-worker",
-    outputs_path: Path | None = None,
     *,
     show_trace: bool = False,
 ) -> BuilderConfig:
@@ -929,10 +937,8 @@ def nix_build_config(
     factory.addSteps(
         nix_build_steps(
             project,
-            post_build_steps,
-            branch_config_dict,
+            build_config,
             gcroots_user,
-            outputs_path,
             show_trace=show_trace,
         )
     )
@@ -995,27 +1001,18 @@ def nix_dependency_failed_config(
 
 def nix_cached_failure_config(
     project: GitProject,
-    worker_names: list[str],
     skipped_worker_names: list[str],
-    branch_config_dict: models.BranchConfigDict,
-    post_build_steps: list[steps.BuildStep],
-    outputs_path: Path | None = None,
-    *,
-    show_trace: bool = False,
+    build_config: BuildConfig,
 ) -> BuilderConfig:
     """Dummy builder that is triggered when a build is cached as failed."""
     factory = util.BuildFactory()
     factory.addStep(
         CachedFailureStep(
             project=project,
-            worker_names=worker_names,
-            post_build_steps=post_build_steps,
-            branch_config_dict=branch_config_dict,
-            outputs_path=outputs_path,
+            build_config=build_config,
             name="Cached failure",
             haltOnFailure=True,
             flunkOnFailure=True,
-            show_trace=show_trace,
         ),
     )
 
@@ -1183,20 +1180,7 @@ def buildbot_effects_config(
 def config_for_project(
     config: dict[str, Any],
     project: GitProject,
-    worker_names: list[str],
-    nix_supported_systems: list[str],
-    nix_eval_worker_count: int,
-    nix_eval_max_memory_size: int,
-    eval_lock: MasterLock,
-    post_build_steps: list[steps.BuildStep],
-    job_report_limit: int | None,
-    failed_builds_db: FailedBuildDB,
-    gcroots_user: str,
-    per_repo_effects_secrets: dict[str, str],
-    branch_config_dict: models.BranchConfigDict,
-    outputs_path: Path | None = None,
-    *,
-    show_trace: bool = False,
+    project_config: ProjectConfig,
 ) -> None:
     config["projects"].append(Project(project.name))
     config["schedulers"].extend(
@@ -1205,7 +1189,7 @@ def config_for_project(
                 name=f"{project.project_id}-primary",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
-                    filter_fn=lambda c: branch_config_dict.do_run(
+                    filter_fn=lambda c: project_config.build_config.branch_config_dict.do_run(
                         project.default_branch, c.branch
                     ),
                 ),
@@ -1292,7 +1276,7 @@ def config_for_project(
         ],
     )
     key = f"{project.type}:{project.owner}/{project.repo}"
-    effects_secrets_cred = per_repo_effects_secrets.get(key)
+    effects_secrets_cred = project_config.per_repo_effects_secrets.get(key)
 
     config["builders"].extend(
         [
@@ -1300,51 +1284,42 @@ def config_for_project(
             # This should prevent excessive memory usage.
             nix_eval_config(
                 project,
-                worker_names,
+                project_config.worker_names,
                 git_url=project.get_project_url(),
-                supported_systems=nix_supported_systems,
-                job_report_limit=job_report_limit,
-                worker_count=nix_eval_worker_count,
-                max_memory_size=nix_eval_max_memory_size,
-                eval_lock=eval_lock,
-                failed_builds_db=failed_builds_db,
-                gcroots_user=gcroots_user,
-                show_trace=show_trace,
+                nix_eval_config=project_config.nix_eval_config,
             ),
             nix_build_config(
                 project,
-                worker_names,
-                outputs_path=outputs_path,
-                branch_config_dict=branch_config_dict,
-                post_build_steps=post_build_steps,
-                gcroots_user=gcroots_user,
-                show_trace=show_trace,
+                project_config.worker_names,
+                build_config=project_config.build_config,
+                gcroots_user=project_config.nix_eval_config.gcroots_user,
+                show_trace=project_config.nix_eval_config.show_trace,
             ),
             buildbot_effects_config(
                 project,
                 git_url=project.get_project_url(),
-                worker_names=worker_names,
+                worker_names=project_config.worker_names,
                 secrets=effects_secrets_cred,
             ),
             nix_skipped_build_config(
                 project=project,
                 worker_names=SKIPPED_BUILDER_NAMES,
-                branch_config_dict=branch_config_dict,
-                gcroots_user=gcroots_user,
-                outputs_path=outputs_path,
+                branch_config_dict=project_config.build_config.branch_config_dict,
+                gcroots_user=project_config.nix_eval_config.gcroots_user,
+                outputs_path=project_config.build_config.outputs_path,
             ),
             nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
             nix_dependency_failed_config(project, SKIPPED_BUILDER_NAMES),
             nix_cached_failure_config(
                 project=project,
-                worker_names=worker_names,
                 skipped_worker_names=SKIPPED_BUILDER_NAMES,
-                branch_config_dict=branch_config_dict,
-                post_build_steps=post_build_steps,
-                outputs_path=outputs_path,
-                show_trace=show_trace,
+                build_config=project_config.build_config,
             ),
-            nix_register_gcroot_config(project, worker_names, gcroots_user),
+            nix_register_gcroot_config(
+                project=project,
+                worker_names=project_config.worker_names,
+                gcroots_user=project_config.nix_eval_config.gcroots_user,
+            ),
         ],
     )
 
@@ -1549,22 +1524,28 @@ class NixConfigurator(ConfiguratorBase):
                 config_for_project(
                     config=config,
                     project=project,
-                    worker_names=worker_names,
-                    nix_supported_systems=self.config.build_systems,
-                    nix_eval_worker_count=self.config.eval_worker_count
-                    or multiprocessing.cpu_count(),
-                    nix_eval_max_memory_size=self.config.eval_max_memory_size,
-                    eval_lock=eval_lock,
-                    post_build_steps=[
-                        x.to_buildstep() for x in self.config.post_build_steps
-                    ],
-                    job_report_limit=self.config.job_report_limit,
-                    per_repo_effects_secrets=self.config.effects_per_repo_secrets,
-                    failed_builds_db=DB,  # type: ignore[arg-type]  # DB is guaranteed to be initialized above
-                    gcroots_user=self.config.gcroots_user,
-                    branch_config_dict=self.config.branches,
-                    outputs_path=self.config.outputs_path,
-                    show_trace=self.config.show_trace_on_failure,
+                    project_config=ProjectConfig(
+                        worker_names=worker_names,
+                        nix_eval_config=NixEvalConfig(
+                            supported_systems=self.config.build_systems,
+                            job_report_limit=self.config.job_report_limit,
+                            worker_count=self.config.eval_worker_count
+                            or multiprocessing.cpu_count(),
+                            max_memory_size=self.config.eval_max_memory_size,
+                            eval_lock=eval_lock,
+                            failed_builds_db=DB,  # type: ignore[arg-type]  # DB is guaranteed to be initialized above
+                            gcroots_user=self.config.gcroots_user,
+                            show_trace=self.config.show_trace_on_failure,
+                        ),
+                        build_config=BuildConfig(
+                            post_build_steps=[
+                                x.to_buildstep() for x in self.config.post_build_steps
+                            ],
+                            branch_config_dict=self.config.branches,
+                            outputs_path=self.config.outputs_path,
+                        ),
+                        per_repo_effects_secrets=self.config.effects_per_repo_secrets,
+                    ),
                 )
             except Exception:  # noqa: BLE001
                 log.failure(f"Failed to configure project {project.name}")

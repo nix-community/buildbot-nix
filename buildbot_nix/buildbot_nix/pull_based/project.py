@@ -19,7 +19,7 @@ class PullBasedProject(GitProject):
     ssh_private_key: str | None
     ssh_known_hosts: str | None
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         url: str,
         name: str,

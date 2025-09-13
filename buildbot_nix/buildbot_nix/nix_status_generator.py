@@ -110,7 +110,8 @@ class CombinedBuildEvent(Enum):
             build_db: Any = await master.data.get(("builds", str(build.buildid)))
             if result is not None:
                 build_db["results"] = result
-            # Add any extra data passed to the event
+            # Add event type and any extra data passed to the event
+            build_db["_event_type"] = event.value
             for key, value in extra_data.items():
                 build_db[f"_{key}"] = value
             event_key = ("builds", str(build.buildid), event.value)
@@ -118,7 +119,8 @@ class CombinedBuildEvent(Enum):
         elif isinstance(build, dict):
             if result is not None:
                 build["results"] = result
-            # Add any extra data passed to the event
+            # Add event type and any extra data passed to the event
+            build["_event_type"] = event.value
             for key, value in extra_data.items():
                 build[f"_{key}"] = value
             event_key = ("builds", str(build["buildid"]), event.value)
@@ -138,24 +140,34 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         ("buildrequests", None, CombinedBuildEvent.FINISHED_NIX_BUILD.value),
     ]
 
-    compare_attrs: ClassVar[Sequence[str]] = ["start_formatter", "end_formatter"]
+    compare_attrs: ClassVar[Sequence[str]] = [
+        "mode",
+        "tags",
+        "builders",
+        "schedulers",
+        "branches",
+        "add_patch",
+        "start_formatter",
+        "end_formatter",
+    ]
 
     start_formatter: MessageFormatterBase
     end_formatter: MessageFormatterBase
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        tags: None | list[str] = None,
-        builders: None | list[str] = None,
-        schedulers: None | list[str] = None,
-        branches: None | list[str] = None,
-        _add_logs: bool | None = None,
-        add_patch: bool = False,  # noqa: FBT002
-        start_formatter: None | MessageFormatterBase = None,
-        end_formatter: None | MessageFormatterBase = None,
+        mode: str = "all",
+        *,
+        tags: list[str] | None = None,
+        builders: list[str] | None = None,
+        schedulers: list[str] | None = None,
+        branches: list[str] | None = None,
+        add_patch: bool = False,
+        start_formatter: MessageFormatterBase | None = None,
+        end_formatter: MessageFormatterBase | None = None,
     ) -> None:
         super().__init__(
-            mode="all",
+            mode=mode,
             tags=tags,
             builders=builders,
             schedulers=schedulers,
@@ -283,9 +295,6 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
 
         if not self.is_message_needed_by_props(data):
             return None
-
-        # Add the event type to the build data so formatter can use it
-        data["_event_type"] = event
 
         report: dict[str, Any] = await self.build_message(
             formatter, master, reporter, data

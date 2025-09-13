@@ -4,6 +4,7 @@ import json
 import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -11,12 +12,13 @@ from typing import TYPE_CHECKING, Any, TypeVar
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
-
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
 from buildbot.util.twisted import async_to_deferred
 from twisted.internet import threads
 from twisted.python.failure import Failure
+
+from .models import RepoFilters
 
 
 def slugify_project_name(name: str) -> str:
@@ -114,14 +116,20 @@ def atomic_write_file(file: Path, data: str) -> None:
 Y = TypeVar("Y")
 
 
+T = TypeVar("T")
+
+
+@dataclass
+class RepoAccessors[T]:
+    repo_name: Callable[[T], str]
+    user: Callable[[T], str]
+    topics: Callable[[T], list[str]]
+
+
 def filter_repos(
-    repo_allowlist: list[str] | None,
-    user_allowlist: list[str] | None,
-    topic: str | None,
+    filters: RepoFilters,
     repos: list[Y],
-    repo_name: Callable[[Y], str],
-    user: Callable[[Y], str],
-    topics: Callable[[Y], list[str]],
+    accessors: RepoAccessors[Y],
 ) -> list[Y]:
     # This is a bit complicated so let me explain:
     # If both `user_allowlist` and `repo_allowlist` are `None` then we want to allow everything,
@@ -130,11 +138,20 @@ def filter_repos(
 
     return list(
         filter(
-            lambda repo: (user_allowlist is None and repo_allowlist is None)
-            or (user_allowlist is not None and user(repo) in user_allowlist)
-            or (repo_allowlist is not None and repo_name(repo) in repo_allowlist),
+            lambda repo: (
+                filters.user_allowlist is None and filters.repo_allowlist is None
+            )
+            or (
+                filters.user_allowlist is not None
+                and accessors.user(repo) in filters.user_allowlist
+            )
+            or (
+                filters.repo_allowlist is not None
+                and accessors.repo_name(repo) in filters.repo_allowlist
+            ),
             filter(
-                lambda repo: topic is None or topic in topics(repo),
+                lambda repo: filters.topic is None
+                or filters.topic in accessors.topics(repo),
                 repos,
             ),
         )
@@ -175,16 +192,15 @@ class ThreadDeferredBuildStep(BuildStep, ABC):
         return util.FAILURE
 
 
-_T = TypeVar("_T", bound="BaseModel")
-
-
-def model_validate_project_cache(cls: type[_T], project_cache_file: Path) -> list[_T]:
+def model_validate_project_cache[T: BaseModel](
+    cls: type[T], project_cache_file: Path
+) -> list[T]:
     return [
         cls.model_validate(data) for data in json.loads(project_cache_file.read_text())
     ]
 
 
-def model_dump_project_cache(repos: list[_T]) -> str:
+def model_dump_project_cache[T: BaseModel](repos: list[T]) -> str:
     return json.dumps([repo.model_dump() for repo in repos])
 
 
