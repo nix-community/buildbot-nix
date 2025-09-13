@@ -22,6 +22,7 @@ def run(
     stdin: int | IO[str] | None = None,
     stdout: int | IO[str] | None = None,
     stderr: int | IO[str] | None = None,
+    *,
     debug: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     if debug:
@@ -36,7 +37,7 @@ def run(
     )
 
 
-def git_command(args: list[str], path: Path, debug: bool = False) -> str:
+def git_command(args: list[str], path: Path, *, debug: bool = False) -> str:
     cmd = ["git", "-C", str(path), *args]
     proc = run(cmd, stdout=subprocess.PIPE, debug=debug)
     return proc.stdout.strip()
@@ -71,16 +72,16 @@ def effects_args(opts: EffectsOptions) -> dict[str, Any]:
     repo = opts.repo or opts.path.name
     tag = opts.tag or git_get_tag(opts.path, rev)
     url = opts.url or get_git_remote_url(opts.path)
-    primary_repo = dict(
-        name=repo,
-        branch=branch,
+    primary_repo = {
+        "name": repo,
+        "branch": branch,
         # TODO: support ref
-        ref=None,
-        tag=tag,
-        rev=rev,
-        shortRev=short_rev,
-        remoteHttpUrl=url,
-    )
+        "ref": None,
+        "tag": tag,
+        "rev": rev,
+        "shortRev": short_rev,
+        "remoteHttpUrl": url,
+    }
     return {
         "primaryRepo": primary_repo,
         **primary_repo,
@@ -135,7 +136,7 @@ def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
     return proc.stdout.rstrip()
 
 
-def parse_derivation(path: str, debug: bool = False) -> dict[str, Any]:
+def parse_derivation(path: str, *, debug: bool = False) -> dict[str, Any]:
     cmd = [
         "nix",
         "--extra-experimental-features",
@@ -176,6 +177,7 @@ def run_effects(
     drv_path: str,
     drv: dict[str, Any],
     secrets: dict[str, Any] | None = None,
+    *,
     debug: bool = False,
 ) -> None:
     if secrets is None:
