@@ -1,5 +1,6 @@
 import os
 import signal
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -18,6 +19,7 @@ from twisted.logger import Logger
 from twisted.python import log
 
 from .common import (
+    RepoAccessors,
     ThreadDeferredBuildStep,
     atomic_write_file,
     filter_repos,
@@ -188,16 +190,16 @@ class GiteaBackend(GitBackend):
             return []
 
         repos: list[RepoData] = filter_repos(
-            self.config.repo_allowlist,
-            self.config.user_allowlist,
-            self.config.topic,
+            self.config.filters,
             sorted(
                 model_validate_project_cache(RepoData, self.config.project_cache_file),
                 key=lambda repo: repo.full_name,
             ),
-            lambda repo: repo.full_name,
-            lambda repo: repo.owner.login,
-            lambda repo: repo.topics,
+            RepoAccessors(
+                repo_name=lambda repo: repo.full_name,
+                user=lambda repo: repo.owner.login,
+                topics=lambda repo: repo.topics,
+            ),
         )
         repo_names: list[str] = [repo.owner.login + "/" + repo.name for repo in repos]
         tlog.info(
@@ -231,44 +233,47 @@ class GiteaBackend(GitBackend):
         return "gitea"
 
 
-def create_repo_hook(
-    token: str,
-    webhook_secret: str,
-    owner: str,
-    repo: str,
-    gitea_url: str,
-    instance_url: str,
-) -> None:
+@dataclass
+class RepoHookConfig:
+    token: str
+    webhook_secret: str
+    owner: str
+    repo: str
+    gitea_url: str
+    instance_url: str
+
+
+def create_repo_hook(config: RepoHookConfig) -> None:
     hooks = paginated_github_request(
-        f"{gitea_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100",
-        token,
+        f"{config.gitea_url}/api/v1/repos/{config.owner}/{config.repo}/hooks?limit=100",
+        config.token,
     )
-    config = {
-        "url": instance_url + "change_hook/gitea",
+    hook_config = {
+        "url": config.instance_url + "change_hook/gitea",
         "content_type": "json",
         "insecure_ssl": "0",
-        "secret": webhook_secret,
+        "secret": config.webhook_secret,
     }
     data = {
         "name": "web",
         "active": True,
         "events": ["push", "pull_request"],
-        "config": config,
+        "config": hook_config,
         "type": "gitea",
     }
     headers = {
-        "Authorization": f"token {token}",
+        "Authorization": f"token {config.token}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
     for hook in hooks:
-        if hook["config"]["url"] == instance_url + "change_hook/gitea":
-            log.msg(f"hook for {owner}/{repo} already exists")
+        if hook["config"]["url"] == config.instance_url + "change_hook/gitea":
+            log.msg(f"hook for {config.owner}/{config.repo} already exists")
             return
 
-    log.msg(f"creating hook for {owner}/{repo}")
+    log.msg(f"creating hook for {config.owner}/{config.repo}")
     http_request(
-        f"{gitea_url}/api/v1/repos/{owner}/{repo}/hooks",
+        f"{config.gitea_url}/api/v1/repos/{config.owner}/{config.repo}/hooks",
         method="POST",
         headers=headers,
         data=data,
@@ -295,7 +300,7 @@ class CreateGiteaProjectHooks(ThreadDeferredBuildStep):
         repos = model_validate_project_cache(RepoData, self.config.project_cache_file)
 
         for repo in repos:
-            create_repo_hook(
+            hook_config = RepoHookConfig(
                 token=self.config.token,
                 webhook_secret=self.config.webhook_secret,
                 owner=repo.owner.login,
@@ -303,6 +308,7 @@ class CreateGiteaProjectHooks(ThreadDeferredBuildStep):
                 gitea_url=self.config.instance_url,
                 instance_url=self.instance_url,
             )
+            create_repo_hook(hook_config)
 
     def run_post(self) -> Any:
         os.kill(os.getpid(), signal.SIGHUP)
@@ -327,13 +333,13 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
 
     def run_deferred(self) -> None:
         repos: list[RepoData] = filter_repos(
-            self.config.repo_allowlist,
-            self.config.user_allowlist,
-            self.config.topic,
+            self.config.filters,
             refresh_projects(self.config),
-            lambda repo: repo.full_name,
-            lambda repo: repo.owner.login,
-            lambda repo: repo.topics,
+            RepoAccessors(
+                repo_name=lambda repo: repo.full_name,
+                user=lambda repo: repo.owner.login,
+                topics=lambda repo: repo.topics,
+            ),
         )
 
         atomic_write_file(self.project_cache_file, model_dump_project_cache(repos))

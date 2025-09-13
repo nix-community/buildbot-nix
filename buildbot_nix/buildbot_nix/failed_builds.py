@@ -1,6 +1,7 @@
 import dbm.gnu as dbm
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +23,11 @@ class FailedBuild(BaseModel):
 
 class FailedBuildDB:
     def __init__(self, db_path: Path) -> None:
-        self.database = dbm.open(str(db_path), "c")  # noqa: SIM115
+        self._db_path = db_path
+        self.database = self._open_database()
+
+    def _open_database(self) -> Any:
+        return dbm.open(str(self._db_path), "c")
 
     def close(self) -> None:
         self.database.close()

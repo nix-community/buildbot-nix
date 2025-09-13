@@ -140,24 +140,34 @@ class BuildNixEvalStatusGenerator(BuildStatusGeneratorMixin):
         ("buildrequests", None, CombinedBuildEvent.FINISHED_NIX_BUILD.value),
     ]
 
-    compare_attrs: ClassVar[Sequence[str]] = ["start_formatter", "end_formatter"]
+    compare_attrs: ClassVar[Sequence[str]] = [
+        "mode",
+        "tags",
+        "builders",
+        "schedulers",
+        "branches",
+        "add_patch",
+        "start_formatter",
+        "end_formatter",
+    ]
 
     start_formatter: MessageFormatterBase
     end_formatter: MessageFormatterBase
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        tags: None | list[str] = None,
-        builders: None | list[str] = None,
-        schedulers: None | list[str] = None,
-        branches: None | list[str] = None,
-        _add_logs: bool | None = None,
-        add_patch: bool = False,  # noqa: FBT002
-        start_formatter: None | MessageFormatterBase = None,
-        end_formatter: None | MessageFormatterBase = None,
+        mode: str = "all",
+        *,
+        tags: list[str] | None = None,
+        builders: list[str] | None = None,
+        schedulers: list[str] | None = None,
+        branches: list[str] | None = None,
+        add_patch: bool = False,
+        start_formatter: MessageFormatterBase | None = None,
+        end_formatter: MessageFormatterBase | None = None,
     ) -> None:
         super().__init__(
-            mode="all",
+            mode=mode,
             tags=tags,
             builders=builders,
             schedulers=schedulers,

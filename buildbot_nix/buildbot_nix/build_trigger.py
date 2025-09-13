@@ -32,6 +32,27 @@ if TYPE_CHECKING:
     from buildbot.db.builds import BuildModel
 
 
+@dataclass
+class TriggerConfig:
+    """Configuration for build trigger schedulers."""
+
+    builds_scheduler: str
+    skipped_builds_scheduler: str
+    failed_eval_scheduler: str
+    dependency_failed_scheduler: str
+    cached_failure_scheduler: str
+
+
+@dataclass
+class JobsConfig:
+    """Configuration for job results and build settings."""
+
+    successful_jobs: list[NixEvalJobSuccess]
+    failed_jobs: list[NixEvalJobError]
+    combine_builds: bool
+    failed_builds_db: FailedBuildDB
+
+
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     """Dynamic trigger that creates a build for every attribute."""
 
@@ -73,31 +94,28 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             for field in dataclasses.fields(self):
                 yield getattr(self, field.name)
 
+    @dataclass
+    class SchedulingContext:
+        """Context for scheduling operations."""
+
+        build_schedule_order: list[NixEvalJobSuccess]
+        job_closures: dict[str, set[str]]
+        ss_for_trigger: list[dict[str, Any]]
+        scheduled: list["BuildTrigger.ScheduledJob"]
+        scheduler_log: StreamLog
+        schedule_now: list[NixEvalJobSuccess]
+
     def __init__(
         self,
         project: GitProject,
-        builds_scheduler: str,
-        skipped_builds_scheduler: str,
-        failed_eval_scheduler: str,
-        dependency_failed_scheduler: str,
-        cached_failure_scheduler: str,
-        successful_jobs: list[NixEvalJobSuccess],
-        failed_jobs: list[NixEvalJobError],
-        combine_builds: bool,
-        failed_builds_db: FailedBuildDB,
+        trigger_config: "TriggerConfig",
+        jobs_config: "JobsConfig",
         **kwargs: Any,
     ) -> None:
         self.project = project
-        self.successful_jobs = successful_jobs
-        self.failed_jobs = failed_jobs
-        self.combine_builds = combine_builds
+        self.trigger_config = trigger_config
+        self.jobs_config = jobs_config
         self.config = None
-        self.builds_scheduler = builds_scheduler
-        self.skipped_builds_scheduler = skipped_builds_scheduler
-        self.failed_eval_scheduler = failed_eval_scheduler
-        self.cached_failure_scheduler = cached_failure_scheduler
-        self.dependency_failed_scheduler = dependency_failed_scheduler
-        self.failed_builds_db = failed_builds_db
         self._result_list: list[int | None] = []
         self.ended = False
         self.running = False
@@ -168,11 +186,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, self.combine_builds, job
+            Properties(), self.project, source, self.jobs_config.combine_builds, job
         )
         props.setProperty("error", job.error, source)
 
-        return (self.failed_eval_scheduler, props)
+        return (self.trigger_config.failed_eval_scheduler, props)
 
     def schedule_cached_failure(
         self,
@@ -182,11 +200,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, self.combine_builds, job
+            Properties(), self.project, source, self.jobs_config.combine_builds, job
         )
         props.setProperty("first_failure_url", first_failure.url, source)
 
-        return (self.cached_failure_scheduler, props)
+        return (self.trigger_config.cached_failure_scheduler, props)
 
     def schedule_dependency_failed(
         self,
@@ -196,11 +214,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         source = "nix-eval-nix"
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, self.combine_builds, job
+            Properties(), self.project, source, self.jobs_config.combine_builds, job
         )
         props.setProperty("dependency.attr", dependency.attr, source)
 
-        return (self.dependency_failed_scheduler, props)
+        return (self.trigger_config.dependency_failed_scheduler, props)
 
     def schedule_success(
         self,
@@ -213,7 +231,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         out_path = job.outputs["out"] or None
 
         props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, self.combine_builds, job
+            Properties(), self.project, source, self.jobs_config.combine_builds, job
         )
 
         build_props.setProperty(f"{job.attr}-out_path", out_path, source)
@@ -221,8 +239,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         # TODO: allow to skip if the build is cached?
         if job.cacheStatus in {CacheStatus.notBuilt, CacheStatus.cached}:
-            return (self.builds_scheduler, props)
-        return (self.skipped_builds_scheduler, props)
+            return (self.trigger_config.builds_scheduler, props)
+        return (self.trigger_config.skipped_builds_scheduler, props)
 
     async def schedule(
         self,
@@ -248,7 +266,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             await self.addURL(f"{scheduler.name} #{brid}", url)
             self.update_result_futures.append(self._add_results(brid))
 
-        if not self.combine_builds:
+        if not self.jobs_config.combine_builds:
             await CombinedBuildEvent.produce_event_for_build_requests_by_id(
                 self.master, brids.values(), CombinedBuildEvent.STARTED_NIX_BUILD, None
             )
@@ -341,11 +359,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         scheduler_log: StreamLog,
     ) -> int:
         """Schedule builds for failed evaluation jobs."""
-        overall_result = SUCCESS if not self.failed_jobs else util.FAILURE
+        overall_result = SUCCESS if not self.jobs_config.failed_jobs else util.FAILURE
 
-        if self.failed_jobs:
+        if self.jobs_config.failed_jobs:
             scheduler_log.addStdout("The following jobs failed to evaluate:\n")
-            for failed_job in self.failed_jobs:
+            for failed_job in self.jobs_config.failed_jobs:
                 scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
                 brids, results_deferred = await self.schedule(
                     ss_for_trigger,
@@ -361,49 +379,44 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     async def _process_build_for_scheduling(
         self,
         build: NixEvalJobSuccess,
-        build_schedule_order: list[NixEvalJobSuccess],
-        job_closures: dict[str, set[str]],
-        ss_for_trigger: list[dict[str, Any]],
-        scheduled: list[ScheduledJob],
-        schedule_now: list[NixEvalJobSuccess],
-        scheduler_log: StreamLog,
+        context: SchedulingContext,
     ) -> None:
         """Process a single build to determine if it should be scheduled."""
-        failed_build = self.failed_builds_db.check_build(build.drvPath)
+        failed_build = self.jobs_config.failed_builds_db.check_build(build.drvPath)
 
-        if job_closures.get(build.drvPath):
+        if context.job_closures.get(build.drvPath):
             # Has dependencies, skip for now
             return
 
         if failed_build is not None and self.build:
             if self.build.reason != "rebuild":
                 # Skip due to cached failure
-                scheduler_log.addStdout(
+                context.scheduler_log.addStdout(
                     f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
                     f"\t  see build at {failed_build.url}\n"
                 )
-                build_schedule_order.remove(build)
+                context.build_schedule_order.remove(build)
 
                 brids, results_deferred = await self.schedule(
-                    ss_for_trigger,
+                    context.ss_for_trigger,
                     *self.schedule_cached_failure(build, failed_build),
                 )
-                scheduled.append(
+                context.scheduled.append(
                     BuildTrigger.ScheduledJob(build, brids, results_deferred)
                 )
                 self.brids.extend(brids.values())
             else:
                 # Rebuild requested, remove from cache and schedule
-                self.failed_builds_db.remove_build(build.drvPath)
-                scheduler_log.addStdout(
+                self.jobs_config.failed_builds_db.remove_build(build.drvPath)
+                context.scheduler_log.addStdout(
                     f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
                 )
-                build_schedule_order.remove(build)
-                schedule_now.append(build)
+                context.build_schedule_order.remove(build)
+                context.schedule_now.append(build)
         else:
             # No cached failure, schedule normally
-            build_schedule_order.remove(build)
-            schedule_now.append(build)
+            context.build_schedule_order.remove(build)
+            context.schedule_now.append(build)
 
     async def _get_failed_build_url(self, brids: dict[str, Any]) -> str:
         """Get the URL of the actual failed build."""
@@ -422,13 +435,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     async def _handle_failed_job(
         self,
         job: NixEvalJob,
+        context: SchedulingContext,
         brids: dict[str, Any],
         result: int,
-        build_schedule_order: list[NixEvalJobSuccess],
-        job_closures: dict[str, set[str]],
-        ss_for_trigger: list[dict[str, Any]],
-        scheduled: list[ScheduledJob],
-        scheduler_log: StreamLog,
     ) -> None:
         """Handle a failed job by removing dependents and updating cache."""
         if not isinstance(job, NixEvalJobSuccess) or result == SUCCESS:
@@ -438,33 +447,37 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         if result == util.FAILURE:
             should_add_to_cache = (
                 self.build and self.build.reason == "rebuild"
-            ) or not self.failed_builds_db.check_build(job.drvPath)
+            ) or not self.jobs_config.failed_builds_db.check_build(job.drvPath)
             if should_add_to_cache:
                 url = await self._get_failed_build_url(brids)
-                self.failed_builds_db.add_build(job.drvPath, datetime.now(tz=UTC), url)
+                self.jobs_config.failed_builds_db.add_build(
+                    job.drvPath, datetime.now(tz=UTC), url
+                )
 
         # Schedule dependent failures
-        removed = self.get_failed_dependents(job, build_schedule_order, job_closures)
+        removed = self.get_failed_dependents(
+            job, context.build_schedule_order, context.job_closures
+        )
         for removed_job in removed:
             scheduler, props = self.schedule_dependency_failed(removed_job, job)
             dep_brids, results_deferred = await self.schedule(
-                ss_for_trigger, scheduler, props
+                context.ss_for_trigger, scheduler, props
             )
-            build_schedule_order.remove(removed_job)
-            scheduled.append(
+            context.build_schedule_order.remove(removed_job)
+            context.scheduled.append(
                 BuildTrigger.ScheduledJob(removed_job, dep_brids, results_deferred)
             )
             self.brids.extend(dep_brids.values())
 
         if removed:
-            scheduler_log.addStdout(
+            context.scheduler_log.addStdout(
                 "\t- removed jobs: "
                 + ", ".join([job.drvPath for job in removed])
                 + "\n"
             )
 
         # Update job closures
-        for job_closure in job_closures.values():
+        for job_closure in context.job_closures.values():
             if job.drvPath in job_closure:
                 job_closure.remove(job.drvPath)
 
@@ -497,16 +510,26 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         )
 
         # Prepare job dependencies
-        job_set = {job.drvPath for job in self.successful_jobs}
+        job_set = {job.drvPath for job in self.jobs_config.successful_jobs}
         job_closures = {
             k.drvPath: set(k.neededSubstitutes)
             .union(set(k.neededBuilds))
             .intersection(job_set)
             .difference({k.drvPath})
-            for k in self.successful_jobs
+            for k in self.jobs_config.successful_jobs
         }
         build_schedule_order = self.sort_jobs_by_closures(
-            self.successful_jobs, job_closures
+            self.jobs_config.successful_jobs, job_closures
+        )
+
+        # Create scheduling context that will be reused throughout the loop
+        context = BuildTrigger.SchedulingContext(
+            build_schedule_order=build_schedule_order,
+            job_closures=job_closures,
+            ss_for_trigger=ss_for_trigger,
+            scheduled=scheduled,
+            schedule_now=[],
+            scheduler_log=scheduler_log,
         )
 
         # Main scheduling loop
@@ -514,23 +537,15 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduler_log.addStdout("Scheduling...\n")
 
             # Determine which jobs to schedule now
-            schedule_now: list[NixEvalJobSuccess] = []
+            context.schedule_now = []
             for build in list(build_schedule_order):
-                await self._process_build_for_scheduling(
-                    build,
-                    build_schedule_order,
-                    job_closures,
-                    ss_for_trigger,
-                    scheduled,
-                    schedule_now,
-                    scheduler_log,
-                )
+                await self._process_build_for_scheduling(build, context)
 
-            if not schedule_now:
+            if not context.schedule_now:
                 scheduler_log.addStdout("\tNo builds to schedule found.\n")
 
             # Schedule ready jobs
-            for job in schedule_now:
+            for job in context.schedule_now:
                 scheduler_log.addStdout(f"\t- {job.attr}\n")
                 brids, results_deferred = await self.schedule(
                     ss_for_trigger,
@@ -564,7 +579,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
 
-            if not self.combine_builds:
+            if not self.jobs_config.combine_builds:
                 await CombinedBuildEvent.produce_event_for_build_requests_by_id(
                     self.master,
                     brids.values(),
@@ -573,16 +588,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 )
 
             # Handle failed jobs and their dependents
-            await self._handle_failed_job(
-                job,
-                brids,
-                result,
-                build_schedule_order,
-                job_closures,
-                ss_for_trigger,
-                scheduled,
-                scheduler_log,
-            )
+            await self._handle_failed_job(job, context, brids, result)
 
             overall_result = worst_status(result, overall_result)
             scheduler_log.addStdout(

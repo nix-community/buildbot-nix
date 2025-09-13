@@ -2,6 +2,7 @@ import json
 import os
 import re
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Self
@@ -11,6 +12,13 @@ from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, TypeAda
 from pydantic_core import CoreSchema, core_schema
 
 from .errors import BuildbotNixError
+
+
+@dataclass
+class RepoFilters:
+    repo_allowlist: list[str] | None = None
+    user_allowlist: list[str] | None = None
+    topic: str | None = None
 
 
 class InternalError(Exception):
@@ -56,10 +64,7 @@ class Interpolate(BaseModel):
 
 class GiteaConfig(BaseModel):
     instance_url: str
-    topic: str | None
-
-    user_allowlist: list[str] | None
-    repo_allowlist: list[str] | None
+    filters: RepoFilters = Field(default_factory=RepoFilters)
 
     token_file: Path = Field(default=Path("gitea-token"))
     webhook_secret_file: Path = Field(default=Path("gitea-webhook-secret"))
@@ -149,10 +154,7 @@ class GitHubAppConfig(BaseModel):
 
 class GitHubConfig(BaseModel):
     auth_type: GitHubLegacyConfig | GitHubAppConfig
-    topic: str | None
-
-    user_allowlist: list[str] | None
-    repo_allowlist: list[str] | None
+    filters: RepoFilters = Field(default_factory=RepoFilters)
     project_cache_file: Path = Field(default=Path("github-project-cache-v1.json"))
     webhook_secret_file: Path = Field(default=Path("github-webhook-secret"))
 

@@ -32,7 +32,7 @@ dependencies = [
 find = {}
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 88
 
 [tool.ruff.lint]
@@ -63,8 +63,6 @@ ignore = [
 
   # Too many statements
   "PLR0915",
-  # Too many arguments in function definition
-  "PLR0913",
   "PLR0912", # Too many branches
 
   "E501", # line too long
@@ -87,7 +85,7 @@ ignore-names = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 pretty = true
 warn_redundant_casts = true
 disallow_untyped_calls = false
