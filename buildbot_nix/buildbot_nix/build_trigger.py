@@ -372,7 +372,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 scheduled.append(
                     BuildTrigger.ScheduledJob(failed_job, brids, results_deferred)
                 )
-                self.brids.extend(brids)
+                self.brids.extend(brids.values())
 
         return overall_result
 
