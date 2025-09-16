@@ -379,31 +379,31 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     async def _process_build_for_scheduling(
         self,
         build: NixEvalJobSuccess,
-        context: SchedulingContext,
+        ctx: SchedulingContext,
     ) -> None:
         """Process a single build to determine if it should be scheduled."""
         failed_build = None
         if self.jobs_config.failed_builds_db is not None:
             failed_build = self.jobs_config.failed_builds_db.check_build(build.drvPath)
 
-        if context.job_closures.get(build.drvPath):
+        if ctx.job_closures.get(build.drvPath):
             # Has dependencies, skip for now
             return
 
         if failed_build is not None and self.build:
             if self.build.reason != "rebuild":
                 # Skip due to cached failure
-                context.scheduler_log.addStdout(
+                ctx.scheduler_log.addStdout(
                     f"\t- skipping {build.attr} due to cached failure, first failed at {failed_build.time}\n"
                     f"\t  see build at {failed_build.url}\n"
                 )
-                context.build_schedule_order.remove(build)
+                ctx.build_schedule_order.remove(build)
 
                 brids, results_deferred = await self.schedule(
-                    context.ss_for_trigger,
+                    ctx.ss_for_trigger,
                     *self.schedule_cached_failure(build, failed_build),
                 )
-                context.scheduled.append(
+                ctx.scheduled.append(
                     BuildTrigger.ScheduledJob(build, brids, results_deferred)
                 )
                 self.brids.extend(brids.values())
@@ -411,15 +411,15 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 # Rebuild requested, remove from cache and schedule
                 if self.jobs_config.failed_builds_db is not None:
                     self.jobs_config.failed_builds_db.remove_build(build.drvPath)
-                context.scheduler_log.addStdout(
+                ctx.scheduler_log.addStdout(
                     f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
                 )
-                context.build_schedule_order.remove(build)
-                context.schedule_now.append(build)
+                ctx.build_schedule_order.remove(build)
+                ctx.schedule_now.append(build)
         else:
             # No cached failure, schedule normally
-            context.build_schedule_order.remove(build)
-            context.schedule_now.append(build)
+            ctx.build_schedule_order.remove(build)
+            ctx.schedule_now.append(build)
 
     async def _get_failed_build_url(self, brids: dict[str, Any]) -> str:
         """Get the URL of the actual failed build."""
@@ -438,7 +438,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     async def _handle_failed_job(
         self,
         job: NixEvalJob,
-        context: SchedulingContext,
+        ctx: SchedulingContext,
         brids: dict[str, Any],
         result: int,
     ) -> None:
@@ -459,28 +459,28 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         # Schedule dependent failures
         removed = self.get_failed_dependents(
-            job, context.build_schedule_order, context.job_closures
+            job, ctx.build_schedule_order, ctx.job_closures
         )
         for removed_job in removed:
             scheduler, props = self.schedule_dependency_failed(removed_job, job)
             dep_brids, results_deferred = await self.schedule(
-                context.ss_for_trigger, scheduler, props
+                ctx.ss_for_trigger, scheduler, props
             )
-            context.build_schedule_order.remove(removed_job)
-            context.scheduled.append(
+            ctx.build_schedule_order.remove(removed_job)
+            ctx.scheduled.append(
                 BuildTrigger.ScheduledJob(removed_job, dep_brids, results_deferred)
             )
             self.brids.extend(dep_brids.values())
 
         if removed:
-            context.scheduler_log.addStdout(
+            ctx.scheduler_log.addStdout(
                 "\t- removed jobs: "
                 + ", ".join([job.drvPath for job in removed])
                 + "\n"
             )
 
         # Update job closures
-        for job_closure in context.job_closures.values():
+        for job_closure in ctx.job_closures.values():
             if job.drvPath in job_closure:
                 job_closure.remove(job.drvPath)
 
@@ -526,7 +526,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         )
 
         # Create scheduling context that will be reused throughout the loop
-        context = BuildTrigger.SchedulingContext(
+        ctx = BuildTrigger.SchedulingContext(
             build_schedule_order=build_schedule_order,
             job_closures=job_closures,
             ss_for_trigger=ss_for_trigger,
@@ -536,34 +536,33 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         )
 
         # Main scheduling loop
-        while build_schedule_order or scheduled:
-            scheduler_log.addStdout("Scheduling...\n")
+        while ctx.build_schedule_order or ctx.scheduled:
+            ctx.scheduler_log.addStdout("Scheduling...\n")
 
             # Determine which jobs to schedule now
-            context.schedule_now = []
-            for build in list(build_schedule_order):
-                await self._process_build_for_scheduling(build, context)
+            ctx.schedule_now = []
+            for build in list(ctx.build_schedule_order):
+                await self._process_build_for_scheduling(build, ctx)
 
-            if not context.schedule_now:
-                scheduler_log.addStdout("\tNo builds to schedule found.\n")
+            if not ctx.schedule_now:
+                ctx.scheduler_log.addStdout("\tNo builds to schedule found.\n")
 
             # Schedule ready jobs
-            for job in context.schedule_now:
-                scheduler_log.addStdout(f"\t- {job.attr}\n")
+            for job in ctx.schedule_now:
+                ctx.scheduler_log.addStdout(f"\t- {job.attr}\n")
                 brids, results_deferred = await self.schedule(
-                    ss_for_trigger,
+                    ctx.ss_for_trigger,
                     *self.schedule_success(build_props, job),
                 )
-                scheduled.append(
+                ctx.scheduled.append(
                     BuildTrigger.ScheduledJob(job, brids, results_deferred)
                 )
                 self.brids.extend(brids.values())
 
-            scheduler_log.addStdout("Waiting...\n")
+            ctx.scheduler_log.addStdout("Waiting...\n")
 
-            # Wait for a job to complete
             self.wait_for_finish_deferred = defer.DeferredList(
-                [job.results for job in scheduled],
+                [job.results for job in ctx.scheduled],
                 fireOnOneCallback=True,
                 fireOnOneErrback=True,
             )
@@ -573,12 +572,12 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
 
             # Process completed job
-            job, brids, _ = scheduled[index]
+            job, brids, _ = ctx.scheduled[index]
             done.append(BuildTrigger.DoneJob(job, brids, results))
-            del scheduled[index]
+            del ctx.scheduled[index]
             result = results[0]
 
-            scheduler_log.addStdout(
+            ctx.scheduler_log.addStdout(
                 f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
             )
 
@@ -591,10 +590,10 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 )
 
             # Handle failed jobs and their dependents
-            await self._handle_failed_job(job, context, brids, result)
+            await self._handle_failed_job(job, ctx, brids, result)
 
             overall_result = worst_status(result, overall_result)
-            scheduler_log.addStdout(
+            ctx.scheduler_log.addStdout(
                 f"\t- new result: {util.Results[overall_result].upper()} \n"
             )
 
@@ -608,7 +607,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 self.build,
                 overall_result,
             )
-        scheduler_log.addStdout("Done!\n")
+        ctx.scheduler_log.addStdout("Done!\n")
         return overall_result
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
