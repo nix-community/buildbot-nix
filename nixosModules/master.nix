@@ -749,15 +749,17 @@ in
                     null
                   else
                     {
-                      user_allowlist = cfg.gitea.userAllowlist;
-                      repo_allowlist = cfg.gitea.repoAllowlist;
+                      filters = {
+                        user_allowlist = cfg.gitea.userAllowlist;
+                        repo_allowlist = cfg.gitea.repoAllowlist;
+                        topic = cfg.gitea.topic;
+                      };
                       token_file = "gitea-token";
                       webhook_secret_file = "gitea-webhook-secret";
                       project_cache_file = "gitea-project-cache.json";
                       oauth_secret_file = "gitea-oauth-secret";
                       instance_url = cfg.gitea.instanceUrl;
                       oauth_id = cfg.gitea.oauthId;
-                      topic = cfg.gitea.topic;
                       ssh_private_key_file = cfg.gitea.sshPrivateKeyFile;
                       ssh_known_hosts_file = cfg.gitea.sshKnownHostsFile;
                     };
@@ -766,8 +768,11 @@ in
                     null
                   else
                     {
-                      user_allowlist = cfg.github.userAllowlist;
-                      repo_allowlist = cfg.github.repoAllowlist;
+                      filters = {
+                        user_allowlist = cfg.github.userAllowlist;
+                        repo_allowlist = cfg.github.repoAllowlist;
+                        topic = cfg.github.topic;
+                      };
                       auth_type =
                         if (cfg.github.authType ? "legacy") then
                           { token_file = "github-token"; }
@@ -785,7 +790,6 @@ in
                       webhook_secret_file = "github-webhook-secret";
                       oauth_secret_file = "github-oauth-secret";
                       oauth_id = cfg.github.oauthId;
-                      topic = cfg.github.topic;
                     };
                 pull_based =
                   if cfg.pullBased.repositories == [ ] then
