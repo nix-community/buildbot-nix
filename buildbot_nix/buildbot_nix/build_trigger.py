@@ -435,51 +435,54 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 break
         return url
 
-    async def _handle_failed_job(
+    async def _handle_completed_job(
         self,
         job: NixEvalJob,
         ctx: SchedulingContext,
         brids: dict[str, Any],
         result: int,
     ) -> None:
-        """Handle a failed job by removing dependents and updating cache."""
-        if not isinstance(job, NixEvalJobSuccess) or result == SUCCESS:
+        """Handle a completed job by updating closures and managing failures."""
+        if not isinstance(job, NixEvalJobSuccess):
             return
 
-        # Update failed builds cache if needed
-        if result == util.FAILURE and self.jobs_config.failed_builds_db is not None:
-            should_add_to_cache = (
-                self.build and self.build.reason == "rebuild"
-            ) or not self.jobs_config.failed_builds_db.check_build(job.drvPath)
-            if should_add_to_cache:
-                url = await self._get_failed_build_url(brids)
-                self.jobs_config.failed_builds_db.add_build(
-                    job.drvPath, datetime.now(tz=UTC), url
+        # Handle failure-specific logic
+        if result != SUCCESS:
+            # Update failed builds cache if needed
+            if result == util.FAILURE and self.jobs_config.failed_builds_db is not None:
+                should_add_to_cache = (
+                    self.build and self.build.reason == "rebuild"
+                ) or not self.jobs_config.failed_builds_db.check_build(job.drvPath)
+                if should_add_to_cache:
+                    url = await self._get_failed_build_url(brids)
+                    self.jobs_config.failed_builds_db.add_build(
+                        job.drvPath, datetime.now(tz=UTC), url
+                    )
+
+            # Schedule dependent failures (MUST happen before updating job_closures!)
+            removed = self.get_failed_dependents(
+                job, ctx.build_schedule_order, ctx.job_closures
+            )
+            for removed_job in removed:
+                scheduler, props = self.schedule_dependency_failed(removed_job, job)
+                dep_brids, results_deferred = await self.schedule(
+                    ctx.ss_for_trigger, scheduler, props
+                )
+                ctx.build_schedule_order.remove(removed_job)
+                ctx.scheduled.append(
+                    BuildTrigger.ScheduledJob(removed_job, dep_brids, results_deferred)
+                )
+                self.brids.extend(dep_brids.values())
+
+            if removed:
+                ctx.scheduler_log.addStdout(
+                    "\t- removed jobs: "
+                    + ", ".join([job.drvPath for job in removed])
+                    + "\n"
                 )
 
-        # Schedule dependent failures
-        removed = self.get_failed_dependents(
-            job, ctx.build_schedule_order, ctx.job_closures
-        )
-        for removed_job in removed:
-            scheduler, props = self.schedule_dependency_failed(removed_job, job)
-            dep_brids, results_deferred = await self.schedule(
-                ctx.ss_for_trigger, scheduler, props
-            )
-            ctx.build_schedule_order.remove(removed_job)
-            ctx.scheduled.append(
-                BuildTrigger.ScheduledJob(removed_job, dep_brids, results_deferred)
-            )
-            self.brids.extend(dep_brids.values())
-
-        if removed:
-            ctx.scheduler_log.addStdout(
-                "\t- removed jobs: "
-                + ", ".join([job.drvPath for job in removed])
-                + "\n"
-            )
-
-        # Update job closures
+        # Update job closures for ALL completed jobs (both success and failure)
+        # This MUST happen after get_failed_dependents since it needs the closures intact
         for job_closure in ctx.job_closures.values():
             if job.drvPath in job_closure:
                 job_closure.remove(job.drvPath)
@@ -589,8 +592,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     result,
                 )
 
-            # Handle failed jobs and their dependents
-            await self._handle_failed_job(job, ctx, brids, result)
+            # Handle completed job and update closures
+            await self._handle_completed_job(job, ctx, brids, result)
 
             overall_result = worst_status(result, overall_result)
             ctx.scheduler_log.addStdout(
