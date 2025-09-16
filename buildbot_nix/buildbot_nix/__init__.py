@@ -80,7 +80,7 @@ class NixEvalConfig:
     max_memory_size: int
 
     eval_lock: MasterLock
-    failed_builds_db: FailedBuildDB
+    failed_builds_db: FailedBuildDB | None
     gcroots_user: str = "buildbot-worker"
 
     show_trace: bool = False
@@ -1533,7 +1533,7 @@ class NixConfigurator(ConfiguratorBase):
                             or multiprocessing.cpu_count(),
                             max_memory_size=self.config.eval_max_memory_size,
                             eval_lock=eval_lock,
-                            failed_builds_db=DB,  # type: ignore[arg-type]  # DB is guaranteed to be initialized above
+                            failed_builds_db=DB,
                             gcroots_user=self.config.gcroots_user,
                             show_trace=self.config.show_trace_on_failure,
                         ),
@@ -1646,13 +1646,9 @@ class NixConfigurator(ConfiguratorBase):
         eval_lock = util.MasterLock("nix-eval")
 
         global DB  # noqa: PLW0603
-        if DB is None:
+        if DB is None and self.config.cache_failed_builds:
             DB = FailedBuildDB(Path("failed_builds.dbm"))
             atexit.register(lambda: DB.close() if DB is not None else None)
-
-        if DB is None:
-            msg = "Database initialization failed"
-            raise RuntimeError(msg)
 
         # Configure projects
         succeeded_projects = self._configure_projects(

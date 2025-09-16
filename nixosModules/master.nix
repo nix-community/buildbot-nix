@@ -569,6 +569,13 @@ in
         description = "Show stack traces on failed evaluations";
       };
 
+      cacheFailedBuilds = lib.mkEnableOption ''
+        cache failed builds in local database to avoid retrying them.
+        When enabled, failed builds will be remembered and skipped in subsequent evaluations
+        unless explicitly rebuilt. When disabled (the default), all builds will be attempted
+        regardless of previous failures
+      '';
+
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
@@ -742,15 +749,17 @@ in
                     null
                   else
                     {
-                      user_allowlist = cfg.gitea.userAllowlist;
-                      repo_allowlist = cfg.gitea.repoAllowlist;
+                      filters = {
+                        user_allowlist = cfg.gitea.userAllowlist;
+                        repo_allowlist = cfg.gitea.repoAllowlist;
+                        topic = cfg.gitea.topic;
+                      };
                       token_file = "gitea-token";
                       webhook_secret_file = "gitea-webhook-secret";
                       project_cache_file = "gitea-project-cache.json";
                       oauth_secret_file = "gitea-oauth-secret";
                       instance_url = cfg.gitea.instanceUrl;
                       oauth_id = cfg.gitea.oauthId;
-                      topic = cfg.gitea.topic;
                       ssh_private_key_file = cfg.gitea.sshPrivateKeyFile;
                       ssh_known_hosts_file = cfg.gitea.sshKnownHostsFile;
                     };
@@ -759,8 +768,11 @@ in
                     null
                   else
                     {
-                      user_allowlist = cfg.github.userAllowlist;
-                      repo_allowlist = cfg.github.repoAllowlist;
+                      filters = {
+                        user_allowlist = cfg.github.userAllowlist;
+                        repo_allowlist = cfg.github.repoAllowlist;
+                        topic = cfg.github.topic;
+                      };
                       auth_type =
                         if (cfg.github.authType ? "legacy") then
                           { token_file = "github-token"; }
@@ -778,7 +790,6 @@ in
                       webhook_secret_file = "github-webhook-secret";
                       oauth_secret_file = "github-oauth-secret";
                       oauth_id = cfg.github.oauthId;
-                      topic = cfg.github.topic;
                     };
                 pull_based =
                   if cfg.pullBased.repositories == [ ] then
@@ -815,6 +826,7 @@ in
                 branches = cfg.branches;
                 nix_workers_secret_file = "buildbot-nix-workers";
                 show_trace_on_failure = cfg.showTrace;
+                cache_failed_builds = cfg.cacheFailedBuilds;
               }
             }").read_text()))
           )
