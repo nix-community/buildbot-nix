@@ -8,7 +8,6 @@ import re
 import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass
-from multiprocessing import cpu_count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -55,10 +54,6 @@ from .nix_status_generator import CombinedBuildEvent
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .projects import GitBackend, GitProject
 from .repo_config import BranchConfig
-
-SKIPPED_BUILDER_NAMES = [
-    f"skipped-builds-{n:03}" for n in range(int(max(4, int(cpu_count() * 0.25))))
-]
 
 
 @dataclass
@@ -296,7 +291,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             if self.build:
                 trigger_config = TriggerConfig(
                     builds_scheduler=f"{self.project.project_id}-nix-build",
-                    skipped_builds_scheduler=f"{self.project.project_id}-nix-skipped-build",
                     failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
                     dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
                     cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
@@ -592,6 +586,62 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         return res
 
 
+class RegisterSkippedGcroots(buildstep.ShellMixin, steps.BuildStep):
+    """Register gcroots for all skipped builds at once."""
+
+    project: GitProject
+    gcroots_user: str
+    branch_config: models.BranchConfigDict
+
+    def __init__(
+        self,
+        project: GitProject,
+        gcroots_user: str,
+        branch_config: models.BranchConfigDict,
+        **kwargs: Any,
+    ) -> None:
+        kwargs = self.setupShellMixin(kwargs)
+        super().__init__(**kwargs)
+        self.project = project
+        self.gcroots_user = gcroots_user
+        self.branch_config = branch_config
+
+    async def run(self) -> int:
+        if self.build is None:
+            msg = "Build object is None"
+            raise RuntimeError(msg)
+        props = self.build.getProperties()
+
+        # Collect all skipped builds' output paths from properties
+        skipped_outputs = {}
+        for prop_name, (value, _source) in props.properties.items():
+            if prop_name.endswith("-skipped_out_path") and value:
+                attr = prop_name[: -len("-skipped_out_path")]
+                skipped_outputs[attr] = value
+
+        if not skipped_outputs:
+            return util.SKIPPED
+
+        # Register gcroots for all skipped builds
+        for attr, out_path in skipped_outputs.items():
+            gcroot_path = f"/nix/var/nix/gcroots/per-user/{self.gcroots_user}/{self.project.name}/{attr}"
+            cmd = await self.makeRemoteShellCommand(
+                command=[
+                    "nix-store",
+                    "--add-root",
+                    gcroot_path,
+                    "-r",
+                    out_path,
+                ],
+                logEnviron=False,
+            )
+            await self.runCommand(cmd)
+            if cmd.didFail():
+                return util.FAILURE
+
+        return util.SUCCESS
+
+
 class UpdateBuildOutput(steps.BuildStep):
     """Updates store paths in a public www directory.
     This is useful to prefetch updates without having to evaluate
@@ -749,6 +799,7 @@ def nix_eval_config(
     worker_names: list[str],
     git_url: str,
     nix_eval_config: NixEvalConfig,
+    build_config: BuildConfig,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -788,6 +839,20 @@ def nix_eval_config(
         ),
     )
 
+    # Register gcroots for all skipped builds at once
+    factory.addStep(
+        RegisterSkippedGcroots(
+            project=project,
+            gcroots_user=nix_eval_config.gcroots_user,
+            branch_config=build_config.branch_config_dict,
+            name="Register gcroots for skipped builds",
+            doStepIf=lambda s: s.getProperty("event") == "push"
+            and build_config.branch_config_dict.do_register_gcroot(
+                project.default_branch, s.getProperty("branch")
+            ),
+            hideStepIf=lambda results, _s: results == util.SKIPPED,
+        ),
+    )
     factory.addStep(
         steps.ShellCommand(
             name="Cleanup drv paths",
@@ -1026,65 +1091,6 @@ def nix_cached_failure_config(
     )
 
 
-def nix_skipped_build_config(
-    project: GitProject,
-    worker_names: list[str],
-    branch_config_dict: models.BranchConfigDict,
-    gcroots_user: str = "buildbot-worker",
-    outputs_path: Path | None = None,
-) -> BuilderConfig:
-    """Dummy builder that is triggered when a build is skipped."""
-    factory = util.BuildFactory()
-
-    # This is just a dummy step showing the cached build
-    factory.addStep(
-        steps.BuildStep(
-            name="Nix build (cached)",
-            doStepIf=lambda _: False,
-        ),
-    )
-
-    # if the change got pulled in from a PR, the roots haven't been created yet
-    factory.addStep(
-        Trigger(
-            name="Register gcroot",
-            waitForFinish=True,
-            schedulerNames=[f"{project.project_id}-nix-register-gcroot"],
-            haltOnFailure=True,
-            flunkOnFailure=True,
-            sourceStamps=[],
-            alwaysUseLatest=False,
-            updateSourceStamp=False,
-            doStepIf=lambda s: do_register_gcroot_if(
-                s, branch_config_dict, gcroots_user
-            ),
-            copy_properties=["out_path", "attr"],
-            set_properties={"report_status": False},
-        ),
-    )
-    if outputs_path is not None:
-        factory.addStep(
-            UpdateBuildOutput(
-                project=project,
-                name="Update build output",
-                path=outputs_path,
-                branch_config=branch_config_dict,
-            ),
-        )
-    return util.BuilderConfig(
-        name=f"{project.name}/nix-skipped-build",
-        project=project.name,
-        workernames=worker_names,
-        collapseRequests=False,
-        env={},
-        factory=factory,
-        do_build_if=lambda build: do_register_gcroot_if(
-            build, branch_config_dict, gcroots_user
-        )
-        and outputs_path is not None,
-    )
-
-
 def nix_register_gcroot_config(
     project: GitProject,
     worker_names: list[str],
@@ -1232,11 +1238,6 @@ def config_for_project(
                 name=f"{project.project_id}-run-effect",
                 builderNames=[f"{project.name}/run-effect"],
             ),
-            # this is triggered from `nix-eval` when the build is skipped
-            schedulers.Triggerable(
-                name=f"{project.project_id}-nix-skipped-build",
-                builderNames=[f"{project.name}/nix-skipped-build"],
-            ),
             # this is triggered from `nix-build` when the build has failed eval
             schedulers.Triggerable(
                 name=f"{project.project_id}-nix-failed-eval",
@@ -1287,6 +1288,7 @@ def config_for_project(
                 project_config.worker_names,
                 git_url=project.get_project_url(),
                 nix_eval_config=project_config.nix_eval_config,
+                build_config=project_config.build_config,
             ),
             nix_build_config(
                 project,
@@ -1301,18 +1303,11 @@ def config_for_project(
                 worker_names=project_config.worker_names,
                 secrets=effects_secrets_cred,
             ),
-            nix_skipped_build_config(
-                project=project,
-                worker_names=SKIPPED_BUILDER_NAMES,
-                branch_config_dict=project_config.build_config.branch_config_dict,
-                gcroots_user=project_config.nix_eval_config.gcroots_user,
-                outputs_path=project_config.build_config.outputs_path,
-            ),
-            nix_failed_eval_config(project, SKIPPED_BUILDER_NAMES),
-            nix_dependency_failed_config(project, SKIPPED_BUILDER_NAMES),
+            nix_failed_eval_config(project, project_config.worker_names),
+            nix_dependency_failed_config(project, project_config.worker_names),
             nix_cached_failure_config(
                 project=project,
-                skipped_worker_names=SKIPPED_BUILDER_NAMES,
+                skipped_worker_names=project_config.worker_names,
                 build_config=project_config.build_config,
             ),
             nix_register_gcroot_config(
@@ -1415,7 +1410,7 @@ def setup_authz(
 
     for project in projects:
         if project.belongs_to_org:
-            for builder in ["nix-build", "nix-skipped-build", "nix-eval"]:
+            for builder in ["nix-build", "nix-eval"]:
                 allowed_builders_by_org[project.owner].add(f"{project.name}/{builder}")
 
     for org, allowed_builders in allowed_builders_by_org.items():
@@ -1654,9 +1649,6 @@ class NixConfigurator(ConfiguratorBase):
         succeeded_projects = self._configure_projects(
             config, projects, worker_names, eval_lock
         )
-
-        # Add skipped builder workers
-        config["workers"].extend(worker.LocalWorker(w) for w in SKIPPED_BUILDER_NAMES)
 
         # Setup backend services
         self._setup_backend_services(config, backends, worker_names)
