@@ -17,7 +17,13 @@ from twisted.logger import Logger
 
 from .build_trigger import BuildTrigger, JobsConfig, TriggerConfig
 from .errors import BuildbotNixError
-from .models import NixEvalJob, NixEvalJobError, NixEvalJobModel, NixEvalJobSuccess
+from .models import (
+    NixEvalJob,
+    NixEvalJobError,
+    NixEvalJobModel,
+    NixEvalJobSuccess,
+)
+from .nix_build import ProcessSkippedBuilds
 from .nix_status_generator import CombinedBuildEvent
 from .repo_config import BranchConfig
 
@@ -381,62 +387,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         return {"step": "running"}
 
 
-class RegisterSkippedGcroots(buildstep.ShellMixin, steps.BuildStep):
-    """Register gcroots for all skipped builds at once."""
-
-    project: GitProject
-    gcroots_user: str
-    branch_config: dict  # models.BranchConfigDict
-
-    def __init__(
-        self,
-        project: GitProject,
-        gcroots_user: str,
-        branch_config: dict,  # models.BranchConfigDict
-        **kwargs: Any,
-    ) -> None:
-        kwargs = self.setupShellMixin(kwargs)
-        super().__init__(**kwargs)
-        self.project = project
-        self.gcroots_user = gcroots_user
-        self.branch_config = branch_config
-
-    async def run(self) -> int:
-        if self.build is None:
-            msg = "Build object is None"
-            raise RuntimeError(msg)
-        props = self.build.getProperties()
-
-        # Collect all skipped builds' output paths from properties
-        skipped_outputs = {}
-        for prop_name, (value, _source) in props.properties.items():
-            if prop_name.endswith("-skipped_out_path") and value:
-                attr = prop_name[: -len("-skipped_out_path")]
-                skipped_outputs[attr] = value
-
-        if not skipped_outputs:
-            return util.SKIPPED
-
-        # Register gcroots for all skipped builds
-        for attr, out_path in skipped_outputs.items():
-            gcroot_path = f"/nix/var/nix/gcroots/per-user/{self.gcroots_user}/{self.project.name}/{attr}"
-            cmd = await self.makeRemoteShellCommand(
-                command=[
-                    "nix-store",
-                    "--add-root",
-                    gcroot_path,
-                    "-r",
-                    out_path,
-                ],
-                logEnviron=False,
-            )
-            await self.runCommand(cmd)
-            if cmd.didFail():
-                return util.FAILURE
-
-        return util.SUCCESS
-
-
 class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
     """Evaluate the effects of a flake and run them on the default branch."""
 
@@ -582,14 +532,15 @@ def nix_eval_config(
         ),
     )
 
-    # Register gcroots for all skipped builds at once
+    # Process skipped builds (register gcroots and update outputs)
     factory.addStep(
-        RegisterSkippedGcroots(
+        ProcessSkippedBuilds(
             project=project,
             gcroots_user=nix_eval_config.gcroots_user,
             branch_config=build_config.branch_config_dict,
-            name="Register gcroots for skipped builds",
-            doStepIf=lambda s: s.getProperty("event") == "push"
+            outputs_path=build_config.outputs_path,
+            name="Process skipped builds",
+            doStepIf=lambda s: (s.getProperty("event", "push") == "push")
             and build_config.branch_config_dict.do_register_gcroot(
                 project.default_branch, s.getProperty("branch")
             ),
