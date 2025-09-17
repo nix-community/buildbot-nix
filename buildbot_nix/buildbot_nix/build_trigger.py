@@ -1,6 +1,6 @@
-import dataclasses
+
 import graphlib
-from collections.abc import Coroutine, Generator
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -77,19 +77,11 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         builder_ids: dict[int, int]
         results: defer.Deferred[list[int]]
 
-        def __iter__(self) -> Generator[Any, None, None]:
-            for field in dataclasses.fields(self):
-                yield getattr(self, field.name)
-
     @dataclass
     class DoneJob:
         job: NixEvalJobSuccess
         builder_ids: dict[int, int]
         results: list[int]
-
-        def __iter__(self) -> Generator[Any, None, None]:
-            for field in dataclasses.fields(self):
-                yield getattr(self, field.name)
 
     @dataclass
     class SchedulingContext:
@@ -442,17 +434,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
     async def _get_failed_build_url(self, brids: dict[str, Any]) -> str:
         """Get the URL of the actual failed build."""
-        url = ""
         for brid in brids.values():
             builds: list[BuildModel] = await self.master.db.builds.getBuilds(
                 buildrequestid=brid
             )
-            for db_build in builds:
-                url = getURLForBuild(self.master, db_build.builderid, db_build.number)
-                break  # We only need the first build's URL
-            if url:
-                break
-        return url
+            if builds:
+                return getURLForBuild(self.master, builds[0].builderid, builds[0].number)
+        return ""
 
     async def _update_failed_builds_cache(
         self, job: NixEvalJobSuccess, brids: dict[str, Any]
@@ -576,7 +564,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
 
         # Process completed job
-        job, brids, _ = ctx.scheduled[index]
+        scheduled_job = ctx.scheduled[index]
+        job, brids = scheduled_job.job, scheduled_job.builder_ids
         done.append(BuildTrigger.DoneJob(job, brids, results))
         del ctx.scheduled[index]
         result = results[0]
