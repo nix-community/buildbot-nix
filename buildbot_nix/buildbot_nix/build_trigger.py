@@ -1,22 +1,18 @@
+from __future__ import annotations
 
 import graphlib
-from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from buildbot.plugins import steps, util
 from buildbot.process import buildstep
-from buildbot.process.log import StreamLog
 from buildbot.process.properties import Properties
 from buildbot.process.results import ALL_RESULTS, SUCCESS, statusToString, worst_status
 from buildbot.reporters.utils import getURLForBuild, getURLForBuildrequest
-from buildbot.schedulers.triggerable import Triggerable
 from twisted.internet import defer
-from twisted.python.failure import Failure
 
 from .errors import BuildbotNixError
-from .failed_builds import FailedBuild, FailedBuildDB
 from .models import (
     CacheStatus,
     NixDerivation,
@@ -25,11 +21,18 @@ from .models import (
     NixEvalJobSuccess,
 )
 from .nix_status_generator import CombinedBuildEvent
-from .projects import GitProject
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from buildbot.db.buildrequests import BuildRequestModel
     from buildbot.db.builds import BuildModel
+    from buildbot.process.log import StreamLog
+    from buildbot.schedulers.triggerable import Triggerable
+    from twisted.python.failure import Failure
+
+    from .failed_builds import FailedBuild, FailedBuildDB
+    from .projects import GitProject
 
 
 @dataclass
@@ -90,15 +93,15 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         build_schedule_order: list[NixEvalJobSuccess]
         job_closures: dict[str, set[str]]
         ss_for_trigger: list[dict[str, Any]]
-        scheduled: list["BuildTrigger.ScheduledJob"]
+        scheduled: list[BuildTrigger.ScheduledJob]
         scheduler_log: StreamLog
         schedule_now: list[NixEvalJobSuccess]
 
     def __init__(
         self,
         project: GitProject,
-        trigger_config: "TriggerConfig",
-        jobs_config: "JobsConfig",
+        trigger_config: TriggerConfig,
+        jobs_config: JobsConfig,
         nix_attr_prefix: str = "checks",
         **kwargs: Any,
     ) -> None:
@@ -432,18 +435,20 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             ctx.build_schedule_order.remove(build)
             ctx.schedule_now.append(build)
 
-    async def _get_failed_build_url(self, brids: dict[str, Any]) -> str:
+    async def _get_failed_build_url(self, brids: dict[int, int]) -> str:
         """Get the URL of the actual failed build."""
         for brid in brids.values():
             builds: list[BuildModel] = await self.master.db.builds.getBuilds(
                 buildrequestid=brid
             )
             if builds:
-                return getURLForBuild(self.master, builds[0].builderid, builds[0].number)
+                return getURLForBuild(
+                    self.master, builds[0].builderid, builds[0].number
+                )
         return ""
 
     async def _update_failed_builds_cache(
-        self, job: NixEvalJobSuccess, brids: dict[str, Any]
+        self, job: NixEvalJobSuccess, brids: dict[int, int]
     ) -> None:
         """Update the failed builds cache if needed."""
         if self.jobs_config.failed_builds_db is None:
@@ -463,7 +468,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self,
         job: NixEvalJob,
         ctx: SchedulingContext,
-        brids: dict[str, Any],
+        brids: dict[int, int],
         result: int,
     ) -> None:
         """Handle a completed job by updating closures and managing failures."""
@@ -566,7 +571,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         # Process completed job
         scheduled_job = ctx.scheduled[index]
         job, brids = scheduled_job.job, scheduled_job.builder_ids
-        done.append(BuildTrigger.DoneJob(job, brids, results))
+        if isinstance(job, NixEvalJobSuccess):
+            done.append(BuildTrigger.DoneJob(job, brids, results))
         del ctx.scheduled[index]
         result = results[0]
 
