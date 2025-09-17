@@ -48,8 +48,8 @@ class JobsConfig:
 
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
-    combine_builds: bool
     failed_builds_db: FailedBuildDB | None
+    failed_build_report_limit: int
 
 
 class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
@@ -58,7 +58,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     project: GitProject
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
-    combine_builds: bool
     drv_info: dict[str, NixDerivation]
     builds_scheduler: str
     failed_eval_scheduler: str
@@ -118,6 +117,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.config = None
         self._result_list: list[int | None] = []
         self._skipped_count: int = 0
+        self._failed_notifications_sent: int = (
+            0  # Count of failed build notifications already sent
+        )
         self.ended = False
         self.running = False
         self.wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None = (
@@ -151,6 +153,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             ):
                 self.wait_for_finish_deferred.cancel()
 
+    def _should_send_individual_notification_for_failure(self) -> bool:
+        """Check if we should send individual notification for a failure."""
+        # Check if we've exceeded the limit
+        return (
+            self._failed_notifications_sent < self.jobs_config.failed_build_report_limit
+        )
+
     def get_scheduler_by_name(self, name: str) -> Triggerable:
         schedulers = self.master.scheduler_manager.namedServices
         if name not in schedulers:
@@ -164,7 +173,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         props: Properties,
         project: GitProject,
         source: str,
-        combine_builds: bool,
         job: NixEvalJob,
     ) -> Properties:
         name = (
@@ -174,7 +182,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         props.setProperty("status_name", f"nix-build {name}", source)
         props.setProperty("virtual_builder_tags", "", source)
         props.setProperty("attr", job.attr, source)
-        props.setProperty("combine_builds", combine_builds, source)
         props.setProperty("default_branch", project.default_branch, source)
 
         if isinstance(job, NixEvalJobSuccess):
@@ -188,9 +195,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     def schedule_eval_failure(self, job: NixEvalJobError) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = self.set_common_properties(
-            Properties(), self.project, source, self.jobs_config.combine_builds, job
-        )
+        props = self.set_common_properties(Properties(), self.project, source, job)
         props.setProperty("error", job.error, source)
 
         return (self.trigger_config.failed_eval_scheduler, props)
@@ -202,9 +207,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = self.set_common_properties(
-            Properties(), self.project, source, self.jobs_config.combine_builds, job
-        )
+        props = self.set_common_properties(Properties(), self.project, source, job)
         props.setProperty("first_failure_url", first_failure.url, source)
 
         return (self.trigger_config.cached_failure_scheduler, props)
@@ -216,9 +219,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = self.set_common_properties(
-            Properties(), self.project, source, self.jobs_config.combine_builds, job
-        )
+        props = self.set_common_properties(Properties(), self.project, source, job)
         props.setProperty("dependency.attr", dependency.attr, source)
 
         return (self.trigger_config.dependency_failed_scheduler, props)
@@ -238,9 +239,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         # Schedule builds that need building or substituting
         if job.cacheStatus in {CacheStatus.notBuilt, CacheStatus.cached}:
-            props = self.set_common_properties(
-                Properties(), self.project, source, self.jobs_config.combine_builds, job
-            )
+            props = self.set_common_properties(Properties(), self.project, source, job)
             return (self.trigger_config.builds_scheduler, props)
 
         # For jobs already in local store, just store the output path for gcroot registration
@@ -254,6 +253,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         ss_for_trigger: list[dict[str, Any]],
         scheduler_name: str,
         props: Properties,
+        *,
+        send_notification: bool = False,
     ) -> tuple[dict[int, int], defer.Deferred[list[int]]]:
         scheduler: Triggerable = self.get_scheduler_by_name(scheduler_name)
 
@@ -273,7 +274,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             await self.addURL(f"{scheduler.name} #{brid}", url)
             self.update_result_futures.append(self._add_results(brid))
 
-        if not self.jobs_config.combine_builds:
+        # Only send notification if explicitly requested (for failures only)
+        if send_notification:
             await CombinedBuildEvent.produce_event_for_build_requests_by_id(
                 self.master, brids.values(), CombinedBuildEvent.STARTED_NIX_BUILD, None
             )
@@ -372,9 +374,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduler_log.addStdout("The following jobs failed to evaluate:\n")
             for failed_job in self.jobs_config.failed_jobs:
                 scheduler_log.addStdout(f"\t- {failed_job.attr} failed eval\n")
+                # Check if we should send individual notification for this failure
+                should_notify = self._should_send_individual_notification_for_failure()
+                if should_notify:
+                    self._failed_notifications_sent += 1
                 brids, results_deferred = await self.schedule(
                     ss_for_trigger,
                     *self.schedule_eval_failure(failed_job),
+                    send_notification=should_notify,
                 )
                 scheduled.append(
                     BuildTrigger.ScheduledJob(failed_job, brids, results_deferred)
@@ -406,9 +413,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 )
                 ctx.build_schedule_order.remove(build)
 
+                # Check if we should send individual notification for this cached failure
+                should_notify = self._should_send_individual_notification_for_failure()
+                if should_notify:
+                    self._failed_notifications_sent += 1
                 brids, results_deferred = await self.schedule(
                     ctx.ss_for_trigger,
                     *self.schedule_cached_failure(build, failed_build),
+                    send_notification=should_notify,
                 )
                 ctx.scheduled.append(
                     BuildTrigger.ScheduledJob(build, brids, results_deferred)
@@ -442,6 +454,23 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 break
         return url
 
+    async def _update_failed_builds_cache(
+        self, job: NixEvalJobSuccess, brids: dict[str, Any]
+    ) -> None:
+        """Update the failed builds cache if needed."""
+        if self.jobs_config.failed_builds_db is None:
+            return
+
+        should_add_to_cache = (
+            self.build and self.build.reason == "rebuild"
+        ) or not self.jobs_config.failed_builds_db.check_build(job.drvPath)
+
+        if should_add_to_cache:
+            url = await self._get_failed_build_url(brids)
+            self.jobs_config.failed_builds_db.add_build(
+                job.drvPath, datetime.now(tz=UTC), url
+            )
+
     async def _handle_completed_job(
         self,
         job: NixEvalJob,
@@ -456,15 +485,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         # Handle failure-specific logic
         if result != SUCCESS:
             # Update failed builds cache if needed
-            if result == util.FAILURE and self.jobs_config.failed_builds_db is not None:
-                should_add_to_cache = (
-                    self.build and self.build.reason == "rebuild"
-                ) or not self.jobs_config.failed_builds_db.check_build(job.drvPath)
-                if should_add_to_cache:
-                    url = await self._get_failed_build_url(brids)
-                    self.jobs_config.failed_builds_db.add_build(
-                        job.drvPath, datetime.now(tz=UTC), url
-                    )
+            if result == util.FAILURE:
+                await self._update_failed_builds_cache(job, brids)
 
             # Schedule dependent failures (MUST happen before updating job_closures!)
             removed = self.get_failed_dependents(
@@ -472,8 +494,15 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             )
             for removed_job in removed:
                 scheduler, props = self.schedule_dependency_failed(removed_job, job)
+                # Check if we should send individual notification for dependency failures
+                should_notify = self._should_send_individual_notification_for_failure()
+                if should_notify:
+                    self._failed_notifications_sent += 1
                 dep_brids, results_deferred = await self.schedule(
-                    ctx.ss_for_trigger, scheduler, props
+                    ctx.ss_for_trigger,
+                    scheduler,
+                    props,
+                    send_notification=should_notify,
                 )
                 ctx.build_schedule_order.remove(removed_job)
                 ctx.scheduled.append(
@@ -556,13 +585,18 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
         )
 
-        if not self.jobs_config.combine_builds:
-            await CombinedBuildEvent.produce_event_for_build_requests_by_id(
-                self.master,
-                brids.values(),
-                CombinedBuildEvent.FINISHED_NIX_BUILD,
-                result,
-            )
+        # Only send notifications for failed builds that are under the limit
+        if result != SUCCESS:
+            # This is a runtime failure, check if we should notify
+            should_notify = self._should_send_individual_notification_for_failure()
+            if should_notify:
+                self._failed_notifications_sent += 1
+                await CombinedBuildEvent.produce_event_for_build_requests_by_id(
+                    self.master,
+                    brids.values(),
+                    CombinedBuildEvent.FINISHED_NIX_BUILD,
+                    result,
+                )
 
         # Handle completed job and update closures
         await self._handle_completed_job(job, ctx, brids, result)
@@ -694,7 +728,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         if self._skipped_count > 0:
             summary.append(f"{self._skipped_count} skipped")
 
-        return {"step": f"({', '.join(summary)})"}
+        return {"step": f"({', '.join(summary)})" if summary else "running"}
 
     def getResultSummary(self) -> dict[str, str]:  # noqa: N802
         """Get the final summary when the step completes."""
