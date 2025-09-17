@@ -354,7 +354,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 <span style="margin-right: 10px;">⚠️</span>
                 <span>Found {self.warnings_count} Evaluation Warning{"s" if self.warnings_count != 1 else ""}</span>
             </h3>
-            <div style="space-y: 10px;">
+            <div>
                 {"".join(warnings_html)}
             </div>
             </div>""",
