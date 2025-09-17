@@ -1,15 +1,19 @@
-from typing import Any
+from __future__ import annotations
 
-from buildbot.config.builder import BuilderConfig
-from buildbot.reporters.base import ReporterBase
-from buildbot.secrets.providers.base import SecretProviderBase
-from buildbot.www.auth import AuthBase
-from buildbot.www.avatar import AvatarBase
+from typing import TYPE_CHECKING, Any
 
-from buildbot_nix.models import PullBasedConfig
 from buildbot_nix.projects import GitBackend, GitProject
 from buildbot_nix.pull_based.null_reporter import NullReporter
 from buildbot_nix.pull_based.project import PullBasedProject
+
+if TYPE_CHECKING:
+    from buildbot.config.builder import BuilderConfig
+    from buildbot.reporters.base import ReporterBase
+    from buildbot.secrets.providers.base import SecretProviderBase
+    from buildbot.www.auth import AuthBase
+    from buildbot.www.avatar import AvatarBase
+
+    from buildbot_nix.models import PullBasedConfig
 
 
 class PullBasedBacked(GitBackend):
@@ -37,7 +41,7 @@ class PullBasedBacked(GitBackend):
     def create_secret_providers(self) -> list[SecretProviderBase]:
         return []
 
-    def load_projects(self) -> list["GitProject"]:
+    def load_projects(self) -> list[GitProject]:
         ret: list[GitProject] = []
         for name, repo in self.config.repositories.items():
             ret.append(

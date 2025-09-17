@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import atexit
 import copy
 import html
@@ -11,30 +13,32 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from buildbot.config.builder import BuilderConfig
 from buildbot.configurators import ConfiguratorBase
 from buildbot.interfaces import WorkerSetupError
-from buildbot.locks import MasterLock
 from buildbot.plugins import schedulers, steps, util, worker
 from buildbot.process import buildstep, logobserver, remotecommand
-from buildbot.process.build import Build
 from buildbot.process.project import Project
 from buildbot.process.properties import Properties
 from buildbot.secrets.providers.file import SecretInAFile
 from buildbot.steps.trigger import Trigger
 from buildbot.util.twisted import async_to_deferred
-from buildbot.www.authz import Authz
 from buildbot.www.authz.endpointmatchers import EndpointMatcherBase, Match
 
 from buildbot_nix.pull_based.backend import PullBasedBacked
 
 if TYPE_CHECKING:
+    from buildbot.config.builder import BuilderConfig
+    from buildbot.locks import MasterLock
+    from buildbot.process.build import Build
     from buildbot.process.log import StreamLog
+    from buildbot.www.auth import AuthBase
+    from buildbot.www.authz import Authz
 
-from buildbot.www.auth import AuthBase
+    from . import models
+    from .projects import GitBackend, GitProject
+
 from twisted.logger import Logger
 
-from . import models
 from .build_trigger import BuildTrigger, JobsConfig, TriggerConfig
 from .errors import BuildbotNixError
 from .failed_builds import FailedBuildDB
@@ -52,7 +56,6 @@ from .models import (
 )
 from .nix_status_generator import CombinedBuildEvent
 from .oauth2_proxy_auth import OAuth2ProxyAuth
-from .projects import GitBackend, GitProject
 from .repo_config import BranchConfig
 
 

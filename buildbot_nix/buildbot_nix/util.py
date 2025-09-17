@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import contextlib
-import http.client
 import json
 import urllib.request
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import http.client
 
 
 def slugify_project_name(name: str) -> str:

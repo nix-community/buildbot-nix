@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .repo_token import RepoToken
 
 

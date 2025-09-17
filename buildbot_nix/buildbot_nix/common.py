@@ -1,24 +1,27 @@
+from __future__ import annotations
+
 import contextlib
-import http.client
 import json
 import urllib.request
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
+    import http.client
+    from collections.abc import Callable
+
     from pydantic import BaseModel
+    from twisted.python.failure import Failure
+
+    from .models import RepoFilters
 
 from buildbot.plugins import util
 from buildbot.process.buildstep import BuildStep
 from buildbot.util.twisted import async_to_deferred
 from twisted.internet import threads
-from twisted.python.failure import Failure
-
-from .models import RepoFilters
 
 
 def slugify_project_name(name: str) -> str:

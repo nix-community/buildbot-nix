@@ -1,17 +1,13 @@
+from __future__ import annotations
+
 import os
 import signal
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from buildbot.changes.base import ChangeSource
-from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
 from buildbot.process.properties import Interpolate
-from buildbot.reporters.base import ReporterBase
-from buildbot.www.auth import AuthBase
-from buildbot.www.avatar import AvatarBase
 from buildbot_gitea.auth import GiteaAuth  # type: ignore[import]
 from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from pydantic import BaseModel
@@ -29,9 +25,19 @@ from .common import (
     paginated_github_request,
     slugify_project_name,
 )
-from .models import GiteaConfig
 from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from buildbot.changes.base import ChangeSource
+    from buildbot.config.builder import BuilderConfig
+    from buildbot.reporters.base import ReporterBase
+    from buildbot.www.auth import AuthBase
+    from buildbot.www.avatar import AvatarBase
+
+    from .models import GiteaConfig
 
 tlog = Logger()
 
@@ -185,7 +191,7 @@ class GiteaBackend(GitBackend):
             self.config.oauth_secret,
         )
 
-    def load_projects(self) -> list["GitProject"]:
+    def load_projects(self) -> list[GitProject]:
         if not self.config.project_cache_file.exists():
             return []
 
