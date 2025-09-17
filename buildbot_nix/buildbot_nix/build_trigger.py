@@ -108,11 +108,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         project: GitProject,
         trigger_config: "TriggerConfig",
         jobs_config: "JobsConfig",
+        nix_attr_prefix: str = "checks",
         **kwargs: Any,
     ) -> None:
         self.project = project
         self.trigger_config = trigger_config
         self.jobs_config = jobs_config
+        self.nix_attr_prefix = nix_attr_prefix
         self.config = None
         self._result_list: list[int | None] = []
         self._skipped_count: int = 0
@@ -157,15 +159,17 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         # todo: check ITriggerableScheduler
         return schedulers[name]
 
-    @staticmethod
     def set_common_properties(
+        self,
         props: Properties,
         project: GitProject,
         source: str,
         combine_builds: bool,
         job: NixEvalJob,
     ) -> Properties:
-        name = f"{project.nix_ref_type}:{project.name}#checks.{job.attr}"
+        name = (
+            f"{project.nix_ref_type}:{project.name}#{self.nix_attr_prefix}.{job.attr}"
+        )
         props.setProperty("virtual_builder_name", name, source)
         props.setProperty("status_name", f"nix-build {name}", source)
         props.setProperty("virtual_builder_tags", "", source)
@@ -184,7 +188,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     def schedule_eval_failure(self, job: NixEvalJobError) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(
+        props = self.set_common_properties(
             Properties(), self.project, source, self.jobs_config.combine_builds, job
         )
         props.setProperty("error", job.error, source)
@@ -198,7 +202,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(
+        props = self.set_common_properties(
             Properties(), self.project, source, self.jobs_config.combine_builds, job
         )
         props.setProperty("first_failure_url", first_failure.url, source)
@@ -212,7 +216,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> tuple[str, Properties]:
         source = "nix-eval-nix"
 
-        props = BuildTrigger.set_common_properties(
+        props = self.set_common_properties(
             Properties(), self.project, source, self.jobs_config.combine_builds, job
         )
         props.setProperty("dependency.attr", dependency.attr, source)
@@ -234,7 +238,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         # Schedule builds that need building or substituting
         if job.cacheStatus in {CacheStatus.notBuilt, CacheStatus.cached}:
-            props = BuildTrigger.set_common_properties(
+            props = self.set_common_properties(
                 Properties(), self.project, source, self.jobs_config.combine_builds, job
             )
             return (self.trigger_config.builds_scheduler, props)
