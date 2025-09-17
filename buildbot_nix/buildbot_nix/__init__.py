@@ -586,18 +586,62 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         return res
 
 
-class RegisterSkippedGcroots(buildstep.ShellMixin, steps.BuildStep):
-    """Register gcroots for all skipped builds at once."""
+def join_traversalsafe(root: Path, joined: Path) -> Path:
+    """Join paths safely, preventing directory traversal attacks."""
+    root = root.resolve()
+
+    for part in joined.parts:
+        new_root = (root / part).resolve()
+
+        if not new_root.is_relative_to(root):
+            msg = f"Joined path attempted to traverse upwards when processing {root} against {part} (gave {new_root})"
+            raise ValueError(msg)
+
+        root = new_root
+
+    return root
+
+
+def join_all_traversalsafe(root: Path, *paths: str) -> Path:
+    """Join multiple paths safely, preventing directory traversal attacks."""
+    for path in paths:
+        root = join_traversalsafe(root, Path(path))
+
+    return root
+
+
+def write_output_path(
+    outputs_path: Path, project: GitProject, branch: str, attr: str, out_path: str
+) -> Path:
+    """Write an output path to the outputs directory.
+
+    Returns the file path that was written to.
+    """
+    owner = urllib.parse.quote_plus(project.owner)
+    repo = urllib.parse.quote_plus(project.repo)
+    target = urllib.parse.quote_plus(branch)
+    safe_attr = urllib.parse.quote_plus(attr)
+
+    file = join_all_traversalsafe(outputs_path, owner, repo, target, safe_attr)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(out_path)
+    return file
+
+
+class ProcessSkippedBuilds(buildstep.ShellMixin, steps.BuildStep):
+    """Process skipped builds by registering gcroots and updating build outputs."""
 
     project: GitProject
     gcroots_user: str
     branch_config: models.BranchConfigDict
+    outputs_path: Path | None
 
     def __init__(
         self,
         project: GitProject,
         gcroots_user: str,
         branch_config: models.BranchConfigDict,
+        outputs_path: Path | None = None,
         **kwargs: Any,
     ) -> None:
         kwargs = self.setupShellMixin(kwargs)
@@ -605,6 +649,7 @@ class RegisterSkippedGcroots(buildstep.ShellMixin, steps.BuildStep):
         self.project = project
         self.gcroots_user = gcroots_user
         self.branch_config = branch_config
+        self.outputs_path = outputs_path
 
     async def run(self) -> int:
         if self.build is None:
@@ -639,6 +684,27 @@ class RegisterSkippedGcroots(buildstep.ShellMixin, steps.BuildStep):
             if cmd.didFail():
                 return util.FAILURE
 
+        # Update build outputs if configured and conditions are met
+        if (
+            self.outputs_path is not None
+            and self.branch_config.do_update_outputs(
+                self.project.default_branch, props.getProperty("branch")
+            )
+            and props.getProperty("event") == "push"
+        ):
+            branch = props.getProperty("branch")
+            for attr, out_path in skipped_outputs.items():
+                try:
+                    write_output_path(
+                        self.outputs_path, self.project, branch, attr, out_path
+                    )
+                except ValueError as e:
+                    error_log: StreamLog = await self.addLog("path_error")
+                    error_log.addStderr(
+                        f"Path traversal prevented ... skipping update: {e}"
+                    )
+                    return util.FAILURE
+
         return util.SUCCESS
 
 
@@ -664,26 +730,6 @@ class UpdateBuildOutput(steps.BuildStep):
         self.path = path
         self.branch_config = branch_config
 
-    def join_traversalsafe(self, root: Path, joined: Path) -> Path:
-        root = root.resolve()
-
-        for part in joined.parts:
-            new_root = (root / part).resolve()
-
-            if not new_root.is_relative_to(root):
-                msg = f"Joined path attempted to traverse upwards when processing {root} against {part} (gave {new_root})"
-                raise ValueError(msg)
-
-            root = new_root
-
-        return root
-
-    def join_all_traversalsafe(self, root: Path, *paths: str) -> Path:
-        for path in paths:
-            root = self.join_traversalsafe(root, Path(path))
-
-        return root
-
     async def run(self) -> int:
         props = self.build.getProperties()
 
@@ -700,21 +746,15 @@ class UpdateBuildOutput(steps.BuildStep):
         if not out_path:  # if, e.g., the build fails and doesn't produce an output
             return util.SKIPPED
 
-        owner = urllib.parse.quote_plus(self.project.owner)
-        repo = urllib.parse.quote_plus(self.project.repo)
-        target = urllib.parse.quote_plus(props.getProperty("branch"))
-        attr = urllib.parse.quote_plus(props.getProperty("attr"))
+        branch = props.getProperty("branch")
+        attr = props.getProperty("attr")
 
         try:
-            file = self.join_all_traversalsafe(self.path, owner, repo, target, attr)
+            write_output_path(self.path, self.project, branch, attr, out_path)
         except ValueError as e:
             error_log: StreamLog = await self.addLog("path_error")
             error_log.addStderr(f"Path traversal prevented ... skipping update: {e}")
             return util.FAILURE
-
-        file.parent.mkdir(parents=True, exist_ok=True)
-
-        file.write_text(out_path)
 
         return util.SUCCESS
 
@@ -839,13 +879,14 @@ def nix_eval_config(
         ),
     )
 
-    # Register gcroots for all skipped builds at once
+    # Process skipped builds (register gcroots and update outputs)
     factory.addStep(
-        RegisterSkippedGcroots(
+        ProcessSkippedBuilds(
             project=project,
             gcroots_user=nix_eval_config.gcroots_user,
             branch_config=build_config.branch_config_dict,
-            name="Register gcroots for skipped builds",
+            outputs_path=build_config.outputs_path,
+            name="Process skipped builds",
             doStepIf=lambda s: s.getProperty("event") == "push"
             and build_config.branch_config_dict.do_register_gcroot(
                 project.default_branch, s.getProperty("branch")
