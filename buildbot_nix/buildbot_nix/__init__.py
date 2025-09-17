@@ -1009,7 +1009,6 @@ def nix_failed_eval_config(
     factory.addStep(
         EvalErrorStep(
             name="Nix evaluation",
-            doStepIf=lambda _: True,  # not done steps cannot fail...
         ),
     )
 
@@ -1032,7 +1031,6 @@ def nix_dependency_failed_config(
     factory.addStep(
         DependencyFailedStep(
             name="Dependency failed",
-            doStepIf=lambda _: True,  # not done steps cannot fail...
         ),
     )
 
