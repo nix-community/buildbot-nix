@@ -37,7 +37,6 @@ class TriggerConfig:
     """Configuration for build trigger schedulers."""
 
     builds_scheduler: str
-    skipped_builds_scheduler: str
     failed_eval_scheduler: str
     dependency_failed_scheduler: str
     cached_failure_scheduler: str
@@ -62,7 +61,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     combine_builds: bool
     drv_info: dict[str, NixDerivation]
     builds_scheduler: str
-    skipped_builds_scheduler: str
     failed_eval_scheduler: str
     cached_failure_scheduler: str
     dependency_failed_scheduler: str
@@ -117,6 +115,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.jobs_config = jobs_config
         self.config = None
         self._result_list: list[int | None] = []
+        self._skipped_count: int = 0
         self.ended = False
         self.running = False
         self.wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None = (
@@ -224,23 +223,27 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self,
         build_props: Properties,
         job: NixEvalJobSuccess,
-    ) -> tuple[str, Properties]:
+    ) -> tuple[str, Properties] | None:
         source = "nix-eval-nix"
 
         drv_path = job.drvPath
         out_path = job.outputs["out"] or None
 
-        props = BuildTrigger.set_common_properties(
-            Properties(), self.project, source, self.jobs_config.combine_builds, job
-        )
-
         build_props.setProperty(f"{job.attr}-out_path", out_path, source)
         build_props.setProperty(f"{job.attr}-drv_path", drv_path, source)
 
-        # TODO: allow to skip if the build is cached?
+        # Schedule builds that need building or substituting
         if job.cacheStatus in {CacheStatus.notBuilt, CacheStatus.cached}:
+            props = BuildTrigger.set_common_properties(
+                Properties(), self.project, source, self.jobs_config.combine_builds, job
+            )
             return (self.trigger_config.builds_scheduler, props)
-        return (self.trigger_config.skipped_builds_scheduler, props)
+
+        # For jobs already in local store, just store the output path for gcroot registration
+        # These don't need rebuilding or substituting, but we want to preserve their outputs
+        if out_path and job.cacheStatus == CacheStatus.local:
+            build_props.setProperty(f"{job.attr}-skipped_out_path", out_path, source)
+        return None
 
     async def schedule(
         self,
@@ -487,6 +490,120 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             if job.drvPath in job_closure:
                 job_closure.remove(job.drvPath)
 
+    async def _schedule_ready_jobs(
+        self,
+        ctx: SchedulingContext,
+        build_props: Properties,
+    ) -> list[NixEvalJobSuccess]:
+        """Schedule jobs that are ready to run. Returns list of skipped jobs."""
+        skipped_jobs = []
+        for job in ctx.schedule_now:
+            schedule_result = self.schedule_success(build_props, job)
+            if schedule_result is not None:
+                ctx.scheduler_log.addStdout(f"\t- {job.attr}\n")
+                brids, results_deferred = await self.schedule(
+                    ctx.ss_for_trigger,
+                    *schedule_result,
+                )
+                ctx.scheduled.append(
+                    BuildTrigger.ScheduledJob(job, brids, results_deferred)
+                )
+                self.brids.extend(brids.values())
+            else:
+                # Skipped build - output path already stored as property
+                ctx.scheduler_log.addStdout(
+                    f"\t- {job.attr} (skipped, already built)\n"
+                )
+                skipped_jobs.append(job)
+                self._skipped_count += 1
+
+        # Update summary once after processing all skipped jobs in this batch
+        if skipped_jobs:
+            self.updateSummary()
+
+        return skipped_jobs
+
+    async def _wait_and_process_completed(
+        self,
+        ctx: SchedulingContext,
+        done: list[DoneJob],
+        overall_result: int,
+    ) -> int:
+        """Wait for and process completed jobs."""
+        ctx.scheduler_log.addStdout("Waiting...\n")
+
+        self.wait_for_finish_deferred = defer.DeferredList(
+            [job.results for job in ctx.scheduled],
+            fireOnOneCallback=True,
+            fireOnOneErrback=True,
+        )
+
+        results: list[int]
+        index: int
+        results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
+
+        # Process completed job
+        job, brids, _ = ctx.scheduled[index]
+        done.append(BuildTrigger.DoneJob(job, brids, results))
+        del ctx.scheduled[index]
+        result = results[0]
+
+        ctx.scheduler_log.addStdout(
+            f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
+        )
+
+        if not self.jobs_config.combine_builds:
+            await CombinedBuildEvent.produce_event_for_build_requests_by_id(
+                self.master,
+                brids.values(),
+                CombinedBuildEvent.FINISHED_NIX_BUILD,
+                result,
+            )
+
+        # Handle completed job and update closures
+        await self._handle_completed_job(job, ctx, brids, result)
+
+        overall_result = worst_status(result, overall_result)
+        ctx.scheduler_log.addStdout(
+            f"\t- new result: {util.Results[overall_result].upper()} \n"
+        )
+        return overall_result
+
+    async def _process_scheduler_iteration(
+        self,
+        ctx: SchedulingContext,
+        build_props: Properties,
+        done: list[DoneJob],
+        overall_result: int,
+    ) -> int:
+        """Process one iteration of the scheduler loop."""
+        ctx.scheduler_log.addStdout("Scheduling...\n")
+
+        # Determine which jobs to schedule now
+        ctx.schedule_now = []
+        for build in list(ctx.build_schedule_order):
+            await self._process_build_for_scheduling(build, ctx)
+
+        if not ctx.schedule_now:
+            ctx.scheduler_log.addStdout("\tNo builds to schedule found.\n")
+
+        # Schedule ready jobs and get list of skipped jobs
+        skipped_jobs = await self._schedule_ready_jobs(ctx, build_props)
+
+        # Update closures for all skipped jobs (they're done and don't need building)
+        for job in skipped_jobs:
+            for job_closure in ctx.job_closures.values():
+                if job.drvPath in job_closure:
+                    job_closure.remove(job.drvPath)
+
+        # Only wait if there are scheduled jobs
+        if ctx.scheduled:
+            overall_result = await self._wait_and_process_completed(
+                ctx, done, overall_result
+            )
+
+        return overall_result
+
     async def run(self) -> int:
         """
         This function implements a relatively simple scheduling algorithm. At the start we compute the
@@ -540,64 +657,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         # Main scheduling loop
         while ctx.build_schedule_order or ctx.scheduled:
-            ctx.scheduler_log.addStdout("Scheduling...\n")
-
-            # Determine which jobs to schedule now
-            ctx.schedule_now = []
-            for build in list(ctx.build_schedule_order):
-                await self._process_build_for_scheduling(build, ctx)
-
-            if not ctx.schedule_now:
-                ctx.scheduler_log.addStdout("\tNo builds to schedule found.\n")
-
-            # Schedule ready jobs
-            for job in ctx.schedule_now:
-                ctx.scheduler_log.addStdout(f"\t- {job.attr}\n")
-                brids, results_deferred = await self.schedule(
-                    ctx.ss_for_trigger,
-                    *self.schedule_success(build_props, job),
-                )
-                ctx.scheduled.append(
-                    BuildTrigger.ScheduledJob(job, brids, results_deferred)
-                )
-                self.brids.extend(brids.values())
-
-            ctx.scheduler_log.addStdout("Waiting...\n")
-
-            self.wait_for_finish_deferred = defer.DeferredList(
-                [job.results for job in ctx.scheduled],
-                fireOnOneCallback=True,
-                fireOnOneErrback=True,
-            )
-
-            results: list[int]
-            index: int
-            results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
-
-            # Process completed job
-            job, brids, _ = ctx.scheduled[index]
-            done.append(BuildTrigger.DoneJob(job, brids, results))
-            del ctx.scheduled[index]
-            result = results[0]
-
-            ctx.scheduler_log.addStdout(
-                f"Found finished build {job.attr}, result {util.Results[result].upper()}\n"
-            )
-
-            if not self.jobs_config.combine_builds:
-                await CombinedBuildEvent.produce_event_for_build_requests_by_id(
-                    self.master,
-                    brids.values(),
-                    CombinedBuildEvent.FINISHED_NIX_BUILD,
-                    result,
-                )
-
-            # Handle completed job and update closures
-            await self._handle_completed_job(job, ctx, brids, result)
-
-            overall_result = worst_status(result, overall_result)
-            ctx.scheduler_log.addStdout(
-                f"\t- new result: {util.Results[overall_result].upper()} \n"
+            overall_result = await self._process_scheduler_iteration(
+                ctx, build_props, done, overall_result
             )
 
         while self.update_result_futures:
@@ -622,4 +683,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     summary.append(
                         f"{self._result_list.count(status)} {statusToString(status, count)}",
                     )
+
+        # Add skipped count if any
+        if self._skipped_count > 0:
+            summary.append(f"{self._skipped_count} skipped")
+
+        # Add total count if we have any builds (built or skipped)
+        total = len(self._result_list) + self._skipped_count
+        if total > 0:
+            summary.append(f"{total} total")
+
         return {"step": f"({', '.join(summary)})"}
