@@ -690,7 +690,7 @@ class ProcessSkippedBuilds(buildstep.ShellMixin, steps.BuildStep):
             and self.branch_config.do_update_outputs(
                 self.project.default_branch, props.getProperty("branch")
             )
-            and props.getProperty("event") == "push"
+            and props.getProperty("event", "push") == "push"
         ):
             branch = props.getProperty("branch")
             for attr, out_path in skipped_outputs.items():
@@ -887,7 +887,7 @@ def nix_eval_config(
             branch_config=build_config.branch_config_dict,
             outputs_path=build_config.outputs_path,
             name="Process skipped builds",
-            doStepIf=lambda s: s.getProperty("event") == "push"
+            doStepIf=lambda s: (s.getProperty("event", "push") == "push")
             and build_config.branch_config_dict.do_register_gcroot(
                 project.default_branch, s.getProperty("branch")
             ),
@@ -949,7 +949,7 @@ async def do_register_gcroot_if(
     out_path = s.getProperty("out_path")
 
     return (
-        s.getProperty("event") == "push"
+        s.getProperty("event", "push") == "push"
         and branch_config.do_register_gcroot(
             s.getProperty("default_branch"), s.getProperty("branch")
         )

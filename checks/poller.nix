@@ -55,6 +55,9 @@
           '';
           admins = [ "admin" ];
 
+          # Configure outputs directory for testing
+          outputsPath = "/var/lib/buildbot-outputs";
+
           # Use pull-based configuration with poller
           pullBased = {
             pollInterval = 10; # Poll every 5 seconds for testing
@@ -124,29 +127,31 @@
             git config user.email 'test@example.com'
 
             # Create a minimal flake with checks and effects that doesn't require network
-            cat > flake.nix << 'EOF'
+            # Dynamically get the system
+            system=$(nix config show system)
+            cat > flake.nix << EOF
             {
               outputs = { self }: {
-                checks.${pkgs.stdenv.hostPlatform.system} = {
+                checks.$system = {
                   test = derivation {
                     name = "test";
-                    system = "${pkgs.stdenv.hostPlatform.system}";
+                    system = "$system";
                     builder = "/bin/sh";
-                    args = [ "-c" "echo 'Hello from test' > $out" ];
+                    args = [ "-c" "echo 'Hello from test' > \$out" ];
                   };
 
                   failing-test = derivation {
                     name = "failing-test";
-                    system = "${pkgs.stdenv.hostPlatform.system}";
+                    system = "$system";
                     builder = "/bin/sh";
                     args = [ "-c" "echo 'This test will fail' && exit 1" ];
                   };
 
                   skippable-test = derivation {
                     name = "skippable-test";
-                    system = "${pkgs.stdenv.hostPlatform.system}";
+                    system = "$system";
                     builder = "/bin/sh";
-                    args = [ "-c" "echo 'This test will be skipped' > $out" ];
+                    args = [ "-c" "echo 'This test will be skipped' > \$out" ];
                   };
                 };
 
@@ -155,9 +160,9 @@
                     test-effect = {
                       type = "derivation";
                       name = "test-effect";
-                      system = "${pkgs.stdenv.hostPlatform.system}";
+                      system = "$system";
                       builder = "/bin/sh";
-                      args = [ "-c" "echo 'Effect executed successfully!' > $out" ];
+                      args = [ "-c" "echo 'Effect executed successfully!' > \$out" ];
                       outputs = [ "out" ];
                     };
                   };
@@ -175,7 +180,7 @@
 
             # Pre-build the skippable test to create a cached build
             cd /tmp/test-flake
-            nix build .#checks.${pkgs.stdenv.hostPlatform.system}.skippable-test
+            nix build .#checks.$system.skippable-test
           '';
         };
       };
@@ -283,5 +288,27 @@
             return True
 
         retry(check_builds_complete, timeout=180)
+
+    with subtest("Verify output paths are written for skipped builds"):
+        # Get the system architecture
+        system = buildbot.succeed("nix config show system").strip()
+        
+        # Get the skippable-test output path from nix
+        skippable_out_path = buildbot.succeed(f"""
+            nix eval --raw /tmp/test-flake#checks.{system}.skippable-test.outPath
+        """).strip()
+        
+        print(f"Expected output path for skippable-test: {skippable_out_path}")
+        
+        # Check if the output path was written for the skipped build
+        # The path should be: /var/lib/buildbot-outputs/<owner>/<repo>/<branch>/<attr>
+        # For pull-based projects, owner is "unknown" and repo is the project name
+        output_file = f"/var/lib/buildbot-outputs/unknown/test-flake/master/{system}.skippable-test"
+        
+        # Verify the output file exists and contains the correct path
+        buildbot.wait_until_succeeds(f"test -f {output_file}", timeout=30)
+        written_path = buildbot.succeed(f"cat {output_file}").strip()
+        
+        assert written_path == skippable_out_path, f"Output path mismatch: expected {skippable_out_path}, got {written_path}"
   '';
 }
