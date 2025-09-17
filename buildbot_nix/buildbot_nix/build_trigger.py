@@ -517,7 +517,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 skipped_jobs.append(job)
                 self._skipped_count += 1
 
-        # Update summary once after processing all skipped jobs in this batch
+        # Update summary after processing skipped jobs
         if skipped_jobs:
             self.updateSummary()
 
@@ -676,21 +676,22 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
     def getCurrentSummary(self) -> dict[str, str]:  # noqa: N802
         summary = []
+
+        # Show completed build results
         if self._result_list:
             for status in ALL_RESULTS:
                 count = self._result_list.count(status)
                 if count:
                     summary.append(
-                        f"{self._result_list.count(status)} {statusToString(status, count)}",
+                        f"{count} {statusToString(status, count)}",
                     )
 
-        # Add skipped count if any
+        # Show skipped builds
         if self._skipped_count > 0:
             summary.append(f"{self._skipped_count} skipped")
 
-        # Add total count if we have any builds (built or skipped)
-        total = len(self._result_list) + self._skipped_count
-        if total > 0:
-            summary.append(f"{total} total")
-
         return {"step": f"({', '.join(summary)})"}
+
+    def getResultSummary(self) -> dict[str, str]:  # noqa: N802
+        """Get the final summary when the step completes."""
+        return self.getCurrentSummary()
