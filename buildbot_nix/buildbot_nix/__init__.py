@@ -469,7 +469,6 @@ class EvalErrorStep(steps.BuildStep):
     async def run(self) -> int:
         error = self.getProperty("error")
         attr = self.getProperty("attr")
-        # show eval error
         error_log: StreamLog = await self.addLog("nix_error")
         error_log.addStderr(f"{attr} failed to evaluate:\n{error}")
         return util.FAILURE
@@ -481,7 +480,6 @@ class DependencyFailedStep(steps.BuildStep):
     async def run(self) -> int:
         dependency_attr = self.getProperty("dependency.attr")
         attr = self.getProperty("attr")
-        # show eval error
         error_log: StreamLog = await self.addLog("nix_error")
         error_log.addStderr(
             f"{attr} was failed because it depends on a failed build of {dependency_attr}.\n"
@@ -513,8 +511,6 @@ class CachedFailureStep(steps.BuildStep):
     async def run(self) -> int:
         if self.build and self.build.reason != "rebuild":
             attr = self.getProperty("attr")
-            # show eval error
-            # Create expanded HTML log with clickable link
             url = self.getProperty("first_failure_url")
             if url:
                 escaped_attr = html.escape(attr)
