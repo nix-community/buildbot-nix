@@ -515,8 +515,9 @@ def nix_eval_config(
             else None,
         ),
     )
+    # use one gcroots directory per worker. We clean up old drv paths with systemd-tmpfiles as well.
     drv_gcroots_dir = util.Interpolate(
-        f"/nix/var/nix/gcroots/per-user/{nix_eval_config.gcroots_user}/%(prop:project)s/drvs/",
+        f"/nix/var/nix/gcroots/per-user/{nix_eval_config.gcroots_user}/%(prop:project)s/drvs/%(prop:workername)s/",
     )
 
     factory.addStep(
@@ -555,6 +556,7 @@ def nix_eval_config(
                 "-rf",
                 drv_gcroots_dir,
             ],
+            alwaysRun=True,
             logEnviron=False,
         ),
     )
