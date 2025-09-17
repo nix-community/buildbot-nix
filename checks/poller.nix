@@ -106,6 +106,7 @@
           path = with pkgs; [
             git
             coreutils
+            nix
           ];
 
           script = ''
@@ -126,11 +127,27 @@
             cat > flake.nix << 'EOF'
             {
               outputs = { self }: {
-                checks.${pkgs.stdenv.hostPlatform.system}.test = derivation {
-                  name = "test";
-                  system = "${pkgs.stdenv.hostPlatform.system}";
-                  builder = "/bin/sh";
-                  args = [ "-c" "echo 'Hello from test' > $out" ];
+                checks.${pkgs.stdenv.hostPlatform.system} = {
+                  test = derivation {
+                    name = "test";
+                    system = "${pkgs.stdenv.hostPlatform.system}";
+                    builder = "/bin/sh";
+                    args = [ "-c" "echo 'Hello from test' > $out" ];
+                  };
+
+                  failing-test = derivation {
+                    name = "failing-test";
+                    system = "${pkgs.stdenv.hostPlatform.system}";
+                    builder = "/bin/sh";
+                    args = [ "-c" "echo 'This test will fail' && exit 1" ];
+                  };
+
+                  skippable-test = derivation {
+                    name = "skippable-test";
+                    system = "${pkgs.stdenv.hostPlatform.system}";
+                    builder = "/bin/sh";
+                    args = [ "-c" "echo 'This test will be skipped' > $out" ];
+                  };
                 };
 
                 herculesCI = { ... }: {
@@ -155,6 +172,10 @@
             # Push to bare repository
             git remote add origin /srv/repos/test-flake.git
             git push -u origin master
+
+            # Pre-build the skippable test to create a cached build
+            cd /tmp/test-flake
+            nix build .#checks.${pkgs.stdenv.hostPlatform.system}.skippable-test
           '';
         };
       };
@@ -163,7 +184,6 @@
   testScript = ''
     import json
     from typing import Any
-    from pprint import pprint
 
     buildbot.wait_for_unit("sshd.service")
     buildbot.wait_for_unit("setup-git-repo.service")
@@ -200,27 +220,68 @@
         """)
         print("Pushed new commit to repository")
 
-    with subtest("Poller triggers build automatically"):
-        # Wait for build to be triggered and complete successfully
-        def check_build_success(_ignore: Any) -> bool:
+    with subtest("Poller triggers builds and verifies results"):
+        # Wait for builds to complete
+        def check_builds_complete(_ignore: Any) -> bool:
             builds_json = buildbot.succeed("curl --fail http://localhost:8010/api/v2/builds")
             builds = json.loads(builds_json)
-            pprint(builds)
-            
+
             if len(builds["builds"]) == 0:
-                print("No builds found - poller hasn't triggered yet")
                 return False
-            
-            build = builds["builds"][0]
-            if build["results"] is None:
-                print(f"Build still running (state: {build.get('state_string', 'unknown')})")
+
+            # Check if all builds are complete
+            incomplete_count = sum(1 for build in builds["builds"] if build["results"] is None)
+
+            # Wait for builds to complete (we expect at least 3: test, failing-test, effect)
+            # Note: skippable-test won't create a build since it's cached
+            if incomplete_count > 0 or len(builds["builds"]) < 3:
                 return False
-            
-            result = build["results"]
-            print(f"Build completed with result: {result}")
-            assert result == 0, f"Build failed with result: {result}"
+
+            # Collect build results
+            build_results = {}
+            for build in builds["builds"]:
+                build_id = build["buildid"]
+                props_json = buildbot.succeed(f"curl --fail http://localhost:8010/api/v2/builds/{build_id}/properties")
+                props_data = json.loads(props_json)
+
+                # Properties are returned as a list containing a single dict
+                properties = props_data.get("properties", [{}])[0] if props_data.get("properties") else {}
+
+                # Get the attr or virtual_builder_name to identify the check
+                identifier = None
+                if "attr" in properties:
+                    # Extract the check name from attr like "x86_64-linux.failing-test"
+                    attr_value = properties["attr"][0] if isinstance(properties["attr"], list) else properties["attr"]
+                    identifier = attr_value.split(".")[-1] if "." in attr_value else attr_value
+                elif "virtual_builder_name" in properties:
+                    # Extract from virtual_builder_name like "git+ssh:test-flake#checks.x86_64-linux.failing-test"
+                    vbn = properties["virtual_builder_name"][0] if isinstance(properties["virtual_builder_name"], list) else properties["virtual_builder_name"]
+                    identifier = vbn.split(".")[-1] if "." in vbn else vbn
+
+                if identifier:
+                    build_results[identifier] = build["results"]
+
+            # Verify we have the expected results:
+            # 1. "test" should succeed (result == 0)
+            # 2. "failing-test" should fail (result == 2)
+            # 3. "skippable-test" should not be in results (it was cached)
+
+            expected_success = ["test"]
+            expected_failure = ["failing-test"]
+
+            for test_name in expected_success:
+                assert test_name in build_results, f"Expected successful test '{test_name}' not found in builds"
+                assert build_results[test_name] == 0, f"Test '{test_name}' should succeed but got result {build_results[test_name]}"
+
+            for test_name in expected_failure:
+                assert test_name in build_results, f"Expected failing test '{test_name}' not found in builds"
+                assert build_results[test_name] == 2, f"Test '{test_name}' should fail but got result {build_results[test_name]}"
+
+            # Verify skippable-test is NOT in the results (because it was cached)
+            assert "skippable-test" not in build_results, "Test 'skippable-test' should have been skipped but was built"
+
             return True
 
-        retry(check_build_success, timeout=180)
+        retry(check_builds_complete, timeout=180)
   '';
 }
