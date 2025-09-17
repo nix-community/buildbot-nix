@@ -292,7 +292,9 @@ class BuildbotNixConfig(BaseModel):
     pull_based: PullBasedConfig | None
     outputs_path: Path | None = None
     post_build_steps: list[PostBuildStep] = []
-    job_report_limit: int | None = None
+    failed_build_report_limit: int = (
+        47  # Default: 50 total - 3 reserved for eval/build/effects
+    )
     http_basic_auth_password_file: Path | None = None
     branches: BranchConfigDict = BranchConfigDict({})
     gcroots_user: str = "buildbot-worker"

@@ -70,7 +70,7 @@ class NixEvalConfig:
     """Configuration for nix evaluation."""
 
     supported_systems: list[str]
-    job_report_limit: int | None
+    failed_build_report_limit: int
     worker_count: int
     max_memory_size: int
 
@@ -295,14 +295,12 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                     dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
                     cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
                 )
+
                 jobs_config = JobsConfig(
                     successful_jobs=successful_jobs,
                     failed_jobs=failed_jobs,
-                    combine_builds=(
-                        self.nix_eval_config.job_report_limit is not None
-                        and self.number_of_jobs > self.nix_eval_config.job_report_limit
-                    ),
                     failed_builds_db=self.nix_eval_config.failed_builds_db,
+                    failed_build_report_limit=self.nix_eval_config.failed_build_report_limit,
                 )
                 self.build.addStepsAfterCurrentStep(
                     [
@@ -310,6 +308,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                             project=self.project,
                             trigger_config=trigger_config,
                             jobs_config=jobs_config,
+                            nix_attr_prefix=branch_config.attribute,
                             name="build flake",
                         ),
                     ]
@@ -355,7 +354,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 <span style="margin-right: 10px;">⚠️</span>
                 <span>Found {self.warnings_count} Evaluation Warning{"s" if self.warnings_count != 1 else ""}</span>
             </h3>
-            <div style="space-y: 10px;">
+            <div>
                 {"".join(warnings_html)}
             </div>
             </div>""",
@@ -559,31 +558,11 @@ class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
         super().__init__(**kwargs)
 
     async def run(self) -> int:
-        if (
-            self.build
-            and self.build.reason == "rebuild"
-            and not self.getProperty("combine_builds")
-        ):
-            await CombinedBuildEvent.produce_event_for_build(
-                self.master, CombinedBuildEvent.STARTED_NIX_BUILD, self.build, None
-            )
-
         # run `nix build`
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
         await self.runCommand(cmd)
 
-        res = cmd.results()
-
-        if (
-            self.build
-            and self.build.reason == "rebuild"
-            and not self.getProperty("combine_builds")
-        ):
-            await CombinedBuildEvent.produce_event_for_build(
-                self.master, CombinedBuildEvent.FINISHED_NIX_BUILD, self.build, res
-            )
-
-        return res
+        return cmd.results()
 
 
 class RegisterSkippedGcroots(buildstep.ShellMixin, steps.BuildStep):
@@ -719,7 +698,7 @@ class UpdateBuildOutput(steps.BuildStep):
         return util.SUCCESS
 
 
-# GitHub somtimes fires the PR webhook before it has computed the merge commit
+# GitHub sometimes fires the PR webhook before it has computed the merge commit
 # This is a workaround to fetch the merge commit and checkout the PR branch in CI
 class GitLocalPrMerge(steps.Git):
     async def run_vc(
@@ -1523,7 +1502,7 @@ class NixConfigurator(ConfiguratorBase):
                         worker_names=worker_names,
                         nix_eval_config=NixEvalConfig(
                             supported_systems=self.config.build_systems,
-                            job_report_limit=self.config.job_report_limit,
+                            failed_build_report_limit=self.config.failed_build_report_limit,
                             worker_count=self.config.eval_worker_count
                             or multiprocessing.cpu_count(),
                             max_memory_size=self.config.eval_max_memory_size,

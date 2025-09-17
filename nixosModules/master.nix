@@ -75,6 +75,20 @@ in
         "tokenFile"
       ]
     )
+    (mkRenamedOptionModule
+      [
+        "services"
+        "buildbot-nix"
+        "master"
+        "jobReportLimit"
+      ]
+      [
+        "services"
+        "buildbot-nix"
+        "master"
+        "failedBuildReportLimit"
+      ]
+    )
     (mkRemovedOptionModule
       [
         "services"
@@ -583,15 +597,19 @@ in
         example = "/var/www/buildbot/nix-outputs/";
       };
 
-      jobReportLimit = lib.mkOption {
-        type = lib.types.nullOr lib.types.ints.unsigned;
+      failedBuildReportLimit = lib.mkOption {
+        type = lib.types.ints.unsigned;
         description = ''
-          The max number of build jobs per `nix-eval` `buildbot-nix` will report to backends (GitHub, Gitea, etc.).
-          If set to `null`, report everything, if set to `n` (some unsiggned intereger), report builds individually
-          as long as the number of builds is less than or equal to `n`, then report builds using a combined
-          `nix-build-combined` build.
+          The maximum number of failed builds per `nix-eval` that `buildbot-nix` will report individually 
+          to backends (GitHub, Gitea, etc.) before stopping individual notifications.
+
+          Note: 3 notification slots should always be reserved for nix-eval, nix-build, and nix-effects stages.
+
+          Report failed builds individually as long as the number of failed builds is less than or equal 
+          to this limit. Once exceeded, individual build notifications are suppressed to avoid hitting 
+          GitHub's status API limits. Successful builds never generate individual notifications.
         '';
-        default = 50;
+        default = 47; # 50 total notifications - 3 reserved for eval/build/effects
       };
 
       effects.perRepoSecretFiles = lib.mkOption {
@@ -817,7 +835,7 @@ in
                 outputs_path = cfg.outputsPath;
                 url = config.services.buildbot-nix.master.webhookBaseUrl;
                 post_build_steps = cfg.postBuildSteps;
-                job_report_limit = cfg.jobReportLimit;
+                failed_build_report_limit = cfg.failedBuildReportLimit;
                 http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
                 effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
                   inherit name;
