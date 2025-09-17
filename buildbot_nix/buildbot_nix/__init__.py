@@ -490,7 +490,7 @@ class DependencyFailedStep(steps.BuildStep):
 
 
 class CachedFailureStep(steps.BuildStep):
-    """Shows a dependency failure."""
+    """Shows a cached build failure."""
 
     project: GitProject
     worker_names: list[str]
@@ -1026,7 +1026,7 @@ def nix_dependency_failed_config(
     project: GitProject,
     worker_names: list[str],
 ) -> BuilderConfig:
-    """Dummy builder that is triggered when a build fails to evaluate."""
+    """Dummy builder that is triggered when a build has dependency failures."""
     factory = util.BuildFactory()
     factory.addStep(
         DependencyFailedStep(
