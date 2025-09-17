@@ -192,12 +192,18 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
 
         return props
 
-    def schedule_eval_failure(self, job: NixEvalJobError) -> tuple[str, Properties]:
+    def _create_scheduler_props(
+        self, job: NixEvalJob, **extra_props: Any
+    ) -> Properties:
+        """Helper to create properties for scheduler methods."""
         source = "nix-eval-nix"
-
         props = self.set_common_properties(Properties(), self.project, source, job)
-        props.setProperty("error", job.error, source)
+        for key, value in extra_props.items():
+            props.setProperty(key, value, source)
+        return props
 
+    def schedule_eval_failure(self, job: NixEvalJobError) -> tuple[str, Properties]:
+        props = self._create_scheduler_props(job, error=job.error)
         return (self.trigger_config.failed_eval_scheduler, props)
 
     def schedule_cached_failure(
@@ -205,11 +211,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         job: NixEvalJobSuccess,
         first_failure: FailedBuild,
     ) -> tuple[str, Properties]:
-        source = "nix-eval-nix"
-
-        props = self.set_common_properties(Properties(), self.project, source, job)
-        props.setProperty("first_failure_url", first_failure.url, source)
-
+        props = self._create_scheduler_props(job, first_failure_url=first_failure.url)
         return (self.trigger_config.cached_failure_scheduler, props)
 
     def schedule_dependency_failed(
@@ -217,11 +219,9 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         job: NixEvalJobSuccess,
         dependency: NixEvalJobSuccess,
     ) -> tuple[str, Properties]:
-        source = "nix-eval-nix"
-
-        props = self.set_common_properties(Properties(), self.project, source, job)
-        props.setProperty("dependency.attr", dependency.attr, source)
-
+        props = self._create_scheduler_props(
+            job, **{"dependency.attr": dependency.attr}
+        )
         return (self.trigger_config.dependency_failed_scheduler, props)
 
     def schedule_success(
