@@ -1,21 +1,17 @@
+from __future__ import annotations
+
 import json
 import os
 import signal
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from itertools import starmap
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from buildbot.changes.base import ChangeSource
-from buildbot.config.builder import BuilderConfig
 from buildbot.plugins import util
-from buildbot.process.buildstep import BuildStep
 from buildbot.process.properties import Interpolate, Properties, WithProperties
-from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.github import GitHubStatusPush
 from buildbot.secrets.providers.base import SecretProviderBase
-from buildbot.www.auth import AuthBase
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,9 +35,6 @@ from .github.jwt_token import JWTToken
 from .github.legacy_token import (
     LegacyToken,
 )
-from .github.repo_token import (
-    RepoToken,
-)
 from .models import (
     GitHubAppConfig,
     GitHubConfig,
@@ -50,6 +43,19 @@ from .models import (
 )
 from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from buildbot.changes.base import ChangeSource
+    from buildbot.config.builder import BuilderConfig
+    from buildbot.process.buildstep import BuildStep
+    from buildbot.reporters.base import ReporterBase
+    from buildbot.www.auth import AuthBase
+
+    from .github.repo_token import (
+        RepoToken,
+    )
 
 tlog = Logger()
 
@@ -596,7 +602,7 @@ class GithubBackend(GitBackend):
     def create_secret_providers(self) -> list[SecretProviderBase]:
         return self.auth_backend.create_secret_providers()
 
-    def load_projects(self) -> list["GitProject"]:
+    def load_projects(self) -> list[GitProject]:
         if not self.config.project_cache_file.exists():
             return []
 

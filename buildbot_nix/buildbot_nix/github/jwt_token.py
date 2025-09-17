@@ -1,12 +1,16 @@
+from __future__ import annotations
+
 import base64
 import json
 import os
 import subprocess
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .repo_token import RepoToken
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class JWTToken(RepoToken):

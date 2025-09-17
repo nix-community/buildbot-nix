@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import dbm.gnu as dbm
-from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class FailedBuildsError(Exception):

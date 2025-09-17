@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import typing
 from typing import Any, ClassVar
@@ -8,9 +10,11 @@ from buildbot.www.auth import AuthBase, UserInfoProviderBase
 from twisted.logger import Logger
 from twisted.web.error import Error
 from twisted.web.pages import forbidden
-from twisted.web.resource import IResource
-from twisted.web.server import Request
 from twisted.web.util import Redirect
+
+if typing.TYPE_CHECKING:
+    from twisted.web.resource import IResource
+    from twisted.web.server import Request
 
 log = Logger()
 

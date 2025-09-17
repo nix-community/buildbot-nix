@@ -1,13 +1,17 @@
-from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any
+from __future__ import annotations
 
-from buildbot.changes.base import ChangeSource
-from buildbot.config.builder import BuilderConfig
-from buildbot.reporters.base import ReporterBase
-from buildbot.secrets.providers.base import SecretProviderBase
-from buildbot.www.auth import AuthBase
-from buildbot.www.avatar import AvatarBase
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from buildbot.changes.base import ChangeSource
+    from buildbot.config.builder import BuilderConfig
+    from buildbot.reporters.base import ReporterBase
+    from buildbot.secrets.providers.base import SecretProviderBase
+    from buildbot.www.auth import AuthBase
+    from buildbot.www.avatar import AvatarBase
 
 
 class GitBackend(ABC):
@@ -35,7 +39,7 @@ class GitBackend(ABC):
         return []
 
     @abstractmethod
-    def load_projects(self) -> list["GitProject"]:
+    def load_projects(self) -> list[GitProject]:
         pass
 
     @abstractmethod

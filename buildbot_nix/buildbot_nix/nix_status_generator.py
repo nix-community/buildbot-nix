@@ -1,17 +1,16 @@
+from __future__ import annotations
+
 import copy
-from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from buildbot.interfaces import IReportGenerator
-from buildbot.master import BuildMaster
 from buildbot.process.build import Build
 from buildbot.process.buildrequest import BuildRequest
 from buildbot.process.properties import Properties
 from buildbot.process.results import CANCELLED
 from buildbot.reporters import utils
-from buildbot.reporters.base import ReporterBase
 from buildbot.reporters.generators.utils import BuildStatusGeneratorMixin
 from buildbot.reporters.message import MessageFormatterBase, MessageFormatterRenderable
 from buildbot.reporters.utils import getDetailsForBuild
@@ -20,7 +19,11 @@ from twisted.logger import Logger
 from zope.interface import implementer  # type: ignore[import]
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
     from buildbot.db.buildrequests import BuildRequestModel
+    from buildbot.master import BuildMaster
+    from buildbot.reporters.base import ReporterBase
 
 log = Logger()
 
@@ -73,7 +76,7 @@ class CombinedBuildEvent(Enum):
     async def produce_event_for_build_requests_by_id(
         master: BuildMaster,
         buildrequest_ids: Iterable[int],
-        event: "CombinedBuildEvent",
+        event: CombinedBuildEvent,
         result: None | int,
     ) -> None:
         for buildrequest_id in buildrequest_ids:
@@ -101,7 +104,7 @@ class CombinedBuildEvent(Enum):
     @staticmethod
     async def produce_event_for_build(
         master: BuildMaster,
-        event: "CombinedBuildEvent",
+        event: CombinedBuildEvent,
         build: Build | dict[str, Any],
         result: None | int,
         **extra_data: Any,

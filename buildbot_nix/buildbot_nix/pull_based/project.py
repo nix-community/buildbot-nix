@@ -1,12 +1,17 @@
-from pathlib import Path
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 from urllib.parse import ParseResult, urlparse
 
-from buildbot.changes.base import ChangeSource
 from buildbot.changes.gitpoller import GitPoller
 
 from buildbot_nix.common import slugify_project_name
 from buildbot_nix.projects import GitProject
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from buildbot.changes.base import ChangeSource
 
 
 class PullBasedProject(GitProject):

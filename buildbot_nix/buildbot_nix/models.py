@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import json
 import os
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping  # noqa: TC003
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -205,7 +207,7 @@ class BranchConfig(BaseModel):
         match_glob = kwargs.get("match_glob") or kwargs["matchGlob"]
         self.match_regex = glob_to_regex(match_glob)
 
-    def __or__(self, other: "BranchConfig") -> "BranchConfig":
+    def __or__(self, other: BranchConfig) -> BranchConfig:
         if self.match_glob != other.match_glob:
             msg = "Cannot merge BranchConfig with different match_glob values"
             raise ValueError(msg)

@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 import json
 import os
 import shlex
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
-from .options import EffectsOptions
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
+    from .options import EffectsOptions
 
 
 class BuildbotEffectsError(Exception):

@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 import multiprocessing
 import os
 import socket
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from buildbot_worker.bot import Worker
 from twisted.application import service
-from twisted.python import components
+
+if TYPE_CHECKING:
+    from twisted.python import components
 
 
 def require_env(key: str) -> str:

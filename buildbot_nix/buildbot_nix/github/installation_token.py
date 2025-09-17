@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import json
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from buildbot_nix.common import (
     HttpResponse,
@@ -9,8 +10,12 @@ from buildbot_nix.common import (
     http_request,
 )
 
-from .jwt_token import JWTToken
 from .repo_token import RepoToken
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .jwt_token import JWTToken
 
 
 class InstallationTokenJSON(TypedDict):
@@ -74,7 +79,7 @@ class InstallationToken(RepoToken):
     @staticmethod
     def new(
         jwt_token: JWTToken, installation_id: int, installations_token_map_name: Path
-    ) -> "InstallationToken":
+    ) -> InstallationToken:
         return InstallationToken(
             jwt_token, installation_id, installations_token_map_name
         )
@@ -85,7 +90,7 @@ class InstallationToken(RepoToken):
         installation_id: int,
         installations_token_map_name: Path,
         json: InstallationTokenJSON,
-    ) -> "InstallationToken":
+    ) -> InstallationToken:
         token: str = json["token"]
         expiration: datetime = datetime.fromisoformat(json["expiration"])
         return InstallationToken(
