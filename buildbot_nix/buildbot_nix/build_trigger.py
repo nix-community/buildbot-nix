@@ -115,6 +115,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self.jobs_config = jobs_config
         self.config = None
         self._result_list: list[int | None] = []
+        self._skipped_count: int = 0
         self.ended = False
         self.running = False
         self.wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None = (
@@ -514,6 +515,12 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     f"\t- {job.attr} (skipped, already built)\n"
                 )
                 skipped_jobs.append(job)
+                self._skipped_count += 1
+
+        # Update summary once after processing all skipped jobs in this batch
+        if skipped_jobs:
+            self.updateSummary()
+
         return skipped_jobs
 
     async def _wait_and_process_completed(
@@ -676,4 +683,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     summary.append(
                         f"{self._result_list.count(status)} {statusToString(status, count)}",
                     )
+
+        # Add skipped count if any
+        if self._skipped_count > 0:
+            summary.append(f"{self._skipped_count} skipped")
+
+        # Add total count if we have any builds (built or skipped)
+        total = len(self._result_list) + self._skipped_count
+        if total > 0:
+            summary.append(f"{total} total")
+
         return {"step": f"({', '.join(summary)})"}
