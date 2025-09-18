@@ -7,7 +7,15 @@
           pkgs.bashInteractive
           pkgs.mypy
           pkgs.ruff
-          self'.packages.buildbot
+          (pkgs.python3.withPackages (
+            ps:
+            [
+              ps.pytest
+              (ps.toPythonModule pkgs.buildbot)
+              (ps.toPythonModule pkgs.buildbot-worker)
+            ]
+            ++ self'.packages.buildbot-nix.dependencies
+          ))
         ];
       };
     };
