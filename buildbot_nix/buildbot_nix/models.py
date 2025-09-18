@@ -27,7 +27,6 @@ class InternalError(Exception):
     pass
 
 
-
 class AuthBackendConfig(str, Enum):
     github = "github"
     gitea = "gitea"

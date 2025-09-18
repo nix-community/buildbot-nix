@@ -180,7 +180,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand(
             collectStdout=True,
             collectStderr=False,
-            stdioLogName=None,  # type: ignore[arg-type]
+            stdioLogName="stdio",
             command=[
                 "nix-eval-jobs",
                 "--option",
@@ -324,7 +324,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             </div>
             <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
                 <p style="margin: 0 0 10px 0; color: #495057; font-weight: 500;">💡 To get detailed stacktraces for these warnings:</p>
-                <pre style="margin: 0; padding: 10px; background-color: #fff; border: 1px solid #dee2e6; border-radius: 3px; color: #212529; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px;">nix-eval-jobs --workers 2 --option abort-on-warn true --flake {html.escape(flake_attr)}{f" --reference-lock-file {html.escape(branch_config.lock_file)}" if branch_config.lock_file != "flake.lock" else ""}</pre>
+                <pre style="margin: 0; padding: 10px; background-color: #fff; border: 1px solid #dee2e6; border-radius: 3px; color: #212529; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px;">nix-eval-jobs --workers 2 --option abort-on-warn true --force-recurse --flake {html.escape(flake_attr)}{f" --reference-lock-file {html.escape(branch_config.lock_file)}" if branch_config.lock_file != "flake.lock" else ""}</pre>
                 <p style="margin: 10px 0 0 0; color: #6c757d; font-size: 12px;">This will cause the evaluation to fail at the first warning and provide a full stacktrace.</p>
             </div>
             </div>""",
