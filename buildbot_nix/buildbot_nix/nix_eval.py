@@ -213,7 +213,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         result = cmd.results()
 
         # Process warnings if any
-        result = await self._process_warnings(result)
+        result = await self._process_warnings(result, branch_config=branch_config)
 
         if self.build:
             await CombinedBuildEvent.produce_event_for_build(
@@ -279,7 +279,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         return result
 
-    async def _process_warnings(self, result: int) -> int:
+    async def _process_warnings(self, result: int, branch_config: BranchConfig) -> int:
         """Process stderr output for warnings and update build status."""
         # Only process warnings once
         if self.warnings_processed:
@@ -296,8 +296,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         if not warnings_list:
             return result
 
-        # Get the branch config to know which attribute was evaluated
-        branch_config: BranchConfig = await BranchConfig.extract_during_step(self)
         flake_attr = f"{branch_config.flake_dir}#{branch_config.attribute}"
 
         # Build HTML for each warning as a separate item
