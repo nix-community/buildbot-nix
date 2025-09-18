@@ -14,6 +14,7 @@ from buildbot.secrets.providers.file import SecretInAFile
 from twisted.logger import Logger
 
 from .authz import setup_authz
+from .build_canceller import create_build_canceller
 from .errors import BuildbotNixError
 from .failed_builds import FailedBuildDB
 from .gitea_projects import GiteaBackend
@@ -253,6 +254,9 @@ class NixConfigurator(ConfiguratorBase):
 
         # Setup backend services
         self._setup_backend_services(config, backends, worker_names)
+
+        # Setup build canceller
+        config["services"].append(create_build_canceller(succeeded_projects))
 
         # Setup systemd secrets
         credentials_directory = os.environ.get("CREDENTIALS_DIRECTORY", "./secrets")
