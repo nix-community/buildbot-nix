@@ -9,7 +9,7 @@ authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
 description = "A nixos module to make buildbot a proper Nix-CI."
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Development Status :: 5 - Production/Stable",
