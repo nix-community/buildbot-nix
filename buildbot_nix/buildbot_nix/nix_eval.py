@@ -180,7 +180,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand(
             collectStdout=True,
             collectStderr=False,
-            stdioLogName=None,  # type: ignore[arg-type]
+            stdioLogName="stdio",
             command=[
                 "nix-eval-jobs",
                 "--option",
