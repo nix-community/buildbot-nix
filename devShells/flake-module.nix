@@ -1,6 +1,6 @@
 {
   perSystem =
-    { pkgs, self', ... }:
+    { pkgs, config, ... }:
     {
       devShells.default = pkgs.mkShell {
         packages = [
@@ -14,7 +14,7 @@
               (ps.toPythonModule pkgs.buildbot)
               (ps.toPythonModule pkgs.buildbot-worker)
             ]
-            ++ self'.packages.buildbot-nix.dependencies
+            ++ config.packages.buildbot-nix.dependencies
           ))
         ];
       };
