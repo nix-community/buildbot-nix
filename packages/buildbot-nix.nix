@@ -4,9 +4,12 @@
   nix,
   psycopg2,
   pydantic,
+  pytest,
+  pytestCheckHook,
   requests,
   setuptools,
   treq,
+  lib,
 }:
 buildPythonPackage {
   name = "buildbot-nix";
@@ -22,4 +25,15 @@ buildPythonPackage {
   ];
 
   buildInputs = [ nix ];
+
+  nativeCheckInputs = [
+    pytestCheckHook
+  ];
+
+  meta = {
+    description = "Buildbot plugin for building Nix projects";
+    homepage = "https://github.com/nix-community/buildbot-nix";
+    license = lib.licenses.mit;
+    maintainers = [ lib.maintainers.mic92 ];
+  };
 }
