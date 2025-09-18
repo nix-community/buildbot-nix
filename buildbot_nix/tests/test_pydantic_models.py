@@ -6,7 +6,6 @@ import importlib
 import inspect
 import pkgutil
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,12 +18,9 @@ def find_all_pydantic_models() -> list[type[BaseModel]]:
     """Dynamically discover all Pydantic BaseModel subclasses in buildbot_nix."""
     models = []
 
-    # Get the package path
-    package_path = Path(buildbot_nix.__file__).parent
-
-    # Iterate through all modules in the package
+    # Iterate through all modules in the package (supports namespace packages)
     for _importer, modname, _ispkg in pkgutil.walk_packages(
-        path=[str(package_path)],
+        path=list(buildbot_nix.__path__),
         prefix="buildbot_nix.",
         onerror=lambda _x: None,
     ):
@@ -47,7 +43,13 @@ def find_all_pydantic_models() -> list[type[BaseModel]]:
 
 
 # Collect all models at module load time
-ALL_PYDANTIC_MODELS = find_all_pydantic_models()
+ALL_PYDANTIC_MODELS = sorted(
+    set(find_all_pydantic_models()),
+    key=lambda c: (c.__module__, c.__name__),
+)
+
+if not ALL_PYDANTIC_MODELS:
+    pytest.skip("No Pydantic models discovered", allow_module_level=True)
 
 
 def _handle_ref_field(
@@ -124,7 +126,11 @@ def get_minimal_value_for_field(
     return type_map.get(field_info.get("type", "string"))
 
 
-@pytest.mark.parametrize("model_class", ALL_PYDANTIC_MODELS)
+@pytest.mark.parametrize(
+    "model_class",
+    ALL_PYDANTIC_MODELS,
+    ids=lambda c: f"{c.__module__}.{c.__name__}",
+)
 def test_pydantic_model_can_be_instantiated(
     model_class: type[BaseModel],
 ) -> None:
