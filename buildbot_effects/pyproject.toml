@@ -59,6 +59,9 @@ ignore = [
   "G010",  # Logging statement uses `warn` instead of `warning`
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # Allow asserts in test files
+
 [tool.ruff.lint.pep8-naming]
 ignore-names = [
   "checkConfig",
