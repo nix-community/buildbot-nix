@@ -1,7 +1,7 @@
 {
   lib,
   bubblewrap,
-  setuptools,
+  hatchling,
   buildPythonApplication,
 }:
 buildPythonApplication {
@@ -9,7 +9,7 @@ buildPythonApplication {
   pyproject = true;
   src = ./../buildbot_effects;
   build-system = [
-    setuptools
+    hatchling
   ];
   makeWrapperArgs = [ "--prefix PATH : ${lib.makeBinPath [ bubblewrap ]}" ];
 }

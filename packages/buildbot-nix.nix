@@ -1,13 +1,12 @@
 {
   buildPythonPackage,
   buildbot-gitea,
+  hatchling,
   nix,
   psycopg2,
   pydantic,
-  pytest,
   pytestCheckHook,
   requests,
-  setuptools,
   treq,
   lib,
 }:
@@ -15,7 +14,7 @@ buildPythonPackage {
   name = "buildbot-nix";
   pyproject = true;
   src = ./../buildbot_nix;
-  build-system = [ setuptools ];
+  build-system = [ hatchling ];
   dependencies = [
     pydantic
     requests

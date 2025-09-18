@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "buildbot-effects"
@@ -8,7 +8,6 @@ authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
 description = "CI effects for buildbot-nix"
-readme = "README.rst"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 classifiers = [
