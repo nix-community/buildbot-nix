@@ -1,11 +1,12 @@
 {
-  setuptools,
   buildPythonPackage,
+  buildbot-gitea,
+  nix,
+  psycopg2,
   pydantic,
   requests,
+  setuptools,
   treq,
-  psycopg2,
-  nix,
 }:
 buildPythonPackage {
   name = "buildbot-nix";
@@ -17,6 +18,7 @@ buildPythonPackage {
     requests
     treq
     psycopg2
+    buildbot-gitea
   ];
 
   buildInputs = [ nix ];
