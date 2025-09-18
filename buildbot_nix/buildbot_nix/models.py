@@ -27,9 +27,6 @@ class InternalError(Exception):
     pass
 
 
-def exclude_fields(fields: list[str]) -> dict[str, dict[str, bool]]:
-    return {k: {"exclude": True} for k in fields}
-
 
 class AuthBackendConfig(str, Enum):
     github = "github"
@@ -92,8 +89,10 @@ class GiteaConfig(BaseModel):
             raise InternalError
         return read_secret_file(self.oauth_secret_file)
 
-    class Config:
-        fields = exclude_fields(["token", "webhook_secret", "oauth_secret"])
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
 
 
 class PullBasedRepository(BaseModel):
@@ -130,8 +129,10 @@ class GitHubLegacyConfig(BaseModel):
     def token(self) -> str:
         return read_secret_file(self.token_file)
 
-    class Config:
-        fields = exclude_fields(["token"])
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
 
 
 class GitHubAppConfig(BaseModel):
@@ -150,8 +151,10 @@ class GitHubAppConfig(BaseModel):
     def secret_key(self) -> str:
         return read_secret_file(self.secret_key_file)
 
-    class Config:
-        fields = exclude_fields(["secret_key"])
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
 
 
 class GitHubConfig(BaseModel):
@@ -172,6 +175,11 @@ class GitHubConfig(BaseModel):
         if self.oauth_secret_file is None:
             raise InternalError
         return read_secret_file(self.oauth_secret_file)
+
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
 
 
 class PostBuildStep(BaseModel):
