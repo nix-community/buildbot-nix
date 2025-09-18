@@ -23,7 +23,7 @@
           buildbot-gitea = config.packages.buildbot-gitea;
         };
         buildbot-gitea = pkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
-          buildbot = pkgs.buildbot;
+          buildbot = config.packages.buildbot;
         };
       }
       // lib.optionalAttrs pkgs.stdenv.isLinux {
