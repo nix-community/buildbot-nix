@@ -2,7 +2,7 @@
 {
   perSystem =
     {
-      self',
+      config,
       system,
       pkgs,
       lib,
@@ -18,8 +18,8 @@
           nixosMachines = lib.mapAttrs' (
             name: config: lib.nameValuePair "nixos-${name}" config.config.system.build.toplevel
           ) ((lib.filterAttrs (name: _: lib.hasSuffix system name)) self.nixosConfigurations);
-          packages = lib.mapAttrs' (n: lib.nameValuePair "package-${n}") self'.packages;
-          devShells = lib.mapAttrs' (n: lib.nameValuePair "devShell-${n}") self'.devShells;
+          packages = lib.mapAttrs' (n: lib.nameValuePair "package-${n}") config.packages;
+          devShells = lib.mapAttrs' (n: lib.nameValuePair "devShell-${n}") config.devShells;
         in
         nixosMachines
         // packages

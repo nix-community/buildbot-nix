@@ -180,7 +180,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand(
             collectStdout=True,
             collectStderr=False,
-            stdioLogName="stdio",
+            stdioLogName=None,  # type: ignore[arg-type]
             command=[
                 "nix-eval-jobs",
                 "--option",
@@ -296,6 +296,10 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         if not warnings_list:
             return result
 
+        # Get the branch config to know which attribute was evaluated
+        branch_config: BranchConfig = await BranchConfig.extract_during_step(self)
+        flake_attr = f"{branch_config.flake_dir}#{branch_config.attribute}"
+
         # Build HTML for each warning as a separate item
         warnings_html = []
         for _idx, warning in enumerate(warnings_list, 1):
@@ -319,6 +323,11 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
             </h3>
             <div>
                 {"".join(warnings_html)}
+            </div>
+            <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
+                <p style="margin: 0 0 10px 0; color: #495057; font-weight: 500;">💡 To get detailed stacktraces for these warnings:</p>
+                <pre style="margin: 0; padding: 10px; background-color: #fff; border: 1px solid #dee2e6; border-radius: 3px; color: #212529; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px;">nix-eval-jobs --workers 2 --option abort-on-warn true --flake {html.escape(flake_attr)}{f" --reference-lock-file {html.escape(branch_config.lock_file)}" if branch_config.lock_file != "flake.lock" else ""}</pre>
+                <p style="margin: 10px 0 0 0; color: #6c757d; font-size: 12px;">This will cause the evaluation to fail at the first warning and provide a full stacktrace.</p>
             </div>
             </div>""",
         )
@@ -515,8 +524,9 @@ def nix_eval_config(
             else None,
         ),
     )
+    # use one gcroots directory per worker. We clean up old drv paths with systemd-tmpfiles as well.
     drv_gcroots_dir = util.Interpolate(
-        f"/nix/var/nix/gcroots/per-user/{nix_eval_config.gcroots_user}/%(prop:project)s/drvs/",
+        f"/nix/var/nix/gcroots/per-user/{nix_eval_config.gcroots_user}/%(prop:project)s/drvs/%(prop:workername)s/",
     )
 
     factory.addStep(
@@ -555,6 +565,7 @@ def nix_eval_config(
                 "-rf",
                 drv_gcroots_dir,
             ],
+            alwaysRun=True,
             logEnviron=False,
         ),
     )

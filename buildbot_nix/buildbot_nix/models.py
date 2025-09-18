@@ -195,17 +195,22 @@ def glob_to_regex(glob: str) -> re.Pattern:
 
 
 class BranchConfig(BaseModel):
-    match_glob: str = Field(validation_alias="matchGlob")
-    register_gcroots: bool = Field(validation_alias="registerGCRoots")
-    update_outputs: bool = Field(validation_alias="updateOutputs")
+    match_glob: str = Field(
+        validation_alias="matchGlob", serialization_alias="matchGlob"
+    )
+    register_gcroots: bool = Field(
+        validation_alias="registerGCRoots", serialization_alias="registerGCRoots"
+    )
+    update_outputs: bool = Field(
+        validation_alias="updateOutputs", serialization_alias="updateOutputs"
+    )
 
     match_regex: re.Pattern | None = Field(default=None, exclude=True)
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        match_glob = kwargs.get("match_glob") or kwargs["matchGlob"]
-        self.match_regex = glob_to_regex(match_glob)
+        self.match_regex = glob_to_regex(self.match_glob or "")
 
     def __or__(self, other: BranchConfig) -> BranchConfig:
         if self.match_glob != other.match_glob:
@@ -216,9 +221,9 @@ class BranchConfig(BaseModel):
             raise ValueError(msg)
 
         return BranchConfig(
-            match_glob=self.match_glob,
-            register_gcroots=self.register_gcroots or other.register_gcroots,
-            update_outputs=self.update_outputs or other.update_outputs,
+            matchGlob=self.match_glob,
+            registerGCRoots=self.register_gcroots or other.register_gcroots,
+            updateOutputs=self.update_outputs or other.update_outputs,
         )
 
 
@@ -270,7 +275,7 @@ class BranchConfigDict(dict[str, BranchConfig]):
 class Worker(BaseModel):
     name: str
     cores: int
-    password: str = Field(alias="pass")
+    password: str = Field(validation_alias="pass", serialization_alias="pass")
 
 
 class WorkerConfig(BaseModel):

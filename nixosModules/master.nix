@@ -954,7 +954,13 @@ in
     systemd.tmpfiles.rules =
       lib.optional (cfg.outputsPath != null)
         # Allow buildbot-master to write to this directory
-        "d ${cfg.outputsPath} 0755 buildbot buildbot - -";
+        "d ${cfg.outputsPath} 0755 buildbot buildbot - -"
+      ++ [
+        # Clean up old gc-root directories that are likely no longer in use
+        # Remove /drvs/ directories older than 7 days to prevent accumulation of stale gc-roots
+        # from failed or interrupted builds while preserving recent ones that might still be active
+        "e /nix/var/nix/gcroots/per-user/buildbot-worker/*/drvs - - - 7d -"
+      ];
 
     services.buildbot-nix.master.authBackend = lib.mkIf (
       cfg.accessMode ? "fullyPrivate"

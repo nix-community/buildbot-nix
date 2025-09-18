@@ -23,12 +23,14 @@
           directories."." = {
             modules = [
               "buildbot_nix"
+              "buildbot_effects"
             ];
             extraPythonPackages = [
               (pkgs.python3.pkgs.toPythonModule pkgs.buildbot)
               pkgs.buildbot-worker
               pkgs.python3.pkgs.twisted
               pkgs.python3.pkgs.pydantic
+              pkgs.python3.pkgs.pytest
               pkgs.python3.pkgs.zope-interface
             ];
           };
@@ -38,7 +40,10 @@
         # furthermore, saying `directories.""` will lead to `/buildbot_nix/**/*.py` which
         # is obviously incorrect...
         settings.formatter."mypy-" = lib.mkIf pkgs.stdenv.buildPlatform.isLinux {
-          includes = [ "buildbot_nix/**/*.py" ];
+          includes = [
+            "buildbot_nix/**/*.py"
+            "buildbot_effects/**/*.py"
+          ];
         };
         settings.formatter.ruff-check.priority = 1;
         settings.formatter.ruff-format.priority = 2;

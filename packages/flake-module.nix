@@ -3,7 +3,7 @@
     {
       lib,
       pkgs,
-      self',
+      config,
       ...
     }:
     {
@@ -11,17 +11,19 @@
         # useful for checking what buildbot version is used.
         buildbot = pkgs.callPackage ./buildbot.nix { };
         buildbot-dev = pkgs.python3.pkgs.callPackage ./buildbot-dev.nix {
-          inherit (self'.packages)
+          inherit (config.packages)
             buildbot-gitea
             buildbot-nix
             buildbot
             ;
-          buildbot-effects = self'.packages.buildbot-effects or null;
+          buildbot-effects = config.packages.buildbot-effects or null;
           inherit (pkgs) buildbot-worker buildbot-plugins;
         };
-        buildbot-nix = pkgs.python3.pkgs.callPackage ./buildbot-nix.nix { };
+        buildbot-nix = pkgs.python3.pkgs.callPackage ./buildbot-nix.nix {
+          buildbot-gitea = config.packages.buildbot-gitea;
+        };
         buildbot-gitea = pkgs.python3.pkgs.callPackage ./buildbot-gitea.nix {
-          buildbot = pkgs.buildbot;
+          buildbot = config.packages.buildbot;
         };
       }
       // lib.optionalAttrs pkgs.stdenv.isLinux {

@@ -1,7 +1,7 @@
 {
   bash,
   buildbot,
-  buildbot-effects,
+  buildbot-effects ? null,
   buildbot-gitea,
   buildbot-nix,
   buildbot-plugins,
@@ -45,7 +45,6 @@ writeShellScriptBin "buildbot-dev" ''
         nix
         bash
         coreutils
-        buildbot-effects
       ]
       ++ lib.optional stdenv.isLinux buildbot-effects
       ++ lib.optional stdenv.isDarwin darwin.system_cmds

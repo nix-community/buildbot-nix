@@ -3,6 +3,7 @@ from buildbot_nix import (
     NixConfigurator,
     BuildbotNixConfig,
 )
+from buildbot_nix.models import PullBasedConfig, PullBasedRepository
 import getpass
 import os
 import platform
@@ -192,9 +193,9 @@ eval_config = calculate_eval_workers()
 
 buildbot_nix_config = BuildbotNixConfig(
     db_url="sqlite:///state.sqlite",
-    pull_based=dict(
+    pull_based=PullBasedConfig(
         repositories={
-            "buildbot-nix": dict(
+            "buildbot-nix": PullBasedRepository(
                 name="buildbot-nix",
                 url="https://github.com/nix-community/buildbot-nix",
                 default_branch="main",
@@ -207,9 +208,7 @@ buildbot_nix_config = BuildbotNixConfig(
     eval_worker_count=eval_config.count,
     local_workers=4,
     domain="localhost",
-    webhook_base_url=url,
     url=url,
-    gcroots_dir=gcroots_dir,
     gcroots_user=getpass.getuser(),
     admins=["admin"],
 )

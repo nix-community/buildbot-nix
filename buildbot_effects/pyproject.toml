@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "buildbot-effects"
@@ -8,8 +8,7 @@ authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
 description = "CI effects for buildbot-nix"
-readme = "README.rst"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -24,7 +23,7 @@ version = "0.0.1"
 scripts = { buildbot-effects = "buildbot_effects.cli:main" }
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 88
 [tool.ruff.lint]
 select = ["ALL"]
@@ -60,6 +59,9 @@ ignore = [
   "G010",  # Logging statement uses `warn` instead of `warning`
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # Allow asserts in test files
+
 [tool.ruff.lint.pep8-naming]
 ignore-names = [
   "checkConfig",
@@ -69,7 +71,7 @@ ignore-names = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 pretty = true
 warn_redundant_casts = true
 disallow_untyped_calls = false

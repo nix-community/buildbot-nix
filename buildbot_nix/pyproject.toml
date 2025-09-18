@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "buildbot-nix"
@@ -9,8 +9,7 @@ authors = [
     { name = "Jörg Thalheim", email = "joerg@thalheim.io" },
 ]
 description = "A nixos module to make buildbot a proper Nix-CI."
-readme = "README.rst"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Development Status :: 5 - Production/Stable",
@@ -28,8 +27,6 @@ dependencies = [
   "psycopg2"
 ]
 
-[tool.setuptools.packages]
-find = {}
 
 [tool.ruff]
 target-version = "py312"
@@ -70,6 +67,9 @@ ignore = [
   # gives falls positives and isn't hard to check munually
   "ERA001"
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # Allow asserts in test files
 
 [tool.ruff.lint.pep8-naming]
 ignore-names = [
