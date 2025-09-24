@@ -214,9 +214,7 @@ class BranchConfig(BaseModel):
 
     match_regex: re.Pattern | None = Field(default=None, exclude=True)
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-
+    def model_post_init(self, __context: dict | None = None, /) -> None:
         self.match_regex = glob_to_regex(self.match_glob or "")
 
     def __or__(self, other: BranchConfig) -> BranchConfig:
@@ -228,9 +226,9 @@ class BranchConfig(BaseModel):
             raise ValueError(msg)
 
         return BranchConfig(
-            matchGlob=self.match_glob,
-            registerGCRoots=self.register_gcroots or other.register_gcroots,
-            updateOutputs=self.update_outputs or other.update_outputs,
+            match_glob=self.match_glob,
+            register_gcroots=self.register_gcroots or other.register_gcroots,
+            update_outputs=self.update_outputs or other.update_outputs,
         )
 
 
