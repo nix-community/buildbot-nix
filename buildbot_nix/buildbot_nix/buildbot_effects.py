@@ -48,8 +48,7 @@ def buildbot_effects_config(
                     "--branch",
                     util.Property("branch"),
                     "--repo",
-                    # TODO: gittea
-                    util.Property("github.base.repo.full_name"),
+                    util.Property("project"),
                     *secrets_args,
                     "run",
                     util.Property("command"),

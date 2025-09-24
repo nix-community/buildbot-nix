@@ -579,7 +579,7 @@ def nix_eval_config(
                 "--branch",
                 util.Property("branch"),
                 "--repo",
-                util.Property("github.repository.html_url"),
+                util.Property("project"),
                 "list",
             ],
             flunkOnFailure=True,
