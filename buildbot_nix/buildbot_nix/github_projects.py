@@ -12,6 +12,7 @@ from buildbot.plugins import util
 from buildbot.process.properties import Interpolate, Properties, WithProperties
 from buildbot.reporters.github import GitHubStatusPush
 from buildbot.secrets.providers.base import SecretProviderBase
+from buildbot.util.twisted import async_to_deferred
 from buildbot.www.avatar import AvatarBase, AvatarGitHub
 from buildbot.www.oauth2 import GitHubAuth
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,6 +59,34 @@ if TYPE_CHECKING:
     )
 
 tlog = Logger()
+
+
+class FilteredGitHubStatusPush(GitHubStatusPush):
+    """GitHubStatusPush that only reports on GitHub projects."""
+
+    def __init__(self, backend: GithubAppAuthBackend, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.backend = backend
+
+    @async_to_deferred
+    async def sendMessage(self, reports: list[dict[str, Any]]) -> None:
+        """Filter out non-GitHub projects before sending."""
+        if not reports:
+            return
+
+        # Check if this is a GitHub project
+        build = reports[0]["builds"][0]
+        props = Properties.fromDict(build["properties"])
+        projectname = props.getProperty("projectname")
+
+        # Skip if projectname is not in our GitHub project map
+        if projectname and projectname not in self.backend.project_id_map:
+            log.msg(
+                f"Skipping GitHub status update for non-GitHub project: {projectname}"
+            )
+            return
+
+        await super().sendMessage(reports)
 
 
 @dataclass
@@ -425,7 +454,8 @@ class GithubAppAuthBackend(GithubAuthBackend):
                 self.project_id_map[props["projectname"]]
             ].get()
 
-        return GitHubStatusPush(
+        return FilteredGitHubStatusPush(
+            backend=self,
             token=WithProperties("%(github_token)s", github_token=get_github_token),
             # Since we dynamically create build steps,
             # we use `virtual_builder_name` in the webinterface

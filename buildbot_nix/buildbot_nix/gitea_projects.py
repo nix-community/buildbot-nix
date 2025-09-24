@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from buildbot.plugins import util
-from buildbot.process.properties import Interpolate
+from buildbot.process.properties import Interpolate, Properties
+from buildbot.util.twisted import async_to_deferred
 from buildbot_gitea.auth import GiteaAuth  # type: ignore[import]
 from buildbot_gitea.reporter import GiteaStatusPush  # type: ignore[import]
 from pydantic import BaseModel
@@ -40,6 +41,34 @@ if TYPE_CHECKING:
     from .models import GiteaConfig
 
 tlog = Logger()
+
+
+class FilteredGiteaStatusPush(GiteaStatusPush):
+    """GiteaStatusPush that only reports on Gitea projects."""
+
+    def __init__(self, backend: GiteaBackend, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.backend = backend
+
+    @async_to_deferred
+    async def sendMessage(self, reports: list[dict[str, Any]]) -> None:
+        """Filter out non-Gitea projects before sending."""
+        if not reports:
+            return
+
+        # Check if this is a Gitea project
+        build = reports[0]["builds"][0]
+        props = Properties.fromDict(build["properties"])
+        projectname = props.getProperty("projectname")
+
+        # Skip if projectname is not in our Gitea project set
+        if projectname and projectname not in self.backend.gitea_projects:
+            log.msg(
+                f"Skipping Gitea status update for non-Gitea project: {projectname}"
+            )
+            return
+
+        await super().sendMessage(reports)
 
 
 class RepoOwnerData(BaseModel):
@@ -136,10 +165,12 @@ class GiteaBackend(GitBackend):
     config: GiteaConfig
     webhook_secret: str
     instance_url: str
+    gitea_projects: set[str]
 
     def __init__(self, config: GiteaConfig, instance_url: str) -> None:
         self.config = config
         self.instance_url = instance_url
+        self.gitea_projects = set()  # Will be populated by load_projects
 
     def create_reload_builder(self, worker_names: list[str]) -> BuilderConfig:
         """Updates the flake an opens a PR for it."""
@@ -160,7 +191,8 @@ class GiteaBackend(GitBackend):
         )
 
     def create_reporter(self) -> ReporterBase:
-        return GiteaStatusPush(
+        return FilteredGiteaStatusPush(
+            backend=self,
             baseURL=self.config.instance_url,
             token=Interpolate(self.config.token),
             context=Interpolate("buildbot/%(prop:status_name)s"),
@@ -211,6 +243,9 @@ class GiteaBackend(GitBackend):
         tlog.info(
             f"Loading {len(repos)} cached repositories: [{', '.join(repo_names)}]"
         )
+
+        # Populate the set of Gitea projects
+        self.gitea_projects = {repo.full_name for repo in repos}
 
         return [
             GiteaProject(
