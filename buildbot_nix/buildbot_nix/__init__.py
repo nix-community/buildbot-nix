@@ -15,6 +15,7 @@ from twisted.logger import Logger
 
 from .authz import setup_authz
 from .build_canceller import create_build_canceller
+from .db_setup import DatabaseSetupService
 from .errors import BuildbotNixError
 from .failed_builds import FailedBuildDB
 from .gitea_projects import GiteaBackend
@@ -254,6 +255,9 @@ class NixConfigurator(ConfiguratorBase):
 
         # Setup backend services
         self._setup_backend_services(config, backends, worker_names)
+
+        # Setup database components
+        config["services"].append(DatabaseSetupService())
 
         # Setup build canceller
         config["services"].append(create_build_canceller(succeeded_projects))
