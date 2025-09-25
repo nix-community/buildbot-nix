@@ -107,10 +107,13 @@ information natively as now.
 
 #### Public
 
-For some actions a login is required. This login can either be based on GitHub
-or on Gitea (more logins may follow). The backend is set by the
-`services.buildbot-nix.master.authBackend` NixOS option ("gitea"/"github",
-"github" by default).
+For some actions a login is required. The authentication backend is set by the
+`services.buildbot-nix.master.authBackend` NixOS option ("github", "gitea", or
+others).
+
+**Note**: You can configure both GitHub and Gitea integrations simultaneously,
+regardless of which authentication backend you choose. The auth backend only
+determines how users log in to the Buildbot interface.
 
 We have the following two roles:
 
@@ -123,82 +126,230 @@ We have the following two roles:
 
 ##### Integration with GitHub
 
-###### GitHub App
+Buildbot-nix uses GitHub App authentication to integrate with GitHub
+repositories. This enables automatic webhook setup, commit status updates, and
+secure authentication.
 
-This is the preferred option to setup buildbot-nix for GitHub.
+###### Step 1: Create a GitHub App
 
-To integrate with GitHub using app authentication:
+1. Navigate to:
+   - For personal accounts: `https://github.com/settings/apps/new`
+   - For organizations:
+     `https://github.com/organizations/<org>/settings/apps/new`
 
-1. **GitHub App**:
-   1. Create a new GitHub app by navigating to
-      `https://github.com/settings/apps/new` for single-user installations or
-      `https://github.com/organizations/<org>/settings/apps/new` for
-      organisations where `<org>` is the name of your GitHub organizaction.
-   2. GitHub App Name: "buildbox-nix <org>"
-   3. Homepage URL: `https://buildbot.<your-domain>`
-   4. Callback URL: `https://buildbot.<your-domain>/auth/login`.
-   5. Disable the Webhook
-   6. Repository Permissions:
-   - Contents: Read-only
-   - Commit statuses: Read and write
-   - Metadata: Read-only
-   - Webhooks: Read and write
-   7. Organisation Permissions (only if you create this app for an
-      organisation):
-   - Members: Read-only
-2. **GitHub App private key**: Get the app private key and app ID from GitHub,
-   configure using the buildbot-nix NixOS module.
-   - Set
-     `services.buildbot-nix.master.github.authType.app.id = <your-github-id>;`
-   - Set
-     `services.buildbot-nix.master.github.authType.app.secretKeyFile = "/path/to.pem";`
-3. **Install App**: Install the app for an organization or specific user.
-4. **Refresh GitHub Projects**: Currently buildbot-nix doesn't respond to
-   changes (new repositories or installations) automatically, it is therefore
-   necessary to manually trigger a reload or wait for the next periodic reload.
+2. Configure the app with these settings:
+   - **GitHub App Name**: `buildbot-nix-<org>` (or any unique name)
+   - **Homepage URL**: `https://buildbot.<your-domain>`
+   - **Webhook**: Disable (buildbot-nix creates webhooks per repository)
+   - **Callback URL** (optional, for OAuth):
+     `https://buildbot.<your-domain>/auth/login`
 
-###### Token Auth
+3. Set the required permissions:
+   - **Repository Permissions:**
+     - Contents: Read-only (to clone repositories)
+     - Commit statuses: Read and write (to report build status)
+     - Metadata: Read-only (basic repository info)
+     - Webhooks: Read and write (to automatically create webhooks)
+   - **Organization Permissions** (if app is for an organization):
+     - Members: Read-only (to verify organization membership for access control)
 
-To integrate with GitHub using legacy token authentication:
+4. After creating the app:
+   - Note the **App ID**
+   - Generate and download a **private key** (.pem file)
 
-1. **GitHub Token**: Obtain a GitHub token with `admin:repo_hook` and `repo`
-   permissions. For GitHub organizations, it's advisable to create a separate
-   GitHub user for managing repository webhooks.
+###### Step 2: Configure buildbot-nix
 
-##### Optional when using GitHub login
+Add the GitHub configuration to your NixOS module:
 
-1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
-   authentication on the Buildbot dashboard. (can be the same as for GitHub App
-   auth)
-2. **OAuth Credentials**: After installing the app, generate OAuth credentials
-   and configure them in the buildbot-nix NixOS module. Set the callback url to
-   `https://<your-domain>/auth/login`.
+```nix
+services.buildbot-nix.master = {
+  authBackend = "github";
+  github = {
+    authType.app = {
+      id = <your-app-id>;  # The numeric App ID
+      secretKeyFile = "/path/to/private-key.pem";  # Path to the downloaded private key
+    };
 
-Afterwards add the configured github topic to every project that should build
-with buildbot-nix. Notice that the buildbot user needs to have admin access to
-this repository because it needs to install a webhook.
+    # Optional: Enable OAuth for user login
+    oauth = {
+      id = "<oauth-client-id>";
+      secretFile = "/path/to/oauth-secret";
+    };
+
+    # Optional: Filter which repositories to build
+    topic = "buildbot-nix";  # Only build repos with this topic
+  };
+};
+```
+
+###### Step 3: Install the GitHub App
+
+1. Go to your app's settings page
+2. Click "Install App" and choose which repositories to grant access
+3. The app needs access to all repositories you want to build with buildbot-nix
+
+###### Step 4: Repository Configuration
+
+For each repository you want to build:
+
+1. **Add the configured topic** (if using topic filtering):
+   - Go to repository settings
+   - Add the topic (e.g., `buildbot-nix`) to enable builds
+
+2. **Automatic webhook creation**:
+   - Buildbot-nix automatically creates webhooks when:
+     - Projects are loaded on startup
+     - The project list is manually reloaded
+   - The webhook will be created at:
+     `https://buildbot.<your-domain>/change_hook/github`
+
+###### How It Works
+
+- **Authentication**: Uses GitHub App JWT tokens for API access and installation
+  tokens for repository-specific operations
+- **Project Discovery**: Automatically discovers repositories the app has access
+  to, filtered by topic if configured
+- **Webhook Management**: Automatically creates and manages webhooks for push
+  and pull_request events
+- **Status Updates**: Reports build status back to GitHub commits and pull
+  requests
+- **Access Control**:
+  - Admins: Configured users can reload projects and manage builds
+  - Organization members: Can restart their own builds
+
+###### Troubleshooting
+
+- **Projects not appearing**: Check that:
+  - The GitHub App is installed for the repository
+  - The repository has the configured topic (if filtering by topic)
+  - Reload projects manually through the Buildbot UI
+
+- **Webhooks not created**: Verify the app has webhook write permission for the
+  repository
+
+- **Authentication issues**: Ensure the private key file is readable by the
+  buildbot service
 
 ##### Integration with Gitea
 
-To integrate with Gitea
+Buildbot-nix integrates with Gitea using access tokens for repository management
+and OAuth2 for user authentication. This enables automatic webhook setup, commit
+status updates, and secure authentication.
 
-1. **Gitea Token** Obtain a Gitea token with the following permissions
-   `write:repository` and `write:user` permission. For Gitea organizations, it's
-   advisable to create a separate Gitea user. Buildbot-nix will use this token
-   to automatically setup a webhook in the repository.
-2. **Gitea App**: (optional). This is optional, when using GitHub as the
-   authentication backend for buildbot. Set up a OAuth2 app for Buildbot in the
-   Applications section. This can be done in the global "Site adminstration"
-   settings (only available for admins) or in a Gitea organisation or in your
-   personal settings. As redirect url set
-   `https://buildbot.your-buildbot-domain.com/auth/login`, where
-   `buildbot.your-buildbot-domain.com` should be replaced with the actual domain
-   that your buildbot is running on.
+###### Step 1: Create a Gitea Access Token
 
-Afterwards add the configured gitea topic to every project that should build
-with buildbot-nix. Notice that the buildbot user needs to have repository write
-access to this repository because it needs to install a webhook in the
-repository.
+1. **Create a dedicated Gitea user** (recommended for organizations):
+   - This user will manage webhooks and report build statuses
+   - Add this user as a collaborator to all repositories you want to build
+
+2. **Generate an access token**:
+   - Log in as the dedicated user
+   - Go to Settings → Applications → Generate New Token
+   - Required permissions:
+     - `write:repository` - To create webhooks and update commit statuses
+     - `write:user` - To access user information
+   - Save the token securely
+
+###### Step 2: Set up OAuth2 Authentication (for user login)
+
+1. **Create an OAuth2 Application**:
+   - Navigate to one of these locations:
+     - Site Administration → Applications (for admins, applies globally)
+     - Organization Settings → Applications (for organization-wide access)
+     - User Settings → Applications (for personal use)
+
+2. **Configure the OAuth2 app**:
+   - **Application Name**: `buildbot-nix`
+   - **Redirect URI**: `https://buildbot.<your-domain>/auth/login`
+
+3. **Note the credentials**:
+   - Client ID
+   - Client Secret
+
+###### Step 3: Configure buildbot-nix
+
+Add the Gitea configuration to your NixOS module:
+
+```nix
+services.buildbot-nix.master = {
+  authBackend = "gitea";
+  gitea = {
+    enable = true;
+    instanceUrl = "https://gitea.example.com";
+
+    # Access token for API operations
+    tokenFile = "/path/to/gitea-token";
+    webhookSecretFile = "/path/to/webhook-secret";
+
+    # OAuth2 for user authentication
+    oauth = {
+      id = "<oauth-client-id>";
+      secretFile = "/path/to/oauth-secret";
+    };
+
+    # Optional: SSH authentication for private repositories
+    sshPrivateKeyFile = "/path/to/ssh-key";
+    sshKnownHostsFile = "/path/to/known-hosts";
+
+    # Optional: Filter which repositories to build
+    topic = "buildbot-nix";  # Only build repos with this topic
+  };
+};
+```
+
+###### Step 4: Repository Configuration
+
+For each repository you want to build:
+
+1. **Grant repository access**:
+   - Add the buildbot user as a collaborator with admin access
+   - Admin access is required for webhook creation
+
+2. **Add the configured topic** (if using topic filtering):
+   - Go to repository settings
+   - Add the topic (e.g., `buildbot-nix`) to enable builds
+
+3. **Automatic webhook creation**:
+   - Buildbot-nix automatically creates webhooks when:
+     - Projects are loaded on startup
+     - The project list is manually reloaded
+   - The webhook will be created at:
+     `https://buildbot.<your-domain>/change_hook/gitea`
+   - Webhook events: `push` and `pull_request`
+
+###### How It Works
+
+- **Authentication**: Uses Gitea access tokens for API operations
+- **Project Discovery**: Automatically discovers repositories where the buildbot
+  user has admin access, filtered by topic if configured
+- **Webhook Management**: Automatically creates and manages webhooks for push
+  and pull_request events
+- **Status Updates**: Reports build status back to Gitea commits and pull
+  requests
+- **Access Control**:
+  - Admins: Configured users can reload projects and manage builds
+  - Organization members: Can restart their own builds (when OAuth is
+    configured)
+- **Repository Access**: Can use either HTTPS (with token) or SSH authentication
+  for cloning private repositories
+
+###### Troubleshooting
+
+- **Projects not appearing**: Check that:
+  - The buildbot user has admin access to the repository
+  - The repository has the configured topic (if filtering by topic)
+  - The access token has the correct permissions
+  - Reload projects manually through the Buildbot UI
+
+- **Webhooks not created**: Verify the buildbot user has admin permissions on
+  the repository
+
+- **Authentication issues**:
+  - Ensure the access token is valid and has required permissions
+  - For OAuth issues, verify the redirect URI matches exactly
+
+- **Private repositories**: If using SSH, ensure the SSH key is properly
+  configured and the known_hosts file contains the Gitea server
 
 #### Fully Private
 
