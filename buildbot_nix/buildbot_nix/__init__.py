@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import atexit
 import multiprocessing
 import os
 from pathlib import Path
@@ -15,8 +14,8 @@ from twisted.logger import Logger
 
 from .authz import setup_authz
 from .build_canceller import create_build_canceller
+from .db_setup import DatabaseSetupService
 from .errors import BuildbotNixError
-from .failed_builds import FailedBuildDB
 from .gitea_projects import GiteaBackend
 from .github_projects import GithubBackend
 from .local_worker import NixLocalWorker
@@ -44,9 +43,6 @@ class PeriodicWithStartup(schedulers.Periodic):
         if self.run_on_startup:
             await self.setState("last_build", None)
         await super().activate()
-
-
-DB: FailedBuildDB | None = None
 
 
 class NixConfigurator(ConfiguratorBase):
@@ -130,8 +126,8 @@ class NixConfigurator(ConfiguratorBase):
                             or multiprocessing.cpu_count(),
                             max_memory_size=self.config.eval_max_memory_size,
                             eval_lock=eval_lock,
-                            failed_builds_db=DB,
                             gcroots_user=self.config.gcroots_user,
+                            cache_failed_builds=self.config.cache_failed_builds,
                             show_trace=self.config.show_trace_on_failure,
                         ),
                         build_config=BuildConfig(
@@ -242,11 +238,6 @@ class NixConfigurator(ConfiguratorBase):
         # Initialize database and eval lock
         eval_lock = util.MasterLock("nix-eval")
 
-        global DB  # noqa: PLW0603
-        if DB is None and self.config.cache_failed_builds:
-            DB = FailedBuildDB(Path("failed_builds.dbm"))
-            atexit.register(lambda: DB.close() if DB is not None else None)
-
         # Configure projects
         succeeded_projects = self._configure_projects(
             config, projects, worker_names, eval_lock
@@ -254,6 +245,9 @@ class NixConfigurator(ConfiguratorBase):
 
         # Setup backend services
         self._setup_backend_services(config, backends, worker_names)
+
+        # Setup database components
+        config["services"].append(DatabaseSetupService())
 
         # Setup build canceller
         config["services"].append(create_build_canceller(succeeded_projects))
