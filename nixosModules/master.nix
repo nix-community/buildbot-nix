@@ -57,23 +57,32 @@ in
         "admins"
       ]
     )
-    (mkRenamedOptionModule
-      [
-        "services"
-        "buildbot-nix"
-        "master"
-        "github"
-        "tokenFile"
-      ]
+    (mkRemovedOptionModule
       [
         "services"
         "buildbot-nix"
         "master"
         "github"
         "authType"
-        "legacy"
-        "tokenFile"
       ]
+      ''
+        GitHub authType has been removed. Legacy authentication is no longer supported.
+
+        Please migrate to GitHub App authentication:
+
+        Before:
+          github.authType.app = {
+            id = 123456;
+            secretKeyFile = "/path/to/key";
+          };
+
+        After:
+          github.appId = 123456;
+          github.appSecretKeyFile = "/path/to/key";
+
+        If you were using legacy authentication (github.authType.legacy.tokenFile),
+        you must create a GitHub App and use the new App-based authentication.
+      ''
     )
     (mkRenamedOptionModule
       [
@@ -374,37 +383,18 @@ in
           description = "If non-null, specifies an explicit set of repositories that are allowed to use buildbot, i.e. buildbot-nix will ignore any repositories not in this list.";
         };
 
-        authType = lib.mkOption {
-          type = lib.types.attrTag {
-            legacy = lib.mkOption {
-              description = "GitHub legacy auth backend";
-              type = lib.types.submodule {
-                options.tokenFile = lib.mkOption {
-                  type = lib.types.path;
-                  description = "Github token file";
-                };
-              };
-            };
+        appId = lib.mkOption {
+          type = lib.types.int;
+          description = ''
+            GitHub app ID.
+          '';
+        };
 
-            app = lib.mkOption {
-              description = "GitHub legacy auth backend";
-              type = lib.types.submodule {
-                options.id = lib.mkOption {
-                  type = lib.types.int;
-                  description = ''
-                    GitHub app ID.
-                  '';
-                };
-
-                options.secretKeyFile = lib.mkOption {
-                  type = lib.types.nullOr lib.types.path;
-                  description = ''
-                    GitHub app secret key file location.
-                  '';
-                };
-              };
-            };
-          };
+        appSecretKeyFile = lib.mkOption {
+          type = lib.types.path;
+          description = ''
+            GitHub app secret key file location.
+          '';
         };
 
         webhookSecretFile = lib.mkOption {
@@ -791,19 +781,11 @@ in
                         repo_allowlist = cfg.github.repoAllowlist;
                         topic = cfg.github.topic;
                       };
-                      auth_type =
-                        if (cfg.github.authType ? "legacy") then
-                          { token_file = "github-token"; }
-                        else if (cfg.github.authType ? "app") then
-                          {
-                            id = cfg.github.authType.app.id;
-                            secret_key_file = "github-app-secret-key";
-                            installation_token_map_file = "github-app-installation-token-map.json";
-                            project_id_map_file = "github-app-project-id-map-name.json";
-                            jwt_token_map = "github-app-jwt-token";
-                          }
-                        else
-                          throw "authType is neither \"legacy\" nor \"app\"";
+                      id = cfg.github.appId;
+                      secret_key_file = "github-app-secret-key";
+                      installation_token_map_file = "github-app-installation-token-map.json";
+                      project_id_map_file = "github-app-project-id-map-name.json";
+                      jwt_token_map = "github-app-jwt-token";
                       project_cache_file = "github-project-cache-v1.json";
                       webhook_secret_file = "github-webhook-secret";
                       oauth_secret_file = "github-oauth-secret";
@@ -879,15 +861,10 @@ in
         LoadCredential = [
           "buildbot-nix-workers:${cfg.workersFile}"
         ]
-        ++ lib.optionals cfg.github.enable (
-          [ "github-webhook-secret:${cfg.github.webhookSecretFile}" ]
-          ++ lib.optional (
-            cfg.github.authType ? "legacy"
-          ) "github-token:${cfg.github.authType.legacy.tokenFile}"
-          ++ lib.optional (
-            cfg.github.authType ? "app"
-          ) "github-app-secret-key:${cfg.github.authType.app.secretKeyFile}"
-        )
+        ++ lib.optionals cfg.github.enable ([
+          "github-webhook-secret:${cfg.github.webhookSecretFile}"
+          "github-app-secret-key:${cfg.github.appSecretKeyFile}"
+        ])
         ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
         ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
         ++ lib.optionals cfg.gitea.enable [

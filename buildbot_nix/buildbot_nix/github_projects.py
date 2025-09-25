@@ -33,15 +33,6 @@ from .common import (
 from .errors import BuildbotNixError
 from .github.installation_token import InstallationToken
 from .github.jwt_token import JWTToken
-from .github.legacy_token import (
-    LegacyToken,
-)
-from .models import (
-    GitHubAppConfig,
-    GitHubConfig,
-    GitHubLegacyConfig,
-    RepoFilters,
-)
 from .nix_status_generator import BuildNixEvalStatusGenerator
 from .projects import GitBackend, GitProject
 
@@ -56,6 +47,10 @@ if TYPE_CHECKING:
 
     from .github.repo_token import (
         RepoToken,
+    )
+    from .models import (
+        GitHubConfig,
+        RepoFilters,
     )
 
 tlog = Logger()
@@ -345,90 +340,33 @@ class GithubAuthBackend(ABC):
         pass
 
 
-class GithubLegacyAuthBackend(GithubAuthBackend):
-    auth_type: GitHubLegacyConfig
-
-    token: LegacyToken
-
-    def __init__(self, auth_type: GitHubLegacyConfig) -> None:
-        self.auth_type = auth_type
-        self.token = LegacyToken(auth_type.token)
-
-    def get_general_token(self) -> RepoToken:
-        return self.token
-
-    def get_repo_token(self, repo_full_name: str) -> RepoToken:  # noqa: ARG002
-        return self.token
-
-    def create_secret_providers(self) -> list[SecretProviderBase]:
-        return [GitHubLegacySecretService(self.token)]
-
-    def create_reporter(self) -> ReporterBase:
-        return GitHubStatusPush(
-            token=self.token.get(),
-            # Since we dynamically create build steps,
-            # we use `virtual_builder_name` in the webinterface
-            # so that we distinguish what has beeing build
-            context=Interpolate("buildbot/%(prop:status_name)s"),
-            generators=[
-                BuildNixEvalStatusGenerator(),
-            ],
-        )
-
-    def create_reload_builder_steps(
-        self,
-        config: GitHubProjectConfig,
-    ) -> list[BuildStep]:
-        return [
-            ReloadGithubProjects(
-                token=self.token,
-                project_cache_file=config.project_cache_file,
-                filters=config.filters,
-            ),
-            CreateGitHubProjectHooks(
-                token=self.token,
-                config=config,
-            ),
-        ]
-
-
-class GitHubLegacySecretService(SecretProviderBase):
-    name: str | None = "GitHubLegacySecretService"  # type: ignore[assignment]
-    token: LegacyToken
-
-    def reconfigService(self, token: LegacyToken) -> None:  # type: ignore[override]
-        self.token = token
-
-    def get(self, entry: str) -> str | None:
-        """
-        get the value from the file identified by 'entry'
-        """
-        if entry.startswith("github-token"):
-            return self.token.get()
-        return None
-
-
 class GithubAppAuthBackend(GithubAuthBackend):
-    auth_type: GitHubAppConfig
+    config: GitHubConfig
 
     jwt_token: JWTToken
     installation_tokens: dict[int, InstallationToken]
     project_id_map: dict[str, int]
 
-    def __init__(self, auth_type: GitHubAppConfig) -> None:
-        self.auth_type = auth_type
-        self.jwt_token = JWTToken(self.auth_type.id, self.auth_type.secret_key_file)
+    def __init__(self, config: GitHubConfig) -> None:
+        self.config = config
+        self.jwt_token = JWTToken(self.config.id, self.config.secret_key_file)
         self.installation_tokens = GithubBackend.load_installations(
             GitHubAppInstallationConfig(
                 jwt_token=self.jwt_token,
-                installation_token_map_name=self.auth_type.installation_token_map_file,
-                project_id_map_name=self.auth_type.project_id_map_file,
+                installation_token_map_name=self.config.installation_token_map_file,
+                project_id_map_name=self.config.project_id_map_file,
             ),
         )
-        if self.auth_type.project_id_map_file.exists():
-            self.project_id_map = json.loads(
-                self.auth_type.project_id_map_file.read_text()
-            )
+        if self.config.project_id_map_file.exists():
+            try:
+                self.project_id_map = json.loads(
+                    self.config.project_id_map_file.read_text()
+                )
+            except json.JSONDecodeError as e:
+                tlog.error(
+                    f"Invalid JSON in {self.config.project_id_map_file}: {e}; starting with empty map."
+                )
+                self.project_id_map = {}
         else:
             tlog.info(
                 "~project-id-map~ is not present, GitHub project reload will follow."
@@ -441,7 +379,7 @@ class GithubAppAuthBackend(GithubAuthBackend):
     def get_repo_token(self, repo_full_name: str) -> RepoToken:
         maybe_project = self.project_id_map.get(repo_full_name)
         if maybe_project is None:
-            msg = f"BUG: Project {repo_full_name} not found in project_id_map at {self.auth_type.project_id_map_file}"
+            msg = f"BUG: Project {repo_full_name} not found in project_id_map at {self.config.project_id_map_file}"
             raise BuildbotNixError(msg)
         installation_id = maybe_project
         return self.installation_tokens[installation_id]
@@ -477,8 +415,8 @@ class GithubAppAuthBackend(GithubAuthBackend):
     ) -> list[BuildStep]:
         app_config = GitHubAppInstallationConfig(
             jwt_token=self.jwt_token,
-            installation_token_map_name=self.auth_type.installation_token_map_file,
-            project_id_map_name=self.auth_type.project_id_map_file,
+            installation_token_map_name=self.config.installation_token_map_file,
+            project_id_map_name=self.config.project_id_map_file,
         )
         return [
             ReloadGithubInstallations(
@@ -539,10 +477,7 @@ class GithubBackend(GitBackend):
         self.webhook_secret = self.config.webhook_secret
         self.webhook_url = webhook_url
 
-        if isinstance(self.config.auth_type, GitHubLegacyConfig):
-            self.auth_backend = GithubLegacyAuthBackend(self.config.auth_type)
-        elif isinstance(self.config.auth_type, GitHubAppConfig):
-            self.auth_backend = GithubAppAuthBackend(self.config.auth_type)
+        self.auth_backend = GithubAppAuthBackend(self.config)
 
     @staticmethod
     def load_installations(
@@ -685,10 +620,7 @@ class GithubBackend(GitBackend):
         if not self.config.project_cache_file.exists():
             return False
 
-        if (
-            isinstance(self.config.auth_type, GitHubAppConfig)
-            and not self.config.auth_type.project_id_map_file.exists()
-        ):
+        if not self.config.project_id_map_file.exists():
             return False
 
         projects = model_validate_project_cache(

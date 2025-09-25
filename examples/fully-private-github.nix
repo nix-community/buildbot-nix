@@ -26,10 +26,8 @@
       enable = true;
       webhookSecretFile = pkgs.writeText "github_webhook_secret" "changeMe";
       topic = "build-with-buildbot";
-      authType.app = {
-        secretKeyFile = pkgs.writeText "github_app_secret_key" "changeMe";
-        id = 0;
-      };
+      appSecretKeyFile = pkgs.writeText "github_app_secret_key" "changeMe";
+      appId = 0;
     };
 
     # optional nix-eval-jobs settings

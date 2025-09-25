@@ -19,15 +19,9 @@
     # All other user in the organization will be able to restart builds or evaluations.
     admins = [ "Mic92" ];
     github = {
-      # Use this when you have set up a GitHub App
-      authType.app = {
-        id = 0; # FIXME: replace with App ID obtained from GitHub
-        secretKeyFile = pkgs.writeText "app-secret.key" "00000000000000000000"; # FIXME: replace with App secret key obtained from GitHub
-      };
-      #authType.legacy = {
-      #  # Github user token used as a CI identity
-      #  tokenFile = pkgs.writeText "github-token" "ghp_000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
-      #};
+      # GitHub App configuration
+      appId = 0; # FIXME: replace with App ID obtained from GitHub
+      appSecretKeyFile = pkgs.writeText "app-secret.key" "00000000000000000000"; # FIXME: replace with App secret key obtained from GitHub
       # A random secret used to verify incoming webhooks from GitHub
       # buildbot-nix will set up a webhook for each project in the organization
       webhookSecretFile = pkgs.writeText "webhookSecret" "00000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
