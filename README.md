@@ -123,48 +123,109 @@ We have the following two roles:
 
 ##### Integration with GitHub
 
-To integrate with GitHub using app authentication:
+Buildbot-nix uses GitHub App authentication to integrate with GitHub
+repositories. This enables automatic webhook setup, commit status updates, and
+secure authentication.
 
-1. **GitHub App**:
-   1. Create a new GitHub app by navigating to
-      `https://github.com/settings/apps/new` for single-user installations or
-      `https://github.com/organizations/<org>/settings/apps/new` for
-      organisations where `<org>` is the name of your GitHub organizaction.
-   2. GitHub App Name: "buildbox-nix <org>"
-   3. Homepage URL: `https://buildbot.<your-domain>`
-   4. Callback URL: `https://buildbot.<your-domain>/auth/login`.
-   5. Disable the Webhook
-   6. Repository Permissions:
-   - Contents: Read-only
-   - Commit statuses: Read and write
-   - Metadata: Read-only
-   - Webhooks: Read and write
-   7. Organisation Permissions (only if you create this app for an
-      organisation):
-   - Members: Read-only
-2. **GitHub App private key**: Get the app private key and app ID from GitHub,
-   configure using the buildbot-nix NixOS module.
-   - Set
-     `services.buildbot-nix.master.github.authType.app.id = <your-github-id>;`
-   - Set
-     `services.buildbot-nix.master.github.authType.app.secretKeyFile = "/path/to.pem";`
-3. **Install App**: Install the app for an organization or specific user.
-4. **Refresh GitHub Projects**: Currently buildbot-nix doesn't respond to
-   changes (new repositories or installations) automatically, it is therefore
-   necessary to manually trigger a reload or wait for the next periodic reload.
+###### Step 1: Create a GitHub App
 
-##### Optional when using GitHub login
+1. Navigate to:
+   - For personal accounts: `https://github.com/settings/apps/new`
+   - For organizations:
+     `https://github.com/organizations/<org>/settings/apps/new`
 
-1. **GitHub App**: Set up a GitHub app for Buildbot to enable GitHub user
-   authentication on the Buildbot dashboard. (can be the same as for GitHub App
-   auth)
-2. **OAuth Credentials**: After installing the app, generate OAuth credentials
-   and configure them in the buildbot-nix NixOS module. Set the callback url to
-   `https://<your-domain>/auth/login`.
+2. Configure the app with these settings:
+   - **GitHub App Name**: `buildbot-nix-<org>` (or any unique name)
+   - **Homepage URL**: `https://buildbot.<your-domain>`
+   - **Webhook**: Disable (buildbot-nix creates webhooks per repository)
+   - **Callback URL** (optional, for OAuth):
+     `https://buildbot.<your-domain>/auth/login`
 
-Afterwards add the configured github topic to every project that should build
-with buildbot-nix. Notice that the buildbot user needs to have admin access to
-this repository because it needs to install a webhook.
+3. Set the required permissions:
+   - **Repository Permissions:**
+     - Contents: Read-only (to clone repositories)
+     - Commit statuses: Read and write (to report build status)
+     - Metadata: Read-only (basic repository info)
+     - Webhooks: Read and write (to automatically create webhooks)
+   - **Organization Permissions** (if app is for an organization):
+     - Members: Read-only (to verify organization membership for access control)
+
+4. After creating the app:
+   - Note the **App ID**
+   - Generate and download a **private key** (.pem file)
+
+###### Step 2: Configure buildbot-nix
+
+Add the GitHub configuration to your NixOS module:
+
+```nix
+services.buildbot-nix.master = {
+  authBackend = "github";
+  github = {
+    authType.app = {
+      id = <your-app-id>;  # The numeric App ID
+      secretKeyFile = "/path/to/private-key.pem";  # Path to the downloaded private key
+    };
+
+    # Optional: Enable OAuth for user login
+    oauth = {
+      id = "<oauth-client-id>";
+      secretFile = "/path/to/oauth-secret";
+    };
+
+    # Optional: Filter which repositories to build
+    topic = "buildbot-nix";  # Only build repos with this topic
+  };
+};
+```
+
+###### Step 3: Install the GitHub App
+
+1. Go to your app's settings page
+2. Click "Install App" and choose which repositories to grant access
+3. The app needs access to all repositories you want to build with buildbot-nix
+
+###### Step 4: Repository Configuration
+
+For each repository you want to build:
+
+1. **Add the configured topic** (if using topic filtering):
+   - Go to repository settings
+   - Add the topic (e.g., `buildbot-nix`) to enable builds
+
+2. **Automatic webhook creation**:
+   - Buildbot-nix automatically creates webhooks when:
+     - Projects are loaded on startup
+     - The project list is manually reloaded
+   - The webhook will be created at:
+     `https://buildbot.<your-domain>/change_hook/github`
+
+###### How It Works
+
+- **Authentication**: Uses GitHub App JWT tokens for API access and installation
+  tokens for repository-specific operations
+- **Project Discovery**: Automatically discovers repositories the app has access
+  to, filtered by topic if configured
+- **Webhook Management**: Automatically creates and manages webhooks for push
+  and pull_request events
+- **Status Updates**: Reports build status back to GitHub commits and pull
+  requests
+- **Access Control**:
+  - Admins: Configured users can reload projects and manage builds
+  - Organization members: Can restart their own builds
+
+###### Troubleshooting
+
+- **Projects not appearing**: Check that:
+  - The GitHub App is installed for the repository
+  - The repository has the configured topic (if filtering by topic)
+  - Reload projects manually through the Buildbot UI
+
+- **Webhooks not created**: Verify the app has webhook write permission for the
+  repository
+
+- **Authentication issues**: Ensure the private key file is readable by the
+  buildbot service
 
 ##### Integration with Gitea
 
