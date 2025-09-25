@@ -79,8 +79,13 @@ class FilteredGitHubStatusPush(GitHubStatusPush):
         props = Properties.fromDict(build["properties"])
         projectname = props.getProperty("projectname")
 
+        # Handle missing or empty projectname
+        if not projectname:
+            log.msg("Skipping GitHub status update: projectname is missing or empty")
+            return
+
         # Skip if projectname is not in our GitHub project map
-        if projectname and projectname not in self.backend.project_id_map:
+        if projectname not in self.backend.project_id_map:
             log.msg(
                 f"Skipping GitHub status update for non-GitHub project: {projectname}"
             )

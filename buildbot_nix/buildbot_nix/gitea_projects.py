@@ -61,8 +61,13 @@ class FilteredGiteaStatusPush(GiteaStatusPush):
         props = Properties.fromDict(build["properties"])
         projectname = props.getProperty("projectname")
 
+        # Handle missing or empty projectname
+        if not projectname:
+            log.msg("Skipping Gitea status update: projectname is missing or empty")
+            return
+
         # Skip if projectname is not in our Gitea project set
-        if projectname and projectname not in self.backend.gitea_projects:
+        if projectname not in self.backend.gitea_projects:
             log.msg(
                 f"Skipping Gitea status update for non-Gitea project: {projectname}"
             )
