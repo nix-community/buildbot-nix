@@ -691,15 +691,10 @@ class GithubBackend(GitBackend):
         ):
             return False
 
-        all_have_installation_id = True
-        for project in model_validate_project_cache(
+        projects = model_validate_project_cache(
             RepoData, self.config.project_cache_file
-        ):
-            if project.installation_id is not None:
-                all_have_installation_id = False
-                break
-
-        return all_have_installation_id
+        )
+        return all(project.installation_id is not None for project in projects)
 
     @property
     def type(self) -> str:
