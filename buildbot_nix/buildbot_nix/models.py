@@ -121,22 +121,9 @@ class PullBasedConfig(BaseModel):
     poll_spread: int | None = None
 
 
-class GitHubLegacyConfig(BaseModel):
-    token_file: Path
-
-    @property
-    def token(self) -> str:
-        return read_secret_file(self.token_file)
-
-    model_config = ConfigDict(
-        extra="forbid",
-        ignored_types=(property,),
-    )
-
-
-class GitHubAppConfig(BaseModel):
+class GitHubConfig(BaseModel):
+    # GitHub App configuration
     id: int
-
     secret_key_file: Path
     installation_token_map_file: Path = Field(
         default=Path("github-app-installation-token-map.json")
@@ -146,24 +133,17 @@ class GitHubAppConfig(BaseModel):
     )
     jwt_token_map: Path = Field(default=Path("github-app-jwt-token"))
 
-    @property
-    def secret_key(self) -> str:
-        return read_secret_file(self.secret_key_file)
-
-    model_config = ConfigDict(
-        extra="forbid",
-        ignored_types=(property,),
-    )
-
-
-class GitHubConfig(BaseModel):
-    auth_type: GitHubLegacyConfig | GitHubAppConfig
+    # General configuration
     filters: RepoFilters = Field(default_factory=RepoFilters)
     project_cache_file: Path = Field(default=Path("github-project-cache-v1.json"))
     webhook_secret_file: Path = Field(default=Path("github-webhook-secret"))
 
     oauth_id: str | None
     oauth_secret_file: Path | None
+
+    @property
+    def secret_key(self) -> str:
+        return read_secret_file(self.secret_key_file)
 
     @property
     def webhook_secret(self) -> str:
