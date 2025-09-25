@@ -358,9 +358,15 @@ class GithubAppAuthBackend(GithubAuthBackend):
             ),
         )
         if self.config.project_id_map_file.exists():
-            self.project_id_map = json.loads(
-                self.config.project_id_map_file.read_text()
-            )
+            try:
+                self.project_id_map = json.loads(
+                    self.config.project_id_map_file.read_text()
+                )
+            except json.JSONDecodeError as e:
+                tlog.error(
+                    f"Invalid JSON in {self.config.project_id_map_file}: {e}; starting with empty map."
+                )
+                self.project_id_map = {}
         else:
             tlog.info(
                 "~project-id-map~ is not present, GitHub project reload will follow."
