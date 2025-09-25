@@ -123,10 +123,6 @@ We have the following two roles:
 
 ##### Integration with GitHub
 
-###### GitHub App
-
-This is the preferred option to setup buildbot-nix for GitHub.
-
 To integrate with GitHub using app authentication:
 
 1. **GitHub App**:
@@ -156,14 +152,6 @@ To integrate with GitHub using app authentication:
 4. **Refresh GitHub Projects**: Currently buildbot-nix doesn't respond to
    changes (new repositories or installations) automatically, it is therefore
    necessary to manually trigger a reload or wait for the next periodic reload.
-
-###### Token Auth
-
-To integrate with GitHub using legacy token authentication:
-
-1. **GitHub Token**: Obtain a GitHub token with `admin:repo_hook` and `repo`
-   permissions. For GitHub organizations, it's advisable to create a separate
-   GitHub user for managing repository webhooks.
 
 ##### Optional when using GitHub login
 
