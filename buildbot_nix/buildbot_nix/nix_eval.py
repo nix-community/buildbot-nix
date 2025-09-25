@@ -32,7 +32,6 @@ if TYPE_CHECKING:
     from buildbot.locks import MasterLock
     from buildbot.process.log import StreamLog
 
-    from .failed_builds import FailedBuildDB
     from .projects import GitProject
 
 log = Logger()
@@ -48,8 +47,8 @@ class NixEvalConfig:
     max_memory_size: int
 
     eval_lock: MasterLock
-    failed_builds_db: FailedBuildDB | None
     gcroots_user: str = "buildbot-worker"
+    cache_failed_builds: bool = False
 
     show_trace: bool = False
 
@@ -262,7 +261,7 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                 jobs_config = JobsConfig(
                     successful_jobs=successful_jobs,
                     failed_jobs=failed_jobs,
-                    failed_builds_db=self.nix_eval_config.failed_builds_db,
+                    cache_failed_builds=self.nix_eval_config.cache_failed_builds,
                     failed_build_report_limit=self.nix_eval_config.failed_build_report_limit,
                 )
                 self.build.addStepsAfterCurrentStep(

@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from buildbot.schedulers.triggerable import Triggerable
     from twisted.python.failure import Failure
 
-    from .failed_builds import FailedBuildDB
     from .projects import GitProject
 
 
@@ -51,7 +50,7 @@ class JobsConfig:
 
     successful_jobs: list[NixEvalJobSuccess]
     failed_jobs: list[NixEvalJobError]
-    failed_builds_db: FailedBuildDB | None
+    cache_failed_builds: bool
     failed_build_report_limit: int
 
 
@@ -72,7 +71,6 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None
     brids: list[int]
     consumers: dict[int, Any]
-    failed_builds_db: FailedBuildDB | None
 
     @dataclass
     class ScheduledJob:
@@ -383,8 +381,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> None:
         """Process a single build to determine if it should be scheduled."""
         failed_build = None
-        if self.jobs_config.failed_builds_db is not None:
-            failed_build = self.jobs_config.failed_builds_db.check_build(build.drvPath)
+        if self.jobs_config.cache_failed_builds:
+            failed_build = await self.master.db.failed_builds.check_build(build.drvPath)
 
         if ctx.job_closures.get(build.drvPath):
             # Has dependencies, skip for now
@@ -423,8 +421,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 self.brids.extend(brids.values())
             else:
                 # Rebuild requested, remove from cache and schedule
-                if self.jobs_config.failed_builds_db is not None:
-                    self.jobs_config.failed_builds_db.remove_build(build.drvPath)
+                if self.jobs_config.cache_failed_builds:
+                    await self.master.db.failed_builds.remove_build(build.drvPath)
                 ctx.scheduler_log.addStdout(
                     f"\t- not skipping {build.attr} with cached failure due to rebuild, first failed at {failed_build.time}\n"
                 )
@@ -451,15 +449,16 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self, job: NixEvalJobSuccess, brids: dict[int, int]
     ) -> None:
         """Update the failed builds cache if needed."""
-        if not self.jobs_config.failed_builds_db:
+        if not self.jobs_config.cache_failed_builds:
             return
 
         is_rebuild = self.build and self.build.reason == "rebuild"
-        not_in_cache = not self.jobs_config.failed_builds_db.check_build(job.drvPath)
+        cached_build = await self.master.db.failed_builds.check_build(job.drvPath)
+        not_in_cache = cached_build is None
 
         if is_rebuild or not_in_cache:
             url = await self._get_failed_build_url(brids)
-            self.jobs_config.failed_builds_db.add_build(
+            await self.master.db.failed_builds.add_build(
                 job.drvPath, datetime.now(tz=UTC), url
             )
 
