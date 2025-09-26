@@ -181,7 +181,9 @@ class GiteaBackend(GitBackend):
         """Updates the flake an opens a PR for it."""
         factory = util.BuildFactory()
         factory.addStep(
-            ReloadGiteaProjects(self.config, self.config.project_cache_file),
+            ReloadGiteaProjects(
+                self.config, self.config.project_cache_file, backend=self
+            ),
         )
         factory.addStep(
             CreateGiteaProjectHooks(
@@ -258,6 +260,10 @@ class GiteaBackend(GitBackend):
             )
             for repo in repos
         ]
+
+    def update_projects(self, projects: set[str]) -> None:
+        # Replace atomically to avoid mutating a set read elsewhere
+        self.gitea_projects = projects
 
     def are_projects_cached(self) -> bool:
         return self.config.project_cache_file.exists()
@@ -371,10 +377,12 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
         self,
         config: GiteaConfig,
         project_cache_file: Path,
+        backend: GiteaBackend | None = None,
         **kwargs: Any,
     ) -> None:
         self.config = config
         self.project_cache_file = project_cache_file
+        self.backend = backend
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
@@ -389,6 +397,11 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
         )
 
         atomic_write_file(self.project_cache_file, model_dump_project_cache(repos))
+
+        # Update the backend's in-memory gitea_projects set directly
+        if self.backend:
+            self.backend.update_projects({repo.full_name for repo in repos})
+            tlog.info(f"Updated backend gitea_projects with {len(repos)} projects")
 
     def run_post(self) -> Any:
         return util.SUCCESS

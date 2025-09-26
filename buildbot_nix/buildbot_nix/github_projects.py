@@ -192,10 +192,12 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
         self,
         project_config: GitHubProjectConfig,
         app_config: GitHubAppInstallationConfig,
+        backend: GithubAppAuthBackend | None = None,
         **kwargs: Any,
     ) -> None:
         self.project_config = project_config
         self.app_config = app_config
+        self.backend = backend
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
@@ -239,6 +241,13 @@ class ReloadGithubInstallations(ThreadDeferredBuildStep):
         atomic_write_file(
             self.app_config.project_id_map_name, json.dumps(project_id_map)
         )
+
+        # Update the backend's in-memory data directly
+        if self.backend:
+            self.backend.update_reload_data(installation_token_map, project_id_map)
+            tlog.info(
+                f"Updated backend with {len(installation_token_map)} installations and {len(project_id_map)} projects"
+            )
 
         tlog.info(
             f"Fetched {len(repos)} repositories from {len(installation_token_map.items())} installation tokens."
@@ -373,6 +382,14 @@ class GithubAppAuthBackend(GithubAuthBackend):
             )
             self.project_id_map = {}
 
+    def update_reload_data(
+        self,
+        installation_tokens: dict[int, InstallationToken],
+        project_map: dict[str, int],
+    ) -> None:
+        self.installation_tokens = installation_tokens
+        self.project_id_map = project_map
+
     def get_general_token(self) -> RepoToken:
         return self.jwt_token
 
@@ -422,6 +439,7 @@ class GithubAppAuthBackend(GithubAuthBackend):
             ReloadGithubInstallations(
                 project_config=config,
                 app_config=app_config,
+                backend=self,
             ),
             CreateGitHubInstallationHooks(
                 project_config=config,
