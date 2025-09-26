@@ -6,7 +6,7 @@ import copy
 import html
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from buildbot.interfaces import WorkerSetupError
 from buildbot.plugins import steps, util
@@ -18,6 +18,7 @@ from twisted.logger import Logger
 from .build_trigger import BuildTrigger, JobsConfig, TriggerConfig
 from .errors import BuildbotNixError
 from .models import (
+    CacheStatus,
     NixEvalJob,
     NixEvalJobError,
     NixEvalJobModel,
@@ -28,6 +29,8 @@ from .nix_status_generator import CombinedBuildEvent
 from .repo_config import BranchConfig
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Sequence
+
     from buildbot.config.builder import BuilderConfig
     from buildbot.locks import MasterLock
     from buildbot.process.log import StreamLog
@@ -172,6 +175,49 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
         branch_config: BranchConfig = await BranchConfig.extract_during_step(self)
 
+        # Check if this is a rebuild and try to reuse evaluation from original build
+        if not self.build or not self.build.requests:
+            log.info("No build requests available, skipping rebuild check")
+        else:
+            buildset_id = self.build.requests[0].bsid
+            if buildset_id is not None:
+                buildset = await self.master.data.get(("buildsets", str(buildset_id)))
+                if (
+                    buildset
+                    and (rebuilt_buildid := buildset.get("rebuilt_buildid")) is not None
+                ):
+                    # This is a rebuild - try to reuse evaluation from original build
+                    jobs = await self._reconstruct_jobs_from_rebuild(rebuilt_buildid)
+                    if jobs is not None:
+                        # Successfully reconstructed jobs, process them
+                        await self._process_jobs_and_trigger_builds(jobs, branch_config)
+                        result = util.SUCCESS
+                        if self.build:
+                            await CombinedBuildEvent.produce_event_for_build(
+                                self.master,
+                                CombinedBuildEvent.FINISHED_NIX_EVAL,
+                                self.build,
+                                result,
+                                warnings_count=self.warnings_count,
+                            )
+                        return result
+
+        # Either not a rebuild or reconstruction failed - run full evaluation
+        result = await self._run_nix_eval_jobs(branch_config)
+
+        if self.build:
+            await CombinedBuildEvent.produce_event_for_build(
+                self.master,
+                CombinedBuildEvent.FINISHED_NIX_EVAL,
+                self.build,
+                result,
+                warnings_count=self.warnings_count,
+            )
+
+        return result
+
+    async def _run_nix_eval_jobs(self, branch_config: BranchConfig) -> int:
+        """Run nix-eval-jobs and process the results."""
         # run nix-eval-jobs --flake .#checks to generate the dict of stages
         # !! Careful, the command attribute has to be specified here as the call
         # !! to `makeRemoteShellCommand` inside `BranchConfig.extract_during_step`
@@ -214,16 +260,8 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
         # Process warnings if any
         result = await self._process_warnings(result, branch_config=branch_config)
 
-        if self.build:
-            await CombinedBuildEvent.produce_event_for_build(
-                self.master,
-                CombinedBuildEvent.FINISHED_NIX_EVAL,
-                self.build,
-                result,
-                warnings_count=self.warnings_count,
-            )
         if result in (util.SUCCESS, util.WARNINGS):
-            # create a ShellCommand for each stage and add them to the build
+            # Parse the nix-eval-jobs output
             jobs: list[NixEvalJob] = []
 
             for line in self.observer.getStdout().split("\n"):
@@ -235,48 +273,184 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
                         raise BuildbotNixError(msg) from e
                     jobs.append(NixEvalJobModel.validate_python(job))
 
-            failed_jobs: list[NixEvalJobError] = []
-            successful_jobs: list[NixEvalJobSuccess] = []
-
-            for job in jobs:
-                # report unbuildable jobs
-                if isinstance(job, NixEvalJobError):
-                    failed_jobs.append(job)
-                elif (
-                    job.system in self.nix_eval_config.supported_systems
-                    and isinstance(job, NixEvalJobSuccess)
-                ):
-                    successful_jobs.append(job)
-
-            self.number_of_jobs = len(successful_jobs)
-
-            if self.build:
-                trigger_config = TriggerConfig(
-                    builds_scheduler=f"{self.project.project_id}-nix-build",
-                    failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
-                    dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
-                    cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
-                )
-
-                jobs_config = JobsConfig(
-                    successful_jobs=successful_jobs,
-                    failed_jobs=failed_jobs,
-                    cache_failed_builds=self.nix_eval_config.cache_failed_builds,
-                    failed_build_report_limit=self.nix_eval_config.failed_build_report_limit,
-                )
-                self.build.addStepsAfterCurrentStep(
-                    [
-                        BuildTrigger(
-                            project=self.project,
-                            trigger_config=trigger_config,
-                            jobs_config=jobs_config,
-                            nix_attr_prefix=branch_config.attribute,
-                            name="build flake",
-                        ),
-                    ]
-                )
+            # Process jobs and trigger builds
+            await self._process_jobs_and_trigger_builds(jobs, branch_config)
 
         return result
+
+    async def _process_jobs_and_trigger_builds(
+        self, jobs: list[NixEvalJob], branch_config: BranchConfig
+    ) -> None:
+        """Process jobs and trigger builds. Used by both normal eval and rebuild paths."""
+        failed_jobs: list[NixEvalJobError] = []
+        successful_jobs: list[NixEvalJobSuccess] = []
+
+        for job in jobs:
+            # report unbuildable jobs
+            if isinstance(job, NixEvalJobError):
+                failed_jobs.append(job)
+            elif job.system in self.nix_eval_config.supported_systems and isinstance(
+                job, NixEvalJobSuccess
+            ):
+                successful_jobs.append(job)
+
+        self.number_of_jobs = len(successful_jobs)
+
+        if self.build:
+            trigger_config = TriggerConfig(
+                builds_scheduler=f"{self.project.project_id}-nix-build",
+                failed_eval_scheduler=f"{self.project.project_id}-nix-failed-eval",
+                dependency_failed_scheduler=f"{self.project.project_id}-nix-dependency-failed",
+                cached_failure_scheduler=f"{self.project.project_id}-nix-cached-failure",
+            )
+
+            jobs_config = JobsConfig(
+                successful_jobs=successful_jobs,
+                failed_jobs=failed_jobs,
+                cache_failed_builds=self.nix_eval_config.cache_failed_builds,
+                failed_build_report_limit=self.nix_eval_config.failed_build_report_limit,
+            )
+            self.build.addStepsAfterCurrentStep(
+                [
+                    BuildTrigger(
+                        project=self.project,
+                        trigger_config=trigger_config,
+                        jobs_config=jobs_config,
+                        nix_attr_prefix=branch_config.attribute,
+                        name="build flake",
+                    ),
+                ]
+            )
+
+    async def _check_store_paths_batch(
+        self, paths: list[str], batch_size: int = 1000
+    ) -> AsyncGenerator[bool, None]:
+        """Check validity of store paths in batches. Yields validity status for each path."""
+        for i in range(0, len(paths), batch_size):
+            batch_paths = paths[i : i + batch_size]
+            cmd = await self.makeRemoteShellCommand(
+                command=["nix-store", "--check-validity", *batch_paths],
+                collectStdout=True,
+                collectStderr=False,
+            )
+            await self.runCommand(cmd)
+
+            if cmd.results() == util.SUCCESS:
+                # All paths in batch are valid
+                for _ in batch_paths:
+                    yield True
+            else:
+                # Check individually to find which are valid
+                for path in batch_paths:
+                    cmd = await self.makeRemoteShellCommand(
+                        command=["nix-store", "--check-validity", path],
+                        collectStdout=False,
+                        collectStderr=False,
+                    )
+                    await self.runCommand(cmd)
+                    yield cmd.results() == util.SUCCESS
+
+    async def _reconstruct_job_from_build(
+        self, build_id: int, original_build_id: int
+    ) -> tuple[NixEvalJobSuccess, str] | None:
+        """Validate and reconstruct a NixEvalJob from build properties.
+
+        Returns tuple of (job, out_path) or None if validation fails.
+        """
+        props = await self.master.db.builds.getBuildProperties(build_id)
+        required_props = ["attr", "drv_path", "out_path", "system"]
+
+        # Validate required properties
+        for prop in required_props:
+            if prop not in props or props[prop][0] is None:
+                log.info(
+                    f"Cannot reconstruct job from build {original_build_id}: missing required property '{prop}'"
+                )
+                return None
+
+        # Extract properties
+        attr = props["attr"][0]
+        drv_path = props["drv_path"][0]
+        out_path = props["out_path"][0]
+        system = props["system"][0]
+
+        job = NixEvalJobSuccess(
+            attr=attr,
+            attrPath=attr.split("."),
+            drvPath=drv_path,
+            outputs={"out": out_path},
+            system=system,
+            name=attr,
+            cacheStatus=CacheStatus.notBuilt,
+            neededBuilds=[],
+            neededSubstitutes=[],
+        )
+
+        return job, out_path
+
+    async def _reconstruct_jobs_from_rebuild(
+        self, original_build_id: int
+    ) -> list[NixEvalJob] | None:
+        """Reconstruct job list from the original build's triggered builds."""
+        # Get all builds triggered by the original eval
+        triggered_builds = await self.master.db.builds.get_triggered_builds(
+            original_build_id
+        )
+
+        if not triggered_builds:
+            return None
+
+        # Reconstruct all jobs
+        jobs = []
+        outputs_to_check = []
+
+        for build in triggered_builds:
+            result = await self._reconstruct_job_from_build(build.id, original_build_id)
+            if result is None:
+                # Missing required properties, can't reconstruct
+                return None
+
+            job, out_path = result
+            jobs.append(job)
+
+            # Collect outputs that need checking
+            if build.results == util.SUCCESS and out_path:
+                outputs_to_check.append((job, out_path))
+
+        # Batch check which outputs still exist
+        if outputs_to_check:
+            output_paths = [path for _, path in outputs_to_check]
+
+            # Process validity results as they come from the generator
+            validity_iter = self._check_store_paths_batch(output_paths)
+            i = 0
+            async for is_valid in validity_iter:
+                if is_valid:
+                    outputs_to_check[i][0].cacheStatus = CacheStatus.local
+                i += 1
+
+        # Verify derivations exist for jobs that need rebuilding
+        jobs_to_rebuild = [job for job in jobs if job.cacheStatus != CacheStatus.local]
+
+        if jobs_to_rebuild and not await self._verify_derivations_exist(
+            jobs_to_rebuild
+        ):
+            return None
+
+        self.descriptionDone = [f"reused eval from build {original_build_id}"]
+        return cast("list[NixEvalJobError | NixEvalJobSuccess]", jobs)
+
+    async def _verify_derivations_exist(
+        self, jobs: Sequence[NixEvalJobError | NixEvalJobSuccess]
+    ) -> bool:
+        """Verify all derivations exist for the given jobs."""
+        drv_paths = [job.drvPath for job in jobs if isinstance(job, NixEvalJobSuccess)]
+
+        # Check all derivations - if any is invalid, return False
+        async for is_valid in self._check_store_paths_batch(drv_paths):
+            if not is_valid:
+                return False
+        return True
 
     async def _process_warnings(self, result: int, branch_config: BranchConfig) -> int:
         """Process stderr output for warnings and update build status."""
