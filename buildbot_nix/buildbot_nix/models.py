@@ -345,7 +345,7 @@ class BuildbotNixConfig(BaseModel):
     eval_worker_count: int | None = None
     gitea: GiteaConfig | None = None
     github: GitHubConfig | None = None
-    gitlab: GitlabConfig | None
+    gitlab: GitlabConfig | None = None
     pull_based: PullBasedConfig | None
     oidc: OIDCConfig | None = None
     outputs_path: Path | None = None
