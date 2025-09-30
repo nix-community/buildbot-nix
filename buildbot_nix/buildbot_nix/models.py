@@ -172,6 +172,7 @@ class GitlabConfig(BaseModel):
     oauth_secret_file: Path | None
 
     project_cache_file: Path = Field(default=Path("gitlab-project-cache.json"))
+    filters: RepoFilters = Field(default_factory=RepoFilters)
 
     @property
     def token(self) -> str:
@@ -186,6 +187,11 @@ class GitlabConfig(BaseModel):
         if self.oauth_secret_file is None:
             raise InternalError
         return read_secret_file(self.oauth_secret_file)
+
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
 
 
 class OIDCMappingConfig(BaseModel):
