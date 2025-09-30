@@ -95,6 +95,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         scheduled: list[BuildTrigger.ScheduledJob]
         scheduler_log: StreamLog
         schedule_now: list[NixEvalJobSuccess]
+        seen_drvs: dict[str, str]  # Maps drvPath to attr name of first occurrence
 
     def __init__(
         self,
@@ -530,7 +531,18 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
     ) -> list[NixEvalJobSuccess]:
         """Schedule jobs that are ready to run. Returns list of skipped jobs."""
         skipped_jobs = []
-        for job in ctx.schedule_now:
+        for job in sorted(ctx.schedule_now, key=lambda j: j.attr):
+            # Check if we've already scheduled a build for this derivation (alias detection)
+            if job.drvPath in ctx.seen_drvs:
+                original_attr = ctx.seen_drvs[job.drvPath]
+                ctx.scheduler_log.addStdout(
+                    f"\t- {job.attr} (skipped, alias of {original_attr})\n"
+                )
+                skipped_jobs.append(job)
+                self._skipped_count += 1
+                continue
+            ctx.seen_drvs[job.drvPath] = job.attr
+
             schedule_result = self.schedule_success(build_props, job)
             if schedule_result is not None:
                 ctx.scheduler_log.addStdout(f"\t- {job.attr}\n")
@@ -715,6 +727,7 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             scheduled=scheduled,
             schedule_now=[],
             scheduler_log=scheduler_log,
+            seen_drvs={},
         )
 
         # Main scheduling loop
