@@ -21,9 +21,10 @@ from twisted.logger import Logger
 from twisted.python import log
 
 from buildbot_nix.common import (
+    RepoAccessors,
     ThreadDeferredBuildStep,
     atomic_write_file,
-    filter_repos_by_topic,
+    filter_repos,
     http_request,
     model_dump_project_cache,
     model_validate_project_cache,
@@ -167,19 +168,23 @@ class GitlabBackend(GitBackend):
         )
 
     def create_change_hook(self) -> dict[str, Any]:
-        return dict(secret=self.config.webhook_secret)
+        return {"secret": self.config.webhook_secret}
 
     def load_projects(self) -> list["GitProject"]:
         if not self.config.project_cache_file.exists():
             return []
 
-        repos: list[RepoData] = filter_repos_by_topic(
-            self.config.topic,
+        repos: list[RepoData] = filter_repos(
+            self.config.filters,
             sorted(
                 model_validate_project_cache(RepoData, self.config.project_cache_file),
                 key=lambda repo: repo.path_with_namespace,
             ),
-            lambda repo: repo.topics,
+            RepoAccessors(
+                repo_name=lambda repo: repo.name,
+                user=lambda repo: repo.namespace.path,
+                topics=lambda repo: repo.topics,
+            ),
         )
         tlog.info(f"Loading {len(repos)} cached repos.")
 
@@ -230,10 +235,14 @@ class ReloadGitlabProjects(ThreadDeferredBuildStep):
         super().__init__(**kwargs)
 
     def run_deferred(self) -> None:
-        repos: list[RepoData] = filter_repos_by_topic(
-            self.config.topic,
-            refresh_projects(self.config, self.project_cache_file),
-            lambda repo: repo.topics,
+        repos: list[RepoData] = filter_repos(
+            self.config.filters,
+            refresh_projects(self.config),
+            RepoAccessors(
+                repo_name=lambda repo: repo.name,
+                user=lambda repo: repo.namespace.path,
+                topics=lambda repo: repo.topics,
+            ),
         )
         atomic_write_file(self.project_cache_file, model_dump_project_cache(repos))
 
@@ -276,8 +285,8 @@ class AvatarGitlab(AvatarBase):
     def __init__(
         self,
         config: GitlabConfig,
-        debug: bool = False,
-        verify: bool = True,
+        debug: bool = False,  # noqa: FBT002
+        verify: bool = True,  # noqa: FBT002
     ) -> None:
         self.config = config
         self.debug = debug
@@ -289,6 +298,7 @@ class AvatarGitlab(AvatarBase):
     def _get_http_client(
         self,
     ) -> httpclientservice.HTTPSession:
+        assert self.master is not None  # noqa: S101
         if self.client is not None:
             return self.client
 
@@ -298,7 +308,7 @@ class AvatarGitlab(AvatarBase):
         }
 
         self.client = httpclientservice.HTTPSession(
-            self.master.httpservice,  # type: ignore[attr-defined]
+            self.master.httpservice,
             self.config.instance_url,
             headers=headers,
             debug=self.debug,
@@ -310,18 +320,20 @@ class AvatarGitlab(AvatarBase):
     @defer.inlineCallbacks
     def getUserAvatar(  # noqa: N802
         self,
-        email: str,
-        username: str | None,
+        email: bytes,
+        username: bytes | None,
         size: str | int,
         defaultAvatarUrl: str,  # noqa: N803
     ) -> Generator[defer.Deferred, str | None, None]:
         if isinstance(size, int):
             size = str(size)
+        username_str = username.decode("utf-8") if username else None
+        email_str = email.decode("utf-8")
         avatar_url = None
-        if username is not None:
-            avatar_url = yield self._get_avatar_by_username(username)
+        if username_str is not None:
+            avatar_url = yield self._get_avatar_by_username(username_str)
         if avatar_url is None:
-            avatar_url = yield self._get_avatar_by_email(email, size)
+            avatar_url = yield self._get_avatar_by_email(email_str, size)
         if not avatar_url:
             avatar_url = defaultAvatarUrl
         raise resource.Redirect(avatar_url)
@@ -330,7 +342,7 @@ class AvatarGitlab(AvatarBase):
     def _get_avatar_by_username(
         self, username: str
     ) -> Generator[defer.Deferred, Any, str | None]:
-        qs = urlencode(dict(username=username))
+        qs = urlencode({"username": username})
         http = self._get_http_client()
         users = yield http.get(f"/api/v4/users?{qs}")
         users = yield users.json()
@@ -346,7 +358,7 @@ class AvatarGitlab(AvatarBase):
         self, email: str, size: str | None
     ) -> Generator[defer.Deferred, Any, str | None]:
         http = self._get_http_client()
-        q = dict(email=email)
+        q = {"email": email}
         if size is not None:
             q["size"] = size
         qs = urlencode(q)
@@ -361,7 +373,7 @@ class AvatarGitlab(AvatarBase):
             return None
 
 
-def refresh_projects(config: GitlabConfig, cache_file: Path) -> list[RepoData]:
+def refresh_projects(config: GitlabConfig) -> list[RepoData]:
     # access level 40 == Maintainer. See https://docs.gitlab.com/api/members/#roles
     return [
         RepoData.model_validate(repo)
@@ -396,23 +408,23 @@ def create_project_hook(
             "Accept": "application/json",
             "Content-Type": "application/json",
         },
-        data=dict(
-            name="buildbot hook",
-            url=hook_url,
-            enable_ssl_verification=True,
-            token=webhook_secret,
+        data={
+            "name": "buildbot hook",
+            "url": hook_url,
+            "enable_ssl_verification": True,
+            "token": webhook_secret,
             # We don't need to be informed of most events
-            confidential_issues_events=False,
-            confidential_note_events=False,
-            deployment_events=False,
-            feature_flag_events=False,
-            issues_events=False,
-            job_events=False,
-            merge_requests_events=False,
-            note_events=False,
-            pipeline_events=False,
-            releases_events=False,
-            wiki_page_events=False,
-            resource_access_token_events=False,
-        ),
+            "confidential_issues_events": False,
+            "confidential_note_events": False,
+            "deployment_events": False,
+            "feature_flag_events": False,
+            "issues_events": False,
+            "job_events": False,
+            "merge_requests_events": False,
+            "note_events": False,
+            "pipeline_events": False,
+            "releases_events": False,
+            "wiki_page_events": False,
+            "resource_access_token_events": False,
+        },
     )
