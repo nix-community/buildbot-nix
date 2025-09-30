@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING, Any
 from buildbot.plugins import steps, util
 from buildbot.process import buildstep
 from buildbot.process.properties import Properties
-from buildbot.process.results import ALL_RESULTS, SUCCESS, statusToString, worst_status
+from buildbot.process.results import (
+    ALL_RESULTS,
+    CANCELLED,
+    SUCCESS,
+    statusToString,
+    worst_status,
+)
 from buildbot.reporters.utils import getURLForBuild, getURLForBuildrequest
 from twisted.internet import defer
 
@@ -585,7 +591,15 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
             fireOnOneCallback=True,
             fireOnOneErrback=True,
         )
-        results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
+        try:
+            results, index = await self.wait_for_finish_deferred  # type: ignore[assignment]
+        except defer.FirstError as e:
+            # DeferredList wraps the actual error in FirstError
+            if isinstance(e.subFailure.value, defer.CancelledError):
+                ctx.scheduler_log.addStdout("Build was cancelled\n")
+                return CANCELLED
+            # Re-raise other errors
+            raise
 
         # Get the completed job
         scheduled_job = ctx.scheduled.pop(index)
