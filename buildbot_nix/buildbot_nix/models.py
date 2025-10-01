@@ -161,6 +161,39 @@ class GitHubConfig(BaseModel):
     )
 
 
+class GitlabConfig(BaseModel):
+    instance_url: str = Field(default="https://gitlab.com")
+    topic: str | None
+
+    token_file: Path = Field(default=Path("gitlab-token"))
+    webhook_secret_file: Path = Field(default=Path("gitlab-webhook-secret"))
+
+    oauth_id: str | None
+    oauth_secret_file: Path | None
+
+    project_cache_file: Path = Field(default=Path("gitlab-project-cache.json"))
+    filters: RepoFilters = Field(default_factory=RepoFilters)
+
+    @property
+    def token(self) -> str:
+        return read_secret_file(self.token_file)
+
+    @property
+    def webhook_secret(self) -> str:
+        return read_secret_file(self.webhook_secret_file)
+
+    @property
+    def oauth_secret(self) -> str:
+        if self.oauth_secret_file is None:
+            raise InternalError
+        return read_secret_file(self.oauth_secret_file)
+
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
+
+
 class PostBuildStep(BaseModel):
     name: str
     environment: Mapping[str, str | Interpolate]
@@ -281,6 +314,7 @@ class BuildbotNixConfig(BaseModel):
     eval_worker_count: int | None = None
     gitea: GiteaConfig | None = None
     github: GitHubConfig | None = None
+    gitlab: GitlabConfig | None = None
     pull_based: PullBasedConfig | None
     outputs_path: Path | None = None
     post_build_steps: list[PostBuildStep] = []

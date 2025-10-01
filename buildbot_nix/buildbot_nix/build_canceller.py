@@ -8,9 +8,11 @@ if TYPE_CHECKING:
     from .projects import GitProject
 
 
-def branch_key_for_pr(build: dict[str, Any]) -> str:
+def branch_key_for_pr(build: dict[str, Any]) -> str | None:
     """Extract a unique key for PR/change to cancel old builds."""
     branch = build.get("branch", "")
+    if branch is None:
+        return None
 
     # For GitHub/Gitea/GitLab PRs
     if branch.startswith(("refs/pull/", "refs/merge-requests/")):
