@@ -169,10 +169,8 @@ services.buildbot-nix.master = {
     appSecretKeyFile = "/path/to/private-key.pem";  # Path to the downloaded private key
 
     # Optional: Enable OAuth for user login
-    oauth = {
-      id = "<oauth-client-id>";
-      secretFile = "/path/to/oauth-secret";
-    };
+    oauthId = "<oauth-client-id>";
+    oauthSecretFile = "/path/to/oauth-secret";
 
     # Optional: Filter which repositories to build
     topic = "buildbot-nix";  # Only build repos with this topic
@@ -280,10 +278,8 @@ services.buildbot-nix.master = {
     webhookSecretFile = "/path/to/webhook-secret";
 
     # OAuth2 for user authentication
-    oauth = {
-      id = "<oauth-client-id>";
-      secretFile = "/path/to/oauth-secret";
-    };
+    oauthId = "<oauth-client-id>";
+    oauthSecretFile = "/path/to/oauth-secret";
 
     # Optional: SSH authentication for private repositories
     sshPrivateKeyFile = "/path/to/ssh-key";
