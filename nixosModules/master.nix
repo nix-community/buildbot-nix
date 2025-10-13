@@ -42,6 +42,7 @@ in
   imports = [
     ./packages.nix
     ./cachix.nix
+    ./niks3.nix
     (mkRenamedOptionModule
       [
         "services"
