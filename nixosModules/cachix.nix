@@ -131,6 +131,7 @@ in
           cfg.cachix.name
           (interpolate "result-%(prop:attr)s")
         ];
+        warnOnly = true; # Don't fail the build if cachix upload fails
       }
     ];
   };

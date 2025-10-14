@@ -56,6 +56,7 @@ in
           (interpolate "%(secret:niks3-auth-token)s")
           (interpolate "result-%(prop:attr)s")
         ];
+        warnOnly = true; # Don't fail the build if niks3 upload fails
       }
     ];
   };

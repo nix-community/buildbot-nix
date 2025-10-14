@@ -205,18 +205,32 @@ in
                   `inputs.buildbot-nix.lib.interpolate` like so `(interpolate "result-%(prop:attr)s")`.
                 '';
               };
+
+              warnOnly = lib.mkOption {
+                type = lib.types.bool;
+                default = false;
+                description = ''
+                  If true, failures in this post-build step will be marked as warnings only
+                  and will not cause the entire build to fail. This is useful for optional
+                  steps like uploading artifacts to external services or running non-critical
+                  checks.
+                '';
+              };
             };
           }
         );
 
         example = lib.literalExpression ''
           [
-            name = "upload-to-s3";
-            environment = {
-              S3_TOKEN = "%(secret:s3-token)";
-              S3_BUCKET = "bucket";
-            };
-            command = [ "nix" "copy" "%result%" ];
+            {
+              name = "upload-to-s3";
+              environment = {
+                S3_TOKEN = "%(secret:s3-token)";
+                S3_BUCKET = "bucket";
+              };
+              command = [ "nix" "copy" "%result%" ];
+              warnOnly = true; # Don't fail the build if upload fails
+            }
           ]
         '';
       };
@@ -817,7 +831,12 @@ in
                 use_https = cfg.useHTTPS;
                 outputs_path = cfg.outputsPath;
                 url = config.services.buildbot-nix.master.webhookBaseUrl;
-                post_build_steps = cfg.postBuildSteps;
+                post_build_steps = map (step: {
+                  name = step.name;
+                  environment = step.environment;
+                  command = step.command;
+                  warn_only = step.warnOnly;
+                }) cfg.postBuildSteps;
                 failed_build_report_limit = cfg.failedBuildReportLimit;
                 http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
                 effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
