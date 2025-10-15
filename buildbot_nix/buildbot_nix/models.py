@@ -165,6 +165,7 @@ class PostBuildStep(BaseModel):
     name: str
     environment: Mapping[str, str | Interpolate]
     command: list[str | Interpolate]
+    warn_only: bool = False
 
     def to_buildstep(self) -> steps.BuildStep:
         return steps.ShellCommand(
@@ -174,6 +175,8 @@ class PostBuildStep(BaseModel):
                 for k in self.environment
             },
             command=[Interpolate.to_buildbot(x) for x in self.command],
+            warnOnFailure=self.warn_only,
+            flunkOnFailure=not self.warn_only,
         )
 
 
