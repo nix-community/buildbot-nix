@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 def branch_key_for_pr(build: dict[str, Any]) -> str:
     """Extract a unique key for PR/change to cancel old builds."""
-    branch = build.get("branch", "")
+    branch = build.get("branch") or ""
 
     # For GitHub/Gitea/GitLab PRs
     if branch.startswith(("refs/pull/", "refs/merge-requests/")):
