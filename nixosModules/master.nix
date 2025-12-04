@@ -595,6 +595,12 @@ in
         regardless of previous failures
       '';
 
+      allowUnauthenticatedControl = lib.mkEnableOption ''
+        allowing unauthenticated users to perform control actions (cancel, restart,
+        force builds). Useful when running buildbot behind a VPN or on a local network
+        where network-level access implies trust
+      '';
+
       outputsPath = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         description = "Path where we store the latest build store paths names for nix attributes as text files. This path will be exposed via nginx at \${domain}/nix-outputs";
@@ -847,6 +853,7 @@ in
                 nix_workers_secret_file = "buildbot-nix-workers";
                 show_trace_on_failure = cfg.showTrace;
                 cache_failed_builds = cfg.cacheFailedBuilds;
+                allow_unauthenticated_control = cfg.allowUnauthenticatedControl;
               }
             }").read_text()))
           )

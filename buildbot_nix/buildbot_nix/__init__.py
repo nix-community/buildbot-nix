@@ -210,6 +210,7 @@ class NixConfigurator(ConfiguratorBase):
                 admins=self.config.admins,
                 backends=list(backends.values()),
                 projects=succeeded_projects,
+                allow_unauthenticated_control=self.config.allow_unauthenticated_control,
             )
 
     def configure(self, config: dict[str, Any]) -> None:

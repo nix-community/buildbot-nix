@@ -67,6 +67,10 @@
     # branches = {
     #   releaseBranches.matchGlob = "release-*";
     # };
+
+    # Allow unauthenticated users to perform control actions (cancel, restart, force builds).
+    # Useful when running buildbot behind a VPN or on a local network.
+    # allowUnauthenticatedControl = true;
   };
 
   # Optional: Enable acme/TLS in nginx (recommended)
