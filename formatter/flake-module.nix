@@ -32,6 +32,7 @@
               pkgs.python3.pkgs.pydantic
               pkgs.python3.pkgs.pytest
               pkgs.python3.pkgs.zope-interface
+              pkgs.python3.pkgs.types-requests
             ];
           };
         };

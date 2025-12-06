@@ -31,6 +31,7 @@ class AuthBackendConfig(str, Enum):
     github = "github"
     gitea = "gitea"
     httpbasicauth = "httpbasicauth"
+    oidc = "oidc"
     none = "none"
 
 
@@ -161,6 +162,27 @@ class GitHubConfig(BaseModel):
     )
 
 
+class OIDCMappingConfig(BaseModel):
+    email: str
+    username: str
+    full_name: str
+    groups: str | None
+
+
+class OIDCConfig(BaseModel):
+    name: str
+    discovery_url: str
+    client_id: str
+    scope: list[str]
+    mapping: OIDCMappingConfig
+
+    client_secret_file: Path = Field(default=Path("oidc-client-secret"))
+
+    @property
+    def client_secret(self) -> str:
+        return read_secret_file(self.client_secret_file)
+
+
 class PostBuildStep(BaseModel):
     name: str
     environment: Mapping[str, str | Interpolate]
@@ -285,6 +307,7 @@ class BuildbotNixConfig(BaseModel):
     gitea: GiteaConfig | None = None
     github: GitHubConfig | None = None
     pull_based: PullBasedConfig | None
+    oidc: OIDCConfig | None = None
     outputs_path: Path | None = None
     post_build_steps: list[PostBuildStep] = []
     failed_build_report_limit: int = (

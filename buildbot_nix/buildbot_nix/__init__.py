@@ -12,6 +12,8 @@ from buildbot.plugins import schedulers, util, worker
 from buildbot.secrets.providers.file import SecretInAFile
 from twisted.logger import Logger
 
+from buildbot_nix.oidc import OIDCAuth
+
 from .authz import setup_authz
 from .build_canceller import create_build_canceller
 from .db_setup import DatabaseSetupService
@@ -72,6 +74,11 @@ class NixConfigurator(ConfiguratorBase):
         """Setup authentication based on configuration."""
         if self.config.auth_backend == AuthBackendConfig.httpbasicauth:
             return OAuth2ProxyAuth(self.config.http_basic_auth_password)
+        if (
+            self.config.auth_backend == AuthBackendConfig.oidc
+            and self.config.oidc is not None
+        ):
+            return OIDCAuth(self.config.oidc)
         if self.config.auth_backend == AuthBackendConfig.none:
             return None
         if backends[self.config.auth_backend] is not None:
