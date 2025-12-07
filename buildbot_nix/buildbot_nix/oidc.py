@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing
 from typing import Any
 
+import buildbot
 import requests
 from buildbot.www.oauth2 import OAuth2Auth
 from twisted.logger import Logger
@@ -68,6 +69,7 @@ class OIDCAuth(OAuth2Auth):
         s = requests.Session()
         s.headers = {
             "Authorization": "Bearer " + token["access_token"],
+            "User-Agent": f"buildbot/{buildbot.version}",
         }
         s.verify = self.ssl_verify
         return s
