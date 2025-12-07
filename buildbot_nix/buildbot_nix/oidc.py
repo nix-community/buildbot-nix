@@ -60,6 +60,8 @@ class OIDCAuth(OAuth2Auth):
 
         return info_obj
 
+    # @mrshmllow: This function was overridden because the super class
+    # does not set a bearer token by default.
     def createSessionFromToken(  # noqa: N802
         self, token: dict[str, Any]
     ) -> requests.Session:
