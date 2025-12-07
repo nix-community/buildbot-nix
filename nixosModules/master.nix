@@ -457,7 +457,7 @@ in
           description = ''
             URL to the OIDC discovery URL.
             For Keycloak, this would be https://keycloak.my-project.com/realms/{realm-name}/.well-known/openid-configuration.
-            For PocketID, this would be https://id.althaea.zone/.well-known/openid-configuration.
+            For PocketID, this would be https://id.my-project.com/.well-known/openid-configuration.
 
             Set your client's callback url to https://buildbot.my-project.com/auth/login
           '';
