@@ -75,4 +75,14 @@ in
       ./fully-private-github.nix
     ];
   };
+
+  "example-oauth2-proxy-oidc-${system}" = nixosSystem {
+    inherit system;
+    modules = [
+      dummy
+      buildbot-nix.nixosModules.buildbot-master
+      buildbot-nix.nixosModules.buildbot-worker
+      ./fully-private-oidc.nix
+    ];
+  };
 }
