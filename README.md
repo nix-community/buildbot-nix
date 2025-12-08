@@ -100,16 +100,17 @@ authentication is still needed, this is controlled by the `authBackend` option.
 
 `fullyPrivate` will hide buildbot behind `oauth2-proxy` which protects the whole
 buildbot instance. buildbot fetches the currently authenticated user from
-`oauth2-proxy` so the same admin, organisation rules apply.
+`oauth2-proxy` so the same admin, organisation rules apply. This mode supports
+GitHub, Gitea, and any generic OIDC provider (like Dex, Keycloak, or Authentik).
 
-`fullyPrivate` acccess mode is a workaround as buildbot does not support hiding
+`fullyPrivate` access mode is a workaround as buildbot does not support hiding
 information natively as now.
 
 #### Public
 
 For some actions a login is required. The authentication backend is set by the
 `services.buildbot-nix.master.authBackend` NixOS option ("github", "gitea", or
-others).
+"none").
 
 **Note**: You can configure both GitHub and Gitea integrations simultaneously,
 regardless of which authentication backend you choose. The auth backend only
@@ -349,7 +350,7 @@ For each repository you want to build:
 
 To enable fully private mode, set `acessMode.fullyPrivate` to an attrset
 containing the required options for fully private use, refer to the examples and
-module implementation (`nix/master.nix`).
+module implementation (`nixosModules/master.nix`).
 
 This access mode honors the `admins` option in addition to the
 `accessMode.fullyPrivate.organisations` option. To allow access from certain
@@ -358,8 +359,166 @@ organisations, you must explicitly list them.
 If you've set `authBackend` previously, unset it, or you will get an error about
 a conflicting definitions. `fullyPrivate` requires the `authBackend` to be set
 to `basichttpauth` to function (this is handled by the module, which is why you
-can leave it unset). For a concrete example please refer to
-[fully-private-github](./examples/fully-private-github.nix)
+can leave it unset).
+
+The `fullyPrivate` mode uses [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
+to protect the entire Buildbot instance. This provides several benefits:
+
+- **Complete privacy**: All of Buildbot (including logs, builds, and project information) is hidden behind authentication
+- **Flexible authentication**: Support for multiple identity providers (GitHub, Gitea, or any OIDC provider)
+- **Single sign-on**: Users authenticate once through their identity provider
+
+##### Using GitHub with Fully Private Mode
+
+For a concrete example of using GitHub, refer to
+[fully-private-github](./examples/fully-private-github.nix).
+
+Configuration example:
+
+```nix
+services.buildbot-nix.master = {
+  accessMode.fullyPrivate = {
+    backend = "github";
+    clientId = "Iv1.XXXXXXXXXXXXXXXX";
+    clientSecretFile = "/path/to/github-oauth-secret";
+    cookieSecretFile = "/path/to/cookie-secret";
+    
+    # Optional: Restrict access to specific users/teams
+    users = [ "alice" "bob" ];
+    teams = [ "my-org:developers" ];
+  };
+};
+```
+
+##### Using Gitea with Fully Private Mode
+
+Configuration example:
+
+```nix
+services.buildbot-nix.master = {
+  accessMode.fullyPrivate = {
+    backend = "gitea";
+    clientId = "your-gitea-oauth-client-id";
+    clientSecretFile = "/path/to/gitea-oauth-secret";
+    cookieSecretFile = "/path/to/cookie-secret";
+    
+    users = [ "alice" "bob" ];
+  };
+};
+```
+
+##### Using Generic OIDC Providers with Fully Private Mode
+
+Buildbot-nix supports any OIDC-compatible identity provider, such as:
+
+- [Dex](https://dexidp.io/)
+- [Keycloak](https://www.keycloak.org/)
+- [Authentik](https://goauthentik.io/)
+- [Authelia](https://www.authelia.com/)
+- Any other OIDC-compliant provider
+
+###### Step 1: Configure Your OIDC Provider
+
+1. **Create an OAuth2/OIDC application** in your identity provider with these settings:
+   - **Redirect URI**: `https://buildbot.<your-domain>/oauth2/callback`
+   - **Scopes**: At minimum `openid`, `email`, and `profile`
+   - For group-based access control, ensure your provider includes group information in the token
+
+2. **Note the credentials**:
+   - Client ID
+   - Client Secret
+   - Issuer URL (the base URL of your OIDC provider)
+
+###### Step 2: Configure buildbot-nix
+
+```nix
+services.buildbot-nix.master = {
+  enable = true;
+  domain = "buildbot.example.com";
+  
+  # Configure your repository integration (GitHub, Gitea, or pull-based)
+  gitea = {
+    enable = true;
+    instanceUrl = "https://git.example.com";
+    tokenFile = "/path/to/gitea-token";
+    webhookSecretFile = "/path/to/webhook-secret";
+  };
+  
+  # Configure fully private mode with OIDC
+  accessMode.fullyPrivate = {
+    backend = "oidc";
+    
+    # OAuth2 client credentials from your OIDC provider
+    clientId = "buildbot-client-id";
+    clientSecretFile = "/path/to/oidc-client-secret";
+    
+    # Random secret for cookie encryption (16, 24, or 32 bytes)
+    cookieSecretFile = "/path/to/cookie-secret";
+    
+    # OIDC-specific configuration
+    oidc = {
+      # Your OIDC provider's issuer URL
+      issuerUrl = "https://dex.example.com";
+      
+      # Optional: Restrict access to specific groups
+      allowedGroups = [
+        "buildbot-users"
+        "developers"
+      ];
+      
+      # Optional: Restrict to specific email domains
+      # Use ["*"] to allow all domains (default)
+      emailDomains = [ "*" ];
+      # Or restrict: emailDomains = [ "example.com" ];
+    };
+  };
+};
+```
+
+###### Step 3: Example OIDC Provider Configurations
+
+**Dex:**
+```nix
+oidc = {
+  issuerUrl = "https://dex.example.com";
+  allowedGroups = [ "buildbot-users" ];
+}
+```
+
+**Keycloak:**
+```nix
+oidc = {
+  issuerUrl = "https://keycloak.example.com/realms/my-realm";
+  allowedGroups = [ "buildbot-users" ];
+}
+```
+
+**Authentik:**
+```nix
+oidc = {
+  issuerUrl = "https://authentik.example.com/application/o/buildbot/";
+  allowedGroups = [ "buildbot-users" ];
+}
+```
+
+For a complete example, see [fully-private-oidc](./examples/fully-private-oidc.nix).
+
+###### How It Works
+
+- **Authentication**: Users are redirected to your OIDC provider for authentication
+- **Authorization**: Access is controlled via:
+  - `allowedGroups`: Users must be members of at least one specified group
+  - `emailDomains`: Users must have emails from allowed domains
+  - `users`: In the `admins` list have full access
+- **Session Management**: oauth2-proxy manages user sessions with secure cookies
+- **API Access**: The `/change_hook` endpoint remains accessible for webhooks
+
+###### Troubleshooting
+
+- **Redirect URI mismatch**: Ensure the redirect URI in your OIDC provider exactly matches `https://<your-domain>/oauth2/callback`
+- **Group claims not working**: Verify your OIDC provider includes group information in the ID token or userinfo endpoint
+- **Cookie errors**: Ensure `cookieSecretFile` contains exactly 16, 24, or 32 bytes
+- **HTTPS required**: oauth2-proxy requires HTTPS in production; configure your reverse proxy accordingly
 
 ### Per Repository Configuration
 

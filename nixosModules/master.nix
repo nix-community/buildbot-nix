@@ -257,6 +257,7 @@ in
                   type = lib.types.enum [
                     "gitea"
                     "github"
+                    "oidc"
                   ];
                 };
 
@@ -303,6 +304,40 @@ in
                     Port number at which the `oauth2-proxy' will listen on.
                   '';
                   default = 8020;
+                };
+
+                oidc = lib.mkOption {
+                  type = lib.types.submodule {
+                    options = {
+                      issuerUrl = lib.mkOption {
+                        type = lib.types.str;
+                        description = ''
+                          OIDC issuer URL (e.g., https://dex.example.com).
+                        '';
+                      };
+
+                      allowedGroups = lib.mkOption {
+                        type = lib.types.listOf lib.types.str;
+                        description = ''
+                          List of OIDC groups that should be allowed access to BuildBot.
+                          Users must be a member of at least one of these groups to access BuildBot.
+                        '';
+                        default = [ ];
+                      };
+
+                      emailDomains = lib.mkOption {
+                        type = lib.types.listOf lib.types.str;
+                        description = ''
+                          List of email domains to allow. Use "*" to allow all domains.
+                        '';
+                        default = [ "*" ];
+                      };
+                    };
+                  };
+                  default = { };
+                  description = ''
+                    OIDC-specific configuration options. Only used when backend is set to "oidc".
+                  '';
                 };
               };
             };
@@ -1005,6 +1040,12 @@ in
           login-url = "${cfg.gitea.instanceUrl}/login/oauth/authorize";
           redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
           validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
+        })
+        (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "oidc") {
+          provider = "oidc";
+          oidc-issuer-url = cfg.accessMode.fullyPrivate.oidc.issuerUrl;
+          email-domain = cfg.accessMode.fullyPrivate.oidc.emailDomains;
+          allowed-group = cfg.accessMode.fullyPrivate.oidc.allowedGroups;
         })
       ];
     };
