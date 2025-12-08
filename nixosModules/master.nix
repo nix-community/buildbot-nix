@@ -236,6 +236,7 @@ in
       };
 
       accessMode = lib.mkOption {
+        description = "Controls the access mode for the Buildbot instance. Choose between public (default) or fullyPrivate mode.";
         default = {
           public = { };
         };
@@ -573,6 +574,7 @@ in
         description = "URL base for the webhook endpoint that will be registered for github or gitea repos.";
         example = "https://buildbot-webhooks.numtide.com/";
         default = config.services.buildbot-master.buildbotUrl;
+        defaultText = lib.literalExpression "config.services.buildbot-master.buildbotUrl";
       };
       useHTTPS = lib.mkOption {
         type = lib.types.nullOr lib.types.bool;

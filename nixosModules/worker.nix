@@ -49,6 +49,7 @@ in
       name = lib.mkOption {
         type = lib.types.str;
         default = config.networking.hostName;
+        defaultText = lib.literalExpression "config.networking.hostName";
         description = "The buildbot worker name.";
       };
       nixEvalJobs.package = lib.mkOption {
