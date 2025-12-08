@@ -30,9 +30,7 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default =
-        pkgs.niks3 or (throw "niks3 package not found in pkgs. Please add niks3 flake input and overlay.");
-      description = "The niks3 package to use";
+      description = "The niks3 package to use. You must add the niks3 flake input and overlay to make this package available.";
     };
   };
 

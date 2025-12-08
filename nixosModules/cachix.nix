@@ -20,6 +20,7 @@ in
     };
 
     auth = lib.mkOption {
+      description = "Authentication method for Cachix. Choose either signingKey or authToken.";
       type = lib.types.attrTag {
         signingKey = lib.mkOption {
           description = ''
