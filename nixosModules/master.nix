@@ -1054,15 +1054,25 @@ in
       serviceConfig = {
         ConfigurationDirectory = "oauth2-proxy";
       };
-      preStart = ''
-        cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
-        client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
-        cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
-        basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
-        # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
-        scope = "read:user user:email repo"
-        EOF
-      '';
+      preStart =
+        let
+          # Different OAuth2 providers require different scopes
+          scope =
+            if cfg.accessMode.fullyPrivate.backend == "oidc" then
+              "openid email profile groups"
+            else
+              # GitHub and Gitea (GitHub-compatible) scopes
+              "read:user user:email repo";
+        in
+        ''
+          cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
+          client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
+          cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
+          basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
+          # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
+          scope = "${scope}"
+          EOF
+        '';
     };
   };
 }
