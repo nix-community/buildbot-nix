@@ -67,6 +67,19 @@
     # branches = {
     #   releaseBranches.matchGlob = "release-*";
     # };
+
+    # Generic OIDC Example.
+    # authBackend = "oidc";
+    # oidc = {
+    #  name = "Provider Name";
+    #  # URL for the OIDC discovery endpoint
+    #  # For Keycloak, this would be https://keycloak.thalheim.io/realms/{realm-name}/.well-known/openid-configuration.
+    #  # For PocketID, this would be https://id.thalheim.io/.well-known/openid-configuration.
+    #  discoveryUrl = "https://id.thalheim.io/.well-known/openid-configuration";
+    #  clientId = "aaaaaaaaaaaaaaaaaaaa";
+    #  clientSecretFile = pkgs.writeText "oidc-secret" "0000000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
+    #  # Additionally, to set a custom scope and mapping for values, see the master module definition
+    # };
   };
 
   # Optional: Enable acme/TLS in nginx (recommended)

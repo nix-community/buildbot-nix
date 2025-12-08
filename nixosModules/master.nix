@@ -455,7 +455,7 @@ in
           type = lib.types.nullOr lib.types.str;
           default = null;
           description = ''
-            URL to the OIDC discovery URL.
+            URL for the OIDC discovery endpoint.
             For Keycloak, this would be https://keycloak.my-project.com/realms/{realm-name}/.well-known/openid-configuration.
             For PocketID, this would be https://id.my-project.com/.well-known/openid-configuration.
 
