@@ -57,7 +57,7 @@ class OIDCAuth(OAuth2Auth):
         }
 
         if self.mapping.groups is not None:
-            info_obj["groups"] = user.get(self.mapping.groups or "groups", [])
+            info_obj["groups"] = user.get(self.mapping.groups, [])
 
         return info_obj
 
