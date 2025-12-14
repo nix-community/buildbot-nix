@@ -61,14 +61,25 @@ class OIDCAuth(OAuth2Auth):
 
         return info_obj
 
-    # @mrshmllow: This function was overridden because the super class
-    # does not set a bearer token by default.
     def createSessionFromToken(  # noqa: N802
         self, token: dict[str, Any]
     ) -> requests.Session:
+        """Create a requests session with Bearer token authentication.
+
+        Overrides the parent class to set the Authorization header with
+        a Bearer token, which the super class does not do by default.
+
+        Raises:
+            BuildbotNixError: If the token response is missing "access_token".
+        """
+        access_token = token.get("access_token")
+        if access_token is None:
+            msg = f"OIDC token response from {self.name} missing 'access_token' field"
+            raise BuildbotNixError(msg)
+
         s = requests.Session()
         s.headers = {
-            "Authorization": "Bearer " + token["access_token"],
+            "Authorization": f"Bearer {access_token}",
             "User-Agent": f"buildbot/{buildbot.version}",
         }
         s.verify = self.ssl_verify
