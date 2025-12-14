@@ -163,6 +163,8 @@ class GitHubConfig(BaseModel):
 
 
 class OIDCMappingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: str
     username: str
     full_name: str
@@ -170,6 +172,11 @@ class OIDCMappingConfig(BaseModel):
 
 
 class OIDCConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
+
     name: str
     discovery_url: str
     client_id: str
