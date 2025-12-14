@@ -937,7 +937,7 @@ in
                       client_id = cfg.oidc.clientId;
                       scope = cfg.oidc.scope;
                       mapping = cfg.oidc.mapping;
-                      client_secret_file = cfg.oidc.clientSecretFile;
+                      client_secret_file = "oidc-client-secret";
                     };
                 admins = cfg.admins;
                 build_systems = cfg.buildSystems;
@@ -1004,6 +1004,7 @@ in
         ])
         ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
         ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
+        ++ lib.optional (cfg.authBackend == "oidc") "oidc-client-secret:${cfg.oidc.clientSecretFile}"
         ++ lib.optionals cfg.gitea.enable [
           "gitea-token:${cfg.gitea.tokenFile}"
           "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
