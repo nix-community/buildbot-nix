@@ -80,6 +80,9 @@
     #  clientSecretFile = pkgs.writeText "oidc-secret" "0000000000000000000000000000000000000000"; # FIXME: replace this with a secret not stored in the nix store
     #  # Additionally, to set a custom scope and mapping for values, see the master module definition
     # };
+    # Allow unauthenticated users to perform control actions (cancel, restart, force builds).
+    # Useful when running buildbot behind a VPN or on a local network.
+    # allowUnauthenticatedControl = true;
   };
 
   # Optional: Enable acme/TLS in nginx (recommended)

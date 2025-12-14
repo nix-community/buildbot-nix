@@ -237,6 +237,7 @@ in
       };
 
       accessMode = lib.mkOption {
+        description = "Controls the access mode for the Buildbot instance. Choose between public (default) or fullyPrivate mode.";
         default = {
           public = { };
         };
@@ -659,6 +660,7 @@ in
         description = "URL base for the webhook endpoint that will be registered for github or gitea repos.";
         example = "https://buildbot-webhooks.numtide.com/";
         default = config.services.buildbot-master.buildbotUrl;
+        defaultText = lib.literalExpression "config.services.buildbot-master.buildbotUrl";
       };
       useHTTPS = lib.mkOption {
         type = lib.types.nullOr lib.types.bool;
@@ -679,6 +681,12 @@ in
         When enabled, failed builds will be remembered and skipped in subsequent evaluations
         unless explicitly rebuilt. When disabled (the default), all builds will be attempted
         regardless of previous failures
+      '';
+
+      allowUnauthenticatedControl = lib.mkEnableOption ''
+        allowing unauthenticated users to perform control actions (cancel, restart,
+        force builds). Useful when running buildbot behind a VPN or on a local network
+        where network-level access implies trust
       '';
 
       outputsPath = lib.mkOption {
@@ -955,6 +963,7 @@ in
                 nix_workers_secret_file = "buildbot-nix-workers";
                 show_trace_on_failure = cfg.showTrace;
                 cache_failed_builds = cfg.cacheFailedBuilds;
+                allow_unauthenticated_control = cfg.allowUnauthenticatedControl;
               }
             }").read_text()))
           )

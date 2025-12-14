@@ -321,6 +321,7 @@ class BuildbotNixConfig(BaseModel):
     effects_per_repo_secrets: dict[str, str] = {}
     show_trace_on_failure: bool = False
     cache_failed_builds: bool = False
+    allow_unauthenticated_control: bool = False
 
     def nix_worker_secrets(self) -> WorkerConfig:
         if self.nix_workers_secret_file is None:

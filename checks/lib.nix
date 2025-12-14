@@ -10,8 +10,8 @@ let
 in
 (nixos-lib.runTest {
   hostPkgs = pkgs;
-  # This speeds up the evaluation by skipping evaluating documentation (optional)
-  defaults.documentation.enable = lib.mkDefault false;
+  # Enable documentation generation to catch missing descriptions
+  defaults.documentation.nixos.options.warningsAreErrors = true;
   # This makes `self` available in the NixOS configuration of our virtual machines.
   # This is useful for referencing modules or packages from your own flake
   # as well as importing from other flakes.

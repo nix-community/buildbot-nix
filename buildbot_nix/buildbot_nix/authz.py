@@ -100,9 +100,22 @@ class AnyProjectEndpointMatcher(EndpointMatcherBase):
 
 
 def setup_authz(
-    backends: list[GitBackend], projects: list[GitProject], admins: list[str]
+    backends: list[GitBackend],
+    projects: list[GitProject],
+    admins: list[str],
+    *,
+    allow_unauthenticated_control: bool = False,
 ) -> Authz:
     allow_rules = []
+
+    # When enabled, permit all control actions without authentication
+    if allow_unauthenticated_control:
+        allow_rules.append(util.AnyEndpointMatcher(role="", defaultDeny=False))
+        return util.Authz(
+            roleMatchers=[],
+            allowRules=allow_rules,
+        )
+
     allowed_builders_by_org: defaultdict[str, set[str]] = defaultdict(
         lambda: {backend.reload_builder_name for backend in backends},
     )
