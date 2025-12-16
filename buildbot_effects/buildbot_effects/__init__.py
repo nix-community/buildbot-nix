@@ -263,7 +263,7 @@ def run_effects(
         bubblewrap_cmd.extend(env_args(env, clear_env))
         bubblewrap_cmd.append("--")
         bubblewrap_cmd.extend(sandboxed_cmd)
-        with pipe() as (r_file, w_file):
+        with pipe() as (_r_file, _w_file):
             if debug:
                 print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
             proc = subprocess.run(
