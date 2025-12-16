@@ -94,6 +94,10 @@ testScript = ''
 ''
 ```
 
+## Testing OIDC Authentication
+
+see [OIDC docs](./OIDC.md) for details.
+
 ## Cleanup
 
 ```bash

@@ -137,6 +137,7 @@ in
           "github"
           "gitea"
           "httpbasicauth"
+          "oidc"
           "none"
         ];
         default = "github";
@@ -443,6 +444,91 @@ in
         };
       };
 
+      oidc = {
+        name = lib.mkOption {
+          type = lib.types.str;
+          default = "OIDC Provider";
+          description = "User facing name of this provider";
+          example = "Org PocketID";
+        };
+
+        discoveryUrl = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = ''
+            URL for the OIDC discovery endpoint.
+            For Keycloak, this would be https://keycloak.my-project.com/realms/{realm-name}/.well-known/openid-configuration.
+            For PocketID, this would be https://id.my-project.com/.well-known/openid-configuration.
+
+            Set your client's callback url to https://buildbot.my-project.com/auth/login
+          '';
+          example = "https://keycloak.my-project.com/realms/{realm-name}/.well-known/openid-configuration";
+        };
+
+        clientId = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Client ID of the OIDC client Buildbot should use.";
+        };
+
+        clientSecretFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          description = ''
+            Path to file containing the client secret.
+          '';
+        };
+
+        scope = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [
+            "openid"
+            "email"
+            "profile"
+          ];
+          example = [
+            "openid"
+            "email"
+            "profile"
+            "groups"
+          ];
+          description = "Scope that should be requested. Note that options of type list are additive.";
+        };
+
+        mapping = lib.mkOption {
+          description = "Tells how to map claims to Buildbot userinfo";
+          default = {
+            email = "email";
+            username = "preferred_username";
+            full_name = "name";
+            groups = null;
+          };
+          type = lib.types.submodule {
+            options = {
+              email = lib.mkOption {
+                type = lib.types.str;
+                default = "email";
+              };
+              username = lib.mkOption {
+                type = lib.types.str;
+                default = "preferred_username";
+                description = "Users are identified by this value";
+              };
+              full_name = lib.mkOption {
+                type = lib.types.str;
+                default = "name";
+              };
+              groups = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+                example = "groups";
+                description = "May be null if you do not want to provide groups.";
+              };
+            };
+          };
+        };
+      };
+
       pullBased = {
         repositories = lib.mkOption {
           default = { };
@@ -745,6 +831,16 @@ in
           If `cfg.authBackend` is set to `"gitea"` the GitHub backend must be enabled with `cfg.gitea.enable`;
         '';
       }
+      {
+        assertion =
+          cfg.authBackend == "oidc"
+          -> (
+            cfg.oidc.discoveryUrl != null && cfg.oidc.clientId != null && cfg.oidc.clientSecretFile != null
+          );
+        message = ''
+          If `cfg.authBackend` is set to `"oidc"` a discovery URL must be set with `cfg.oidc.discoveryUrl`, a client id must be set with `cfg.oidc.clientId`, and a file containing the client secret must be provided with `cfg.oidc.clientSecretFile`;
+        '';
+      }
     ];
 
     services.buildbot-master = {
@@ -831,6 +927,18 @@ in
                       );
                       poll_spread = cfg.pullBased.pollSpread;
                     };
+                oidc =
+                  if cfg.authBackend != "oidc" then
+                    null
+                  else
+                    {
+                      name = cfg.oidc.name;
+                      discovery_url = cfg.oidc.discoveryUrl;
+                      client_id = cfg.oidc.clientId;
+                      scope = cfg.oidc.scope;
+                      mapping = cfg.oidc.mapping;
+                      client_secret_file = "oidc-client-secret";
+                    };
                 admins = cfg.admins;
                 build_systems = cfg.buildSystems;
                 eval_max_memory_size = cfg.evalMaxMemorySize;
@@ -896,6 +1004,7 @@ in
         ])
         ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
         ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
+        ++ lib.optional (cfg.authBackend == "oidc") "oidc-client-secret:${cfg.oidc.clientSecretFile}"
         ++ lib.optionals cfg.gitea.enable [
           "gitea-token:${cfg.gitea.tokenFile}"
           "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
