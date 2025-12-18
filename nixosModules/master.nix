@@ -924,6 +924,9 @@ in
                     null
                   else
                     {
+                      filters = {
+                        topic = cfg.gitlab.topic;
+                      };
                       instance_url = cfg.gitlab.instanceUrl;
                       topic = cfg.gitea.topic;
                       oauth_id = cfg.gitlab.oauthId;

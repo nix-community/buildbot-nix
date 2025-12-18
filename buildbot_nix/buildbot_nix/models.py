@@ -163,7 +163,6 @@ class GitHubConfig(BaseModel):
 
 class GitlabConfig(BaseModel):
     instance_url: str = Field(default="https://gitlab.com")
-    topic: str | None
 
     token_file: Path = Field(default=Path("gitlab-token"))
     webhook_secret_file: Path = Field(default=Path("gitlab-webhook-secret"))
