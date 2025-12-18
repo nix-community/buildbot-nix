@@ -161,6 +161,7 @@ class GitHubConfig(BaseModel):
         ignored_types=(property,),
     )
 
+
 class GitlabConfig(BaseModel):
     instance_url: str = Field(default="https://gitlab.com")
 
