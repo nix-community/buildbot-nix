@@ -928,7 +928,6 @@ in
                         topic = cfg.gitlab.topic;
                       };
                       instance_url = cfg.gitlab.instanceUrl;
-                      topic = cfg.gitea.topic;
                       oauth_id = cfg.gitlab.oauthId;
                       oauth_secret_file = "gitlab-oauth-secret";
                       token_file = "gitlab-token";
