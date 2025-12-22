@@ -259,6 +259,7 @@ in
                   type = lib.types.enum [
                     "gitea"
                     "github"
+                    "gitlab"
                   ];
                 };
 
@@ -314,6 +315,42 @@ in
               the instance read-only is a superset of the the team that can access it read-write.
             '';
           };
+        };
+      };
+
+      gitlab = {
+        enable = lib.mkEnableOption "Enable Gitlab integration";
+        tokenFile = lib.mkOption {
+          type = lib.types.path;
+          description = "Gitlab token file";
+        };
+        webhookSecretFile = lib.mkOption {
+          type = lib.types.path;
+          description = "Gitlab webhook secret file";
+        };
+        instanceUrl = lib.mkOption {
+          type = lib.types.str;
+          description = "Gitlab instance url";
+          example = "https://gitlab.example.com";
+          default = "https://gitlab.com";
+        };
+        topic = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = "build-with-buildbot";
+          description = ''
+            Projects that have this topic will be built by buildbot.
+            If null, all projects that the buildbot Gitea user has access to, are built.
+          '';
+        };
+        oauthId = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Gitlab oauth id";
+        };
+        oauthSecretFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          description = "Gitlab oauth secret file";
         };
       };
 
@@ -820,6 +857,11 @@ in
         message = ''config.services.buildbot-nix.master.authBackend is set to "gitea", then config.services.buildbot-nix.master.gitea.oauthId and config.services.buildbot-nix.master.gitea.oauthSecretFile have to be set.'';
       }
       {
+        assertion =
+          cfg.authBackend == "gitlab" -> (cfg.gitlab.oauthId != null && cfg.gitlab.oauthSecretFile != null);
+        message = ''config.services.buildbot-nix.master.authBackend is set to "gitlab", then config.services.buildbot-nix.master.gitlab.oauthId and config.services.buildbot-nix.master.gitlab.oauthSecretFile have to be set.'';
+      }
+      {
         assertion = cfg.authBackend == "github" -> cfg.github.enable;
         message = ''
           If `cfg.authBackend` is set to `"github"` the GitHub backend must be enabled with `cfg.github.enable`;
@@ -829,6 +871,12 @@ in
         assertion = cfg.authBackend == "gitea" -> cfg.gitea.enable;
         message = ''
           If `cfg.authBackend` is set to `"gitea"` the GitHub backend must be enabled with `cfg.gitea.enable`;
+        '';
+      }
+      {
+        assertion = cfg.authBackend == "gitlab" -> cfg.gitlab.enable;
+        message = ''
+          If `cfg.authBackend is set to `"gitlab"` the Gitlab backend must be enabled with `cfg.gitlab.enable`;
         '';
       }
       {
@@ -871,6 +919,21 @@ in
               (pkgs.formats.json { }).generate "buildbot-nix-config.json" {
                 db_url = cfg.dbUrl;
                 auth_backend = cfg.authBackend;
+                gitlab =
+                  if !cfg.gitlab.enable then
+                    null
+                  else
+                    {
+                      filters = {
+                        topic = cfg.gitlab.topic;
+                      };
+                      instance_url = cfg.gitlab.instanceUrl;
+                      oauth_id = cfg.gitlab.oauthId;
+                      oauth_secret_file = "gitlab-oauth-secret";
+                      token_file = "gitlab-token";
+                      webhook_secret_file = "gitlab-webhook-secret";
+                      project_cache_file = "gitlab-project-cache.json";
+                    };
                 gitea =
                   if !cfg.gitea.enable then
                     null
@@ -1004,10 +1067,15 @@ in
         ])
         ++ lib.optional (cfg.authBackend == "gitea") "gitea-oauth-secret:${cfg.gitea.oauthSecretFile}"
         ++ lib.optional (cfg.authBackend == "github") "github-oauth-secret:${cfg.github.oauthSecretFile}"
+        ++ lib.optional (cfg.authBackend == "gitlab") "gitlab-oauth-secret:${cfg.gitlab.oauthSecretFile}"
         ++ lib.optional (cfg.authBackend == "oidc") "oidc-client-secret:${cfg.oidc.clientSecretFile}"
         ++ lib.optionals cfg.gitea.enable [
           "gitea-token:${cfg.gitea.tokenFile}"
           "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
+        ]
+        ++ lib.optionals cfg.gitlab.enable [
+          "gitlab-token:${cfg.gitlab.tokenFile}"
+          "gitlab-webhook-secret:${cfg.gitlab.webhookSecretFile}"
         ]
         ++ lib.mapAttrsToList (
           repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
@@ -1109,11 +1177,22 @@ in
           (lib.elem cfg.accessMode.fullyPrivate.backend [
             "github"
             "gitea"
+            "gitlab"
           ])
           {
+            email-domain = "*";
+          }
+        )
+        (lib.mkIf
+          (lib.elem cfg.accessMode.fullyPrivate.backend [
+            "github"
+            "gitea"
+          ])
+          {
+            # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
+            scope = "read:user user:email repo";
             github-user = lib.concatStringsSep "," (cfg.accessMode.fullyPrivate.users ++ cfg.admins);
             github-team = cfg.accessMode.fullyPrivate.teams;
-            email-domain = "*";
           }
         )
         (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") { provider = "github"; })
@@ -1123,6 +1202,12 @@ in
           login-url = "${cfg.gitea.instanceUrl}/login/oauth/authorize";
           redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
           validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
+        })
+        (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitlab") {
+          provider = "gitlab";
+          provider-display-name = "Gitlab";
+          gitlab-groups = cfg.accessMode.fullyPrivate.teams;
+          oidc-issuer-url = cfg.gitlab.instanceUrl;
         })
       ];
     };
@@ -1136,8 +1221,6 @@ in
         client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
         cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
         basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
-        # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
-        scope = "read:user user:email repo"
         EOF
       '';
     };
