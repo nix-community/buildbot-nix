@@ -297,7 +297,7 @@
                 return False
             return True
         
-        retry(check_project_registered, timeout=120)
+        retry(check_project_registered, timeout_seconds=120)
 
     with subtest("Verify webhook was created by buildbot"):
         # Wait for buildbot to create the webhook
@@ -338,6 +338,6 @@
             assert result == 0, f"Build failed with result: {result}"
             return True
 
-        retry(check_build_success, timeout=180)
+        retry(check_build_success, timeout_seconds=180)
   '';
 }
