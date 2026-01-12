@@ -287,7 +287,7 @@
 
             return True
 
-        retry(check_builds_complete, timeout=180)
+        retry(check_builds_complete, timeout_seconds=180)
 
     with subtest("Verify output paths are written for skipped builds"):
         # Get the system architecture
