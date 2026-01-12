@@ -14,8 +14,8 @@ buildPythonPackage {
   src = fetchFromGitHub {
     owner = "Mic92";
     repo = "buildbot-gitea";
-    rev = "3f3c9591384cd98ea5186b4375cdf142b9083737";
-    hash = "sha256-bdjGijer/JSMTkBwhbeCx9pstFXFnRy0ZdC7mGaRX84=";
+    rev = "f6f40088ba74b6a215aa7bb619cf79ed3cf36dfd";
+    hash = "sha256-nYgVPgted37J3+SYiJc023bdP7jGEfkk4qdRDre+i8U=";
   };
 
   propagatedBuildInputs = [
