@@ -6,8 +6,8 @@
     {
       treefmt = {
         projectRootFile = "LICENSE.md";
-        programs.nixfmt.enable = pkgs.lib.meta.availableOn pkgs.stdenv.buildPlatform pkgs.nixfmt-rfc-style.compiler;
-        programs.nixfmt.package = pkgs.nixfmt-rfc-style;
+        programs.nixfmt.enable = pkgs.lib.meta.availableOn pkgs.stdenv.buildPlatform pkgs.nixfmt.compiler;
+        programs.nixfmt.package = pkgs.nixfmt;
         programs.shellcheck.enable = true;
         programs.deno.enable = true;
         programs.ruff.check = true;
