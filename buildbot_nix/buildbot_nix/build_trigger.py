@@ -550,8 +550,25 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         skipped_jobs = []
         for job in ctx.schedule_now:
             schedule_result = self.schedule_success(build_props, job)
+            log_suffix = ""
+
+            # Check if this job was previously reported as failed/cancelled
+            # If so, force it to run even if it would normally be skipped,
+            # so the normal completion flow can report success to Gitea
+            if schedule_result is None:
+                name = f"{self.project.nix_ref_type}:{self.project.name}#{self.nix_attr_prefix}.{job.attr}"
+                status_name = f"nix-build {name}"
+                if status_name in self._failed_statuses:
+                    # Force schedule the build to update the failed status
+                    source = "nix-eval-nix"
+                    props = self.set_common_properties(
+                        Properties(), self.project, source, job
+                    )
+                    schedule_result = (self.trigger_config.builds_scheduler, props)
+                    log_suffix = " (already built, running to update status)"
+
             if schedule_result is not None:
-                ctx.scheduler_log.addStdout(f"\t- {job.attr}\n")
+                ctx.scheduler_log.addStdout(f"\t- {job.attr}{log_suffix}\n")
                 scheduler_name, props = schedule_result
                 brids, results_deferred = await self.schedule(
                     ctx.ss_for_trigger,
