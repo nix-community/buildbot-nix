@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from buildbot.plugins import schedulers, util
@@ -17,8 +17,13 @@ from .nix_error import (
 )
 from .nix_eval import NixEvalConfig, nix_eval_config
 from .nix_gcroot import nix_register_gcroot_config
+from .scheduled import (
+    buildbot_effects_scheduled_config,
+    create_scheduled_effect_schedulers,
+)
 
 if TYPE_CHECKING:
+    from .models import ScheduledEffectConfig
     from .projects import GitProject
 
 
@@ -30,6 +35,8 @@ class ProjectConfig:
     nix_eval_config: NixEvalConfig
     build_config: BuildConfig
     per_repo_effects_secrets: dict[str, str]
+    scheduled_effects: dict[str, ScheduledEffectConfig] = field(default_factory=dict)
+    schedules_cache_dir: str | None = None
 
 
 def config_for_project(
@@ -138,6 +145,7 @@ def config_for_project(
                 git_url=project.get_project_url(),
                 nix_eval_config=project_config.nix_eval_config,
                 build_config=project_config.build_config,
+                schedules_cache_dir=project_config.schedules_cache_dir,
             ),
             nix_build_config(
                 project,
@@ -147,6 +155,12 @@ def config_for_project(
                 show_trace=project_config.nix_eval_config.show_trace,
             ),
             buildbot_effects_config(
+                project,
+                git_url=project.get_project_url(),
+                worker_names=project_config.worker_names,
+                secrets=effects_secrets_cred,
+            ),
+            buildbot_effects_scheduled_config(
                 project,
                 git_url=project.get_project_url(),
                 worker_names=project_config.worker_names,
@@ -166,3 +180,19 @@ def config_for_project(
             ),
         ],
     )
+
+    # Add triggerable scheduler for scheduled effects
+    config["schedulers"].append(
+        schedulers.Triggerable(
+            name=f"{project.project_id}-run-scheduled-effect",
+            builderNames=[f"{project.name}/run-scheduled-effect"],
+        ),
+    )
+
+    # Add Nightly schedulers for any pre-configured schedules
+    if project_config.scheduled_effects:
+        config["schedulers"].extend(
+            create_scheduled_effect_schedulers(
+                project, project_config.scheduled_effects
+            )
+        )

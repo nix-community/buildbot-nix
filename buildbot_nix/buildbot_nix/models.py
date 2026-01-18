@@ -347,6 +347,57 @@ class BuildbotNixConfig(BaseModel):
         return read_secret_file(self.http_basic_auth_password_file)
 
 
+class ScheduleWhen(BaseModel):
+    """Hercules CI schedule specification.
+
+    Defines when a scheduled effect should run, similar to cron.
+    All times are in UTC.
+    """
+
+    minute: int | None = None
+    hour: int | list[int] | None = None
+    dayOfWeek: list[str] | None = Field(default=None)  # noqa: N815
+    dayOfMonth: list[int] | None = Field(default=None)  # noqa: N815
+
+    def to_buildbot_nightly_kwargs(self) -> dict[str, Any]:
+        """Convert to Buildbot Nightly scheduler arguments."""
+        kwargs: dict[str, Any] = {}
+
+        if self.minute is not None:
+            kwargs["minute"] = self.minute
+        else:
+            kwargs["minute"] = 0  # Default to top of hour
+
+        if self.hour is not None:
+            kwargs["hour"] = self.hour
+
+        if self.dayOfWeek is not None:
+            # Convert "Mon"->0, "Tue"->1, etc. for Buildbot
+            day_map = {
+                "Mon": 0,
+                "Tue": 1,
+                "Wed": 2,
+                "Thu": 3,
+                "Fri": 4,
+                "Sat": 5,
+                "Sun": 6,
+            }
+            kwargs["dayOfWeek"] = [day_map[d] for d in self.dayOfWeek]
+
+        if self.dayOfMonth is not None:
+            kwargs["dayOfMonth"] = self.dayOfMonth
+
+        return kwargs
+
+
+class ScheduledEffectConfig(BaseModel):
+    """A scheduled effect definition from the flake."""
+
+    name: str
+    when: ScheduleWhen
+    effects: list[str]
+
+
 class CacheStatus(str, Enum):
     cached = "cached"
     local = "local"

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import html
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from buildbot.interfaces import WorkerSetupError
@@ -13,6 +15,7 @@ from buildbot.plugins import steps, util
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.properties import Properties
 from buildbot.steps.trigger import Trigger
+from twisted.internet import reactor
 from twisted.logger import Logger
 
 from .build_trigger import BuildTrigger, JobsConfig, TriggerConfig
@@ -667,12 +670,86 @@ class BuildbotEffectsTrigger(Trigger):
         return triggered_schedulers
 
 
-def nix_eval_config(
+class ScheduledEffectsEvaluateCommand(buildstep.ShellMixin, steps.BuildStep):
+    """Evaluate scheduled effects from a flake and update schedulers if changed.
+
+    This step runs on push to default branch after successful build to discover
+    onSchedule definitions and trigger a reconfig if schedules have changed.
+    """
+
+    def __init__(
+        self,
+        project: GitProject,
+        schedules_cache_file: str,
+        **kwargs: Any,
+    ) -> None:
+        kwargs = self.setupShellMixin(kwargs)
+        super().__init__(**kwargs)
+        self.project = project
+        self.schedules_cache_file = schedules_cache_file
+        self.observer = logobserver.BufferLogObserver()
+        self.addLogObserver("stdio", self.observer)
+
+    async def run(self) -> int:
+        cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
+        await self.runCommand(cmd)
+
+        result = cmd.results()
+        if result != util.SUCCESS:
+            return result
+
+        try:
+            new_schedules = json.loads(self.observer.getStdout())
+        except json.JSONDecodeError:
+            log.error("Failed to parse scheduled effects output")  # noqa: TRY400
+            return util.FAILURE
+
+        cache_path = Path(self.schedules_cache_file)
+        old_schedules: dict[str, Any] = {}
+        if cache_path.exists():
+            with contextlib.suppress(json.JSONDecodeError, OSError):
+                old_schedules = json.loads(cache_path.read_text())
+
+        if new_schedules != old_schedules:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(new_schedules, indent=2))
+
+            schedule_count = len(new_schedules)
+            effect_count = sum(
+                len(s.get("effects", [])) for s in new_schedules.values()
+            )
+
+            self.descriptionDone = [
+                f"found {schedule_count} schedule(s) with {effect_count} effect(s), triggering reconfig"
+            ]
+
+            if self.master:
+                # Schedule a reconfig after this build completes
+                # We use callLater to avoid blocking the build
+                reactor.callLater(5, self._trigger_reconfig)  # type: ignore[attr-defined]
+        else:
+            self.descriptionDone = ["schedules unchanged"]
+
+        return util.SUCCESS
+
+    def _trigger_reconfig(self) -> None:
+        """Trigger a buildbot reconfig to pick up new schedules."""
+        if self.master:
+            log.info(
+                f"Triggering reconfig due to schedule changes in {self.project.name}"
+            )
+            # This will cause buildbot to reload its configuration
+            # The NixConfigurator will read the updated cache files
+            self.master.reconfig()
+
+
+def nix_eval_config(  # noqa: PLR0913
     project: GitProject,
     worker_names: list[str],
     git_url: str,
     nix_eval_config: NixEvalConfig,
     build_config: Any,  # BuildConfig from nix_build module
+    schedules_cache_dir: str | None = None,
 ) -> BuilderConfig:
     """Uses nix-eval-jobs to evaluate hydraJobs from flake.nix in parallel.
     For each evaluated attribute a new build pipeline is started.
@@ -761,6 +838,35 @@ def nix_eval_config(
                 c.getProperty("branch", "") == project.default_branch
                 and c.build.results in (util.SUCCESS, util.WARNINGS)
             ),
+            logEnviron=False,
+        )
+    )
+
+    # Evaluate scheduled effects
+    schedules_cache_file = f"{schedules_cache_dir}/{project.project_id}-schedules.json"
+    factory.addStep(
+        ScheduledEffectsEvaluateCommand(
+            project=project,
+            schedules_cache_file=schedules_cache_file,
+            env={},
+            name="Evaluate scheduled effects",
+            command=[
+                "buildbot-effects",
+                "--rev",
+                util.Property("revision"),
+                "--branch",
+                util.Property("branch"),
+                "--repo",
+                util.Property("project"),
+                "list-schedules",
+            ],
+            flunkOnFailure=False,  # Don't fail the build if schedule eval fails
+            warnOnFailure=True,
+            doStepIf=lambda c: (
+                c.getProperty("branch", "") == project.default_branch
+                and c.build.results in (util.SUCCESS, util.WARNINGS)
+            ),
+            hideStepIf=lambda results, _s: results == util.SKIPPED,
             logEnviron=False,
         )
     )
