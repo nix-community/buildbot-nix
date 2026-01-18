@@ -5,7 +5,14 @@ import json
 import sys
 from pathlib import Path
 
-from . import instantiate_effects, list_effects, parse_derivation, run_effects
+from . import (
+    instantiate_effects,
+    instantiate_scheduled_effect,
+    list_effects,
+    list_scheduled_effects,
+    parse_derivation,
+    run_effects,
+)
 from .options import EffectsOptions
 
 
@@ -30,6 +37,30 @@ def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
 
 def run_all_command(_args: argparse.Namespace, _options: EffectsOptions) -> None:
     print("TODO")
+
+
+def list_schedules_command(_args: argparse.Namespace, options: EffectsOptions) -> None:
+    """List all scheduled effects defined in the flake."""
+    json.dump(list_scheduled_effects(options), fp=sys.stdout, indent=2)
+
+
+def run_scheduled_command(args: argparse.Namespace, options: EffectsOptions) -> None:
+    """Run a specific effect from a schedule."""
+    schedule_name = args.schedule_name
+    effect = args.effect
+    drv_path = instantiate_scheduled_effect(schedule_name, effect, options)
+    if drv_path == "":
+        print(
+            f"Scheduled effect {schedule_name}/{effect} not found or not runnable for {options}"
+        )
+        return
+    drvs = parse_derivation(drv_path)
+    if "derivations" in drvs:
+        drvs = drvs["derivations"]
+    drv = next(iter(drvs.values()))
+
+    secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
+    run_effects(drv_path, drv, secrets=secrets)
 
 
 def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
@@ -90,6 +121,26 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         help="Run all effects",
     )
     run_all_parser.set_defaults(command=run_all_command)
+
+    list_schedules_parser = subparser.add_parser(
+        "list-schedules",
+        help="List all scheduled effects defined in the flake",
+    )
+    list_schedules_parser.set_defaults(command=list_schedules_command)
+
+    run_scheduled_parser = subparser.add_parser(
+        "run-scheduled",
+        help="Run a specific effect from a schedule",
+    )
+    run_scheduled_parser.set_defaults(command=run_scheduled_command)
+    run_scheduled_parser.add_argument(
+        "schedule_name",
+        help="Name of the schedule (from onSchedule.<name>)",
+    )
+    run_scheduled_parser.add_argument(
+        "effect",
+        help="Effect to run within the schedule",
+    )
 
     args = parser.parse_args()
     opts = EffectsOptions(
