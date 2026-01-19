@@ -134,7 +134,7 @@ def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
     cmd = [
         "nix-instantiate",
         "--expr",
-        f"(({effect_function(opts)}).{effect}).run or []",
+        f"({effect_function(opts)}).{effect}",
     ]
     proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
     return proc.stdout.rstrip()
