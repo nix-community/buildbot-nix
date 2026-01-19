@@ -271,7 +271,7 @@ The following instances run on GitHub:
   [Configuration](https://github.com/nix-community/infra/tree/master/modules/nixos)
   | [Instance](https://buildbot.nix-community.org/)
 - [**Mic92's dotfiles**](https://github.com/Mic92/dotfiles):
-  [Configuration](https://github.com/Mic92/dotfiles/blob/main/nixos/eve/modules/buildbot.nix)
+  [Configuration](https://github.com/Mic92/dotfiles/blob/main/machines/eve/modules/buildbot.nix)
   | [Instance](https://buildbot.thalheim.io/)
 - [**Technical University Munich**](https://dse.in.tum.de/):
   [Configuration](https://github.com/TUM-DSE/doctor-cluster-config/tree/master/modules/buildbot)
