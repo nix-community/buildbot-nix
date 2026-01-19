@@ -32,7 +32,7 @@ def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
     drv = next(iter(drvs.values()))
 
     secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-    run_effects(drv_path, drv, secrets=secrets)
+    run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
 
 
 def run_all_command(_args: argparse.Namespace, _options: EffectsOptions) -> None:
@@ -60,7 +60,7 @@ def run_scheduled_command(args: argparse.Namespace, options: EffectsOptions) -> 
     drv = next(iter(drvs.values()))
 
     secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-    run_effects(drv_path, drv, secrets=secrets)
+    run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
 
 
 def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
