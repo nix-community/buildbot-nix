@@ -438,6 +438,9 @@ in
               email = lib.mkOption {
                 type = lib.types.str;
                 default = "email";
+                description = ''
+                  Which claim to get the user's email address from.
+                '';
               };
               username = lib.mkOption {
                 type = lib.types.str;
@@ -447,6 +450,9 @@ in
               full_name = lib.mkOption {
                 type = lib.types.str;
                 default = "name";
+                description = ''
+                  Which claim to get the user's full name from.
+                '';
               };
               groups = lib.mkOption {
                 type = lib.types.nullOr lib.types.str;
@@ -461,6 +467,9 @@ in
 
       pullBased = {
         repositories = lib.mkOption {
+          description = ''
+            Set of repositories that should be polled for changes.
+          '';
           default = { };
           type = lib.types.attrsOf (
             lib.types.submodule {
