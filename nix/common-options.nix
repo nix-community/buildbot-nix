@@ -1,23 +1,18 @@
-{lib, ...}:
+{ lib, config, ... }:
 {
-  authBackend = lib.mkOption {
-    type = lib.types.enum [
-      "github"
-      "gitea"
-      "httpbasicauth"
-      "oidc"
-      "none"
-    ];
-    default = "github";
-    description = ''
-      Which OAuth2 backend to use.
-    '';
-  };
-
-  accessMode = lib.mkOption {
-    description = "Controls the access mode for the Buildbot instance. Choose between public (default) or fullyPrivate mode.";
-    default = {
-      public = { };
+  options = {
+    authBackend = lib.mkOption {
+      type = lib.types.enum [
+        "github"
+        "gitea"
+        "httpbasicauth"
+        "oidc"
+        "none"
+      ];
+      default = "github";
+      description = ''
+        Which OAuth2 backend to use.
+      '';
     };
 
     accessMode = lib.mkOption {
@@ -67,36 +62,10 @@
       };
     };
 
-  admins = lib.mkOption {
-    type = lib.types.listOf lib.types.str;
-    default = [ ];
-    description = "Users that are allowed to login to buildbot, trigger builds and change settings";
-  };
-
-  buildSystems = lib.mkOption {
-    type = lib.types.listOf lib.types.str;
-    default = [ pkgs.stdenv.hostPlatform.system ];
-    description = "Systems that we will be build";
-  };
-
-  evalWorkerCount = lib.mkOption {
-    type = lib.types.nullOr lib.types.int;
-    default = null;
-    description = ''
-      Number of nix-eval-jobs worker processes. If null, the number of cores is used.
-      If you experience memory issues (buildbot-workers going out-of-memory), you can reduce this number.
-    '';
-  };
-
-  domain = lib.mkOption {
-    type = lib.types.str;
-    description = "Buildbot domain";
-    example = "buildbot.numtide.com";
-  };
-
-  gitea = {
-    enable = lib.mkEnableOption "Enable Gitea integration" // {
-      default = cfg.authBackend == "gitea";
+    admins = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = "Users that are allowed to login to buildbot, trigger builds and change settings";
     };
 
     buildSystems = lib.mkOption {
@@ -148,9 +117,14 @@
       };
     };
 
-  github = {
-    enable = lib.mkEnableOption "Enable GitHub integration" // {
-      default = cfg.authBackend == "github";
+    niks3 = {
+      enable = lib.mkEnableOption "Enable niks3 integration";
+
+      serverUrl = lib.mkOption {
+        type = lib.types.str;
+        description = "niks3 server URL";
+        example = "https://niks3.yourdomain.com";
+      };
     };
 
     github = {

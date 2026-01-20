@@ -209,9 +209,10 @@
               inherit (settings)
                 admins
                 domain
-                buildSystems
                 evalWorkerCount
                 ;
+              buildSystems =
+                if settings.buildSystems == [ ] then [ pkgs.stdenv.hostPlatform.system ] else settings.buildSystems;
               workersFile = config.clan.core.vars.generators."buildbot-nix".files."workers".path;
 
               authBackend = lib.mkDefault settings.authBackend;
