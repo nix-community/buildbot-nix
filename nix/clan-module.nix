@@ -13,7 +13,12 @@
       { config, ... }:
       {
         imports = [
-          ./common-options.nix
+          (lib.modules.importApply ../nix/common-options.nix {
+            mapOut = options: {
+              inherit options;
+            };
+            mapIn = lib.id;
+          })
         ];
 
         options = {
