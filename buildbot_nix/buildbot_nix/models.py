@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -359,17 +360,26 @@ class ScheduleWhen(BaseModel):
     dayOfWeek: list[str] | None = Field(default=None)  # noqa: N815
     dayOfMonth: list[int] | None = Field(default=None)  # noqa: N815
 
-    def to_buildbot_nightly_kwargs(self) -> dict[str, Any]:
-        """Convert to Buildbot Nightly scheduler arguments."""
+    def to_buildbot_nightly_kwargs(self, schedule_name: str = "") -> dict[str, Any]:
+        """Convert to Buildbot Nightly scheduler arguments.
+
+        Args:
+            schedule_name: Used as seed for deterministic random defaults
+                           to avoid thundering herd effects.
+        """
+
         kwargs: dict[str, Any] = {}
+        seed = int(hashlib.sha256(schedule_name.encode()).hexdigest(), 16)
 
         if self.minute is not None:
             kwargs["minute"] = self.minute
         else:
-            kwargs["minute"] = 0  # Default to top of hour
+            kwargs["minute"] = seed % 60
 
         if self.hour is not None:
             kwargs["hour"] = self.hour
+        else:
+            kwargs["hour"] = (seed // 60) % 24
 
         if self.dayOfWeek is not None:
             # Convert "Mon"->0, "Tue"->1, etc. for Buildbot

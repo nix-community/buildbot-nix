@@ -107,7 +107,7 @@ def create_scheduled_effect_schedulers(
 
     for schedule_name, config in schedule_configs.items():
         for effect in config.effects:
-            nightly_kwargs = config.when.to_buildbot_nightly_kwargs()
+            nightly_kwargs = config.when.to_buildbot_nightly_kwargs(schedule_name)
 
             scheduler = timed.Nightly(
                 name=f"{project.project_id}-scheduled-{schedule_name}-{effect}",
