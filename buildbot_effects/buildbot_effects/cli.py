@@ -20,6 +20,8 @@ def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
         print(f"Effect {effect} not found or not runnable for {options}")
         return
     drvs = parse_derivation(drv_path)
+    if "derivations" in drvs:
+        drvs = drvs["derivations"]
     drv = next(iter(drvs.values()))
 
     secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
