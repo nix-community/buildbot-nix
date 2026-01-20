@@ -699,13 +699,13 @@ in
       failedBuildReportLimit = lib.mkOption {
         type = lib.types.ints.unsigned;
         description = ''
-          The maximum number of failed builds per `nix-eval` that `buildbot-nix` will report individually 
+          The maximum number of failed builds per `nix-eval` that `buildbot-nix` will report individually
           to backends (GitHub, Gitea, etc.) before stopping individual notifications.
 
           Note: 3 notification slots should always be reserved for nix-eval, nix-build, and nix-effects stages.
 
-          Report failed builds individually as long as the number of failed builds is less than or equal 
-          to this limit. Once exceeded, individual build notifications are suppressed to avoid hitting 
+          Report failed builds individually as long as the number of failed builds is less than or equal
+          to this limit. Once exceeded, individual build notifications are suppressed to avoid hitting
           GitHub's status API limits. Successful builds never generate individual notifications.
         '';
         default = 47; # 50 total notifications - 3 reserved for eval/build/effects
@@ -954,7 +954,7 @@ in
                   warn_only = step.warnOnly;
                 }) cfg.postBuildSteps;
                 failed_build_report_limit = cfg.failedBuildReportLimit;
-                http_basic_auth_password_file = cfg.httpBasicAuthPasswordFile;
+                http_basic_auth_password_file = "http-basic-auth-password";
                 effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
                   inherit name;
                   value = "effects-secret__${cleanUpRepoName name}";
@@ -1009,6 +1009,9 @@ in
           "gitea-token:${cfg.gitea.tokenFile}"
           "gitea-webhook-secret:${cfg.gitea.webhookSecretFile}"
         ]
+        ++ lib.optional (
+          cfg.accessMode ? "fullyPrivate"
+        ) "http-basic-auth-password:${cfg.httpBasicAuthPasswordFile}"
         ++ lib.mapAttrsToList (
           repoName: path: "effects-secret__${cleanUpRepoName repoName}:${path}"
         ) cfg.effects.perRepoSecretFiles
@@ -1130,15 +1133,23 @@ in
     systemd.services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
       serviceConfig = {
         ConfigurationDirectory = "oauth2-proxy";
+        LoadCredential = [
+          "client-secret:${cfg.accessMode.fullyPrivate.clientSecretFile}"
+          "cookie-secret:${cfg.accessMode.fullyPrivate.cookieSecretFile}"
+          "basic-auth-password:${cfg.httpBasicAuthPasswordFile}"
+        ];
       };
       preStart = ''
-        cat > $CONFIGURATION_DIRECTORY/oauth2-proxy.toml <<EOF
-        client_secret = "$(cat ${cfg.accessMode.fullyPrivate.clientSecretFile})"
-        cookie_secret = "$(cat ${cfg.accessMode.fullyPrivate.cookieSecretFile})"
-        basic_auth_password = "$(cat ${cfg.httpBasicAuthPasswordFile})"
+        (
+          umask 0277
+          cat > "$CONFIGURATION_DIRECTORY/oauth2-proxy.toml" <<EOF
+        client_secret = "$(cat "$CREDENTIALS_DIRECTORY/client-secret")"
+        cookie_secret = "$(cat "$CREDENTIALS_DIRECTORY/cookie-secret")"
+        basic_auth_password = "$(cat "$CREDENTIALS_DIRECTORY/basic-auth-password")"
         # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
         scope = "read:user user:email repo"
         EOF
+        )
       '';
     };
   };
