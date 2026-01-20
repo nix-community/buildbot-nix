@@ -66,8 +66,6 @@
             };
           };
 
-          buildbot-renovate.enable = lib.mkEnableOption "Enable buildbot renovate.";
-
           niks3 = {
             enable = lib.mkEnableOption "Enable niks3 support.";
 
@@ -163,7 +161,6 @@
             imports = [
               inputs.self.nixosModules.buildbot-master
               inputs.self.nixosModules.buildbot-worker
-              inputs.buildbot-renovate.nixosModules.default
             ];
 
             clan.core.vars.generators."buildbot-nix" = {
@@ -326,13 +323,6 @@
                   Token used to authenticate with Cachix.
                 '';
               };
-            };
-
-            # Relies on GitHub
-            services.buildbot-renovate = lib.mkIf settings.buildbot-renovate.enable {
-              enable = true;
-
-              renovate.nixPatch = true;
             };
 
             systemd.services."oauth2-proxy".enableStrictShellChecks = false;
