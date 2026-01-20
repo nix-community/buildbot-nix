@@ -42,6 +42,10 @@ mapOut {
                 "gitea"
                 "github"
               ];
+              description = ''
+                Which backend to use for authentication. User's will have to authenticate with this backend,
+                to even gain access to a read-only view of this buildbot.
+              '';
             };
 
             teams = lib.mkOption {
