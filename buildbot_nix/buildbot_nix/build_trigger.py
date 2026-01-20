@@ -112,6 +112,10 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         self._result_list: list[int | None] = []
         self._skipped_count: int = 0
         self._failed_statuses: set[str] = set()  # Set of failed status names we've sent
+        self._scheduled_status_names: dict[
+            int, str
+        ] = {}  # brid -> status_name for pending builds
+        self._revision: str | None = None  # Current revision for tracking
         self.ended = False
         self.running = False
         self.wait_for_finish_deferred: defer.Deferred[tuple[list[int], int]] | None = (
@@ -135,6 +139,12 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 {"reason": "parent build was interrupted"},
                 ("buildrequests", brid),
             )
+
+        # Record all scheduled status names as failed so subsequent builds
+        # can update the status if they complete successfully
+        if self._revision and self._scheduled_status_names:
+            defer.ensureDeferred(self._record_cancelled_statuses())
+
         if self.running and not self.ended:
             self.ended = True
             # if we are interrupted because of a connection lost, we interrupt synchronously
@@ -144,6 +154,14 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                 and self.wait_for_finish_deferred is not None
             ):
                 self.wait_for_finish_deferred.cancel()
+
+    async def _record_cancelled_statuses(self) -> None:
+        """Record all scheduled status names as failed in the database."""
+        for status_name in self._scheduled_status_names.values():
+            await self.master.db.failed_status.mark_status_failed(
+                self._revision,
+                status_name,  # type: ignore[arg-type]
+            )
 
     async def _maybe_send_notification(
         self, revision: str | None, status_name: str | None
@@ -532,8 +550,25 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         skipped_jobs = []
         for job in ctx.schedule_now:
             schedule_result = self.schedule_success(build_props, job)
+            log_suffix = ""
+
+            # Check if this job was previously reported as failed/cancelled
+            # If so, force it to run even if it would normally be skipped,
+            # so the normal completion flow can report success to Gitea
+            if schedule_result is None:
+                name = f"{self.project.nix_ref_type}:{self.project.name}#{self.nix_attr_prefix}.{job.attr}"
+                status_name = f"nix-build {name}"
+                if status_name in self._failed_statuses:
+                    # Force schedule the build to update the failed status
+                    source = "nix-eval-nix"
+                    props = self.set_common_properties(
+                        Properties(), self.project, source, job
+                    )
+                    schedule_result = (self.trigger_config.builds_scheduler, props)
+                    log_suffix = " (already built, running to update status)"
+
             if schedule_result is not None:
-                ctx.scheduler_log.addStdout(f"\t- {job.attr}\n")
+                ctx.scheduler_log.addStdout(f"\t- {job.attr}{log_suffix}\n")
                 scheduler_name, props = schedule_result
                 brids, results_deferred = await self.schedule(
                     ctx.ss_for_trigger,
@@ -544,6 +579,12 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
                     BuildTrigger.ScheduledJob(job, brids, results_deferred, props)
                 )
                 self.brids.extend(brids.values())
+
+                # Track scheduled status names for cancellation handling
+                status_name = props.getProperty("status_name")
+                if status_name:
+                    for brid in brids.values():
+                        self._scheduled_status_names[brid] = status_name
             else:
                 # Skipped build - output path already stored as property
                 ctx.scheduler_log.addStdout(
@@ -579,6 +620,13 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         scheduled_job = ctx.scheduled.pop(index)
         job, brids = scheduled_job.job, scheduled_job.builder_ids
         result = results[0]
+
+        # Remove completed brids from scheduled tracking
+        # (only successful ones need to be removed; failed/cancelled ones should remain
+        # so they get recorded in failed_status if interrupt is called)
+        if result == SUCCESS:
+            for brid in brids.values():
+                self._scheduled_status_names.pop(brid, None)
 
         if isinstance(job, NixEvalJobSuccess):
             done.append(BuildTrigger.DoneJob(job, brids, results))
@@ -671,6 +719,8 @@ class BuildTrigger(buildstep.ShellMixin, steps.BuildStep):
         if ss_for_trigger:
             revision = ss_for_trigger[0].get("revision")
             if revision:
+                # Store revision for use in interrupt handler
+                self._revision = revision
                 # Get all existing failed status names for this revision
                 existing_statuses = await self.master.db.failed_status.get_all_failed_statuses_for_revision(
                     revision
