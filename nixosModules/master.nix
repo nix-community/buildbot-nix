@@ -1141,7 +1141,7 @@ in
       };
       preStart = ''
         (
-          umask 0277
+          umask 0077
           cat > "$CONFIGURATION_DIRECTORY/oauth2-proxy.toml" <<EOF
         client_secret = "$(cat "$CREDENTIALS_DIRECTORY/client-secret")"
         cookie_secret = "$(cat "$CREDENTIALS_DIRECTORY/cookie-secret")"
