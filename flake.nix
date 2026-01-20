@@ -33,6 +33,30 @@
         ./herculesCI/flake-module.nix
       ];
 
+      perSystem =
+        { pkgs, lib, ... }:
+        {
+          packages.optionsDoc =
+            let
+              eval = lib.evalModules {
+                check = false;
+                modules = [
+                  ./nixosModules/master.nix
+                  ./nixosModules/worker.nix
+                ];
+                specialArgs = {
+                  inherit pkgs;
+                };
+              };
+              optionsDoc = pkgs.nixosOptionsDoc {
+                inherit (eval) options;
+              };
+            in
+            pkgs.runCommand "options-doc.md" { } ''
+              cat ${optionsDoc.optionsCommonMark} >> $out
+            '';
+        };
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
