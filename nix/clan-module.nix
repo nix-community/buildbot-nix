@@ -16,6 +16,17 @@
           ./common-options.nix
         ];
 
+        options = {
+          niks3.input = lib.mkOption {
+            type = lib.types.str;
+            default = "niks3";
+            description = ''
+              Which flake input to use as `niks3`. Useful if you have multiple flake inputs
+              of different versions of `niks3`.
+            '';
+          };
+        };
+
         config = {
           authBackend = lib.mkIf (config.accessMode ? "fullyPrivate") "httpbasicauth";
         };
@@ -30,7 +41,12 @@
       }:
       {
         nixosModule =
-          { config, pkgs, ... }:
+          {
+            config,
+            pkgs,
+            self,
+            ...
+          }:
           let
             buildbot-nix = config.services.buildbot-nix;
           in
@@ -249,13 +265,17 @@
                 auth.authToken.file = config.clan.core.vars.generators."buildbot-nix-cachix".files."token".path;
               };
 
-              niks3 = lib.mkIf settings.niks3.enable {
-                enable = true;
-                inherit (settings.niks3) serverUrl;
+              niks3 = lib.mkIf settings.niks3.enable (
+                assert lib.assertMsg (lib.hasAttr settings.niks3.input self.inputs)
+                  "You enabled `niks3` but don't have `${settings.niks3.input}` as a flake input, please add https://github.com/Mic92/niks3 as `${settings.niks3.input}` to your flake inputs!";
+                {
+                  enable = true;
+                  inherit (settings.niks3) serverUrl;
 
-                authTokenFile = config.clan.core.vars.generators.niks3-api-token.files."token".path;
-                package = inputs.niks3.packages.${pkgs.system}.default;
-              };
+                  authTokenFile = config.clan.core.vars.generators.niks3-api-token.files."token".path;
+                  package = self.inputs.niks3.packages.${pkgs.system}.default;
+                }
+              );
 
               gitea = lib.mkIf settings.gitea.enable {
                 enable = true;
