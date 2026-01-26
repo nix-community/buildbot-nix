@@ -6,27 +6,29 @@
 }:
 let
   cfg = config.services.buildbot-nix.packages;
+  # Use our patched buildbot packages scope which includes patched twisted
+  buildbotPackages = pkgs.callPackage ../packages/buildbot-packages.nix { };
 in
 {
   options.services.buildbot-nix.packages = {
     python = lib.mkOption {
       type = lib.types.package;
-      default = config.services.buildbot-nix.packages.buildbot.python;
-      defaultText = lib.literalExpression "config.services.buildbot-nix.packages.buildbot.python";
+      default = buildbotPackages.python;
+      defaultText = lib.literalExpression "buildbotPackages.python";
       description = "Python interpreter to use for buildbot-nix.";
     };
 
     buildbot = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.callPackage ../packages/buildbot.nix { };
-      defaultText = lib.literalExpression "pkgs.callPackage ../packages/buildbot.nix { }";
+      default = buildbotPackages.buildbot;
+      defaultText = lib.literalExpression "buildbotPackages.buildbot";
       description = "The buildbot package to use.";
     };
 
     buildbot-worker = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.buildbot-worker;
-      defaultText = lib.literalExpression "pkgs.buildbot-worker";
+      default = buildbotPackages.buildbot-worker;
+      defaultText = lib.literalExpression "buildbotPackages.buildbot-worker";
       description = "The buildbot-worker package to use.";
     };
 
@@ -41,8 +43,8 @@ in
 
     buildbot-plugins = lib.mkOption {
       type = lib.types.attrsOf lib.types.package;
-      default = pkgs.buildbot-plugins;
-      defaultText = lib.literalExpression "pkgs.buildbot-plugins";
+      default = buildbotPackages.buildbot-plugins;
+      defaultText = lib.literalExpression "buildbotPackages.buildbot-plugins";
       description = "Attrset of buildbot plugin packages to use.";
     };
 
