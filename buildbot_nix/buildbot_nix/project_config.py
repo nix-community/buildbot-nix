@@ -27,6 +27,19 @@ if TYPE_CHECKING:
     from .projects import GitProject
 
 
+def resolve_effects_secret(
+    per_repo_effects_secrets: dict[str, str],
+    forge_type: str,
+    owner: str,
+    repo: str,
+) -> str | None:
+    """Resolve effects secret, either org-level or repo-specific."""
+    secret_name = per_repo_effects_secrets.get(f"{forge_type}:{owner}/{repo}")
+    if secret_name is None:
+        secret_name = per_repo_effects_secrets.get(f"{forge_type}:{owner}/*")
+    return secret_name
+
+
 @dataclass
 class ProjectConfig:
     """Configuration for config_for_project function."""
@@ -132,8 +145,12 @@ def config_for_project(
             ),
         ],
     )
-    key = f"{project.type}:{project.owner}/{project.repo}"
-    effects_secrets_cred = project_config.per_repo_effects_secrets.get(key)
+    effects_secrets_cred = resolve_effects_secret(
+        project_config.per_repo_effects_secrets,
+        project.type,
+        project.owner,
+        project.repo,
+    )
 
     config["builders"].extend(
         [
