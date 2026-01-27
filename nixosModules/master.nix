@@ -43,6 +43,12 @@ in
     ./packages.nix
     ./cachix.nix
     ./niks3.nix
+    (lib.modules.importApply ../nix/common-options.nix {
+      mapOut = options: {
+        options.services.buildbot-nix.master = options;
+      };
+      mapIn = config: config.services.buildbot-nix.master;
+    })
     (mkRenamedOptionModule
       [
         "services"
@@ -131,19 +137,6 @@ in
         type = lib.types.str;
         default = "postgresql://@/buildbot";
         description = "Postgresql database url";
-      };
-      authBackend = lib.mkOption {
-        type = lib.types.enum [
-          "github"
-          "gitea"
-          "httpbasicauth"
-          "oidc"
-          "none"
-        ];
-        default = "github";
-        description = ''
-          Which OAuth2 backend to use.
-        '';
       };
 
       httpBasicAuthPasswordFile = lib.mkOption {
@@ -237,31 +230,10 @@ in
       };
 
       accessMode = lib.mkOption {
-        description = "Controls the access mode for the Buildbot instance. Choose between public (default) or fullyPrivate mode.";
-        default = {
-          public = { };
-        };
         type = lib.types.attrTag {
-          public = lib.mkOption {
-            type = lib.types.submodule { };
-            description = ''
-              Default public mode, will allow read only access to anonymous users. Authentication is handled by
-              one of the `authBackend's. CAUTION this will leak information about private repos, the instance has
-              access to. Information includes, but is not limited to, repository URLs, number and name of checks,
-              and build logs
-            '';
-          };
-
           fullyPrivate = lib.mkOption {
             type = lib.types.submodule {
               options = {
-                backend = lib.mkOption {
-                  type = lib.types.enum [
-                    "gitea"
-                    "github"
-                  ];
-                };
-
                 cookieSecretFile = lib.mkOption {
                   type = lib.types.path;
                   description = ''
@@ -283,22 +255,6 @@ in
                   '';
                 };
 
-                teams = lib.mkOption {
-                  type = lib.types.listOf lib.types.str;
-                  description = ''
-                    A list of teams that should be given access to BuildBot.
-                  '';
-                  default = [ ];
-                };
-
-                users = lib.mkOption {
-                  type = lib.types.listOf lib.types.str;
-                  description = ''
-                    A list of users that should be given access to BuildBot.
-                  '';
-                  default = [ ];
-                };
-
                 port = lib.mkOption {
                   type = lib.types.port;
                   description = ''
@@ -318,10 +274,6 @@ in
       };
 
       gitea = {
-        enable = lib.mkEnableOption "Enable Gitea integration" // {
-          default = cfg.authBackend == "gitea";
-        };
-
         userAllowlist = lib.mkOption {
           type = lib.types.nullOr (lib.types.listOf lib.types.str);
           default = null;
@@ -348,22 +300,10 @@ in
           description = "Gitea oauth secret file";
         };
 
-        instanceUrl = lib.mkOption {
-          type = lib.types.str;
-          description = "Gitea instance URL";
-        };
         oauthId = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
           default = null;
           description = "Gitea oauth id. Used for the login button";
-        };
-        topic = lib.mkOption {
-          type = lib.types.nullOr lib.types.str;
-          default = "build-with-buildbot";
-          description = ''
-            Projects that have this topic will be built by buildbot.
-            If null, all projects that the buildbot Gitea user has access to, are built.
-          '';
         };
 
         sshPrivateKeyFile = lib.mkOption {
@@ -384,10 +324,6 @@ in
         };
       };
       github = {
-        enable = lib.mkEnableOption "Enable GitHub integration" // {
-          default = cfg.authBackend == "github";
-        };
-
         userAllowlist = lib.mkOption {
           type = lib.types.nullOr (lib.types.listOf lib.types.str);
           default = null;
@@ -433,14 +369,6 @@ in
           type = lib.types.nullOr lib.types.str;
           default = null;
           description = "Github oauth id. Used for the login button";
-        };
-        topic = lib.mkOption {
-          type = lib.types.nullOr lib.types.str;
-          default = "build-with-buildbot";
-          description = ''
-            Projects that have this topic will be built by buildbot.
-            If null, all projects that the buildbot github user has access to, are built.
-          '';
         };
       };
 
@@ -508,6 +436,9 @@ in
               email = lib.mkOption {
                 type = lib.types.str;
                 default = "email";
+                description = ''
+                  Which claim to get the user's email address from.
+                '';
               };
               username = lib.mkOption {
                 type = lib.types.str;
@@ -517,6 +448,9 @@ in
               full_name = lib.mkOption {
                 type = lib.types.str;
                 default = "name";
+                description = ''
+                  Which claim to get the user's full name from.
+                '';
               };
               groups = lib.mkOption {
                 type = lib.types.nullOr lib.types.str;
@@ -531,6 +465,9 @@ in
 
       pullBased = {
         repositories = lib.mkOption {
+          description = ''
+            Set of repositories that should be polled for changes.
+          '';
           default = { };
           type = lib.types.attrsOf (
             lib.types.submodule {
@@ -617,20 +554,9 @@ in
         };
       };
 
-      admins = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ ];
-        description = "Users that are allowed to login to buildbot, trigger builds and change settings";
-      };
-
       workersFile = lib.mkOption {
         type = lib.types.path;
         description = "File containing a list of nix workers";
-      };
-      buildSystems = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ pkgs.stdenv.hostPlatform.system ];
-        description = "Systems that we will be build";
       };
       evalMaxMemorySize = lib.mkOption {
         type = lib.types.int;
@@ -640,19 +566,6 @@ in
           worker. After the limit is reached, the worker is
           restarted.
         '';
-      };
-      evalWorkerCount = lib.mkOption {
-        type = lib.types.nullOr lib.types.int;
-        default = null;
-        description = ''
-          Number of nix-eval-jobs worker processes. If null, the number of cores is used.
-          If you experience memory issues (buildbot-workers going out-of-memory), you can reduce this number.
-        '';
-      };
-      domain = lib.mkOption {
-        type = lib.types.str;
-        description = "Buildbot domain";
-        example = "buildbot.numtide.com";
       };
 
       webhookBaseUrl = lib.mkOption {
