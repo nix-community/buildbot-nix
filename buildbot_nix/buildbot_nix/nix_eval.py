@@ -862,10 +862,8 @@ def nix_eval_config(  # noqa: PLR0913
             ],
             flunkOnFailure=False,  # Don't fail the build if schedule eval fails
             warnOnFailure=True,
-            doStepIf=lambda c: (
-                c.getProperty("branch", "") == project.default_branch
-                and c.build.results in (util.SUCCESS, util.WARNINGS)
-            ),
+            alwaysRun=True,
+            doStepIf=lambda c: (c.getProperty("branch", "") == project.default_branch),
             hideStepIf=lambda results, _s: results == util.SKIPPED,
             logEnviron=False,
         )
