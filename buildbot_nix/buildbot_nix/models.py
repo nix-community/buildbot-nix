@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -345,6 +346,66 @@ class BuildbotNixConfig(BaseModel):
         if self.http_basic_auth_password_file is None:
             raise InternalError
         return read_secret_file(self.http_basic_auth_password_file)
+
+
+class ScheduleWhen(BaseModel):
+    """Hercules CI schedule specification.
+
+    Defines when a scheduled effect should run, similar to cron.
+    All times are in UTC.
+    """
+
+    minute: int | None = None
+    hour: int | list[int] | None = None
+    dayOfWeek: list[str] | None = Field(default=None)  # noqa: N815
+    dayOfMonth: list[int] | None = Field(default=None)  # noqa: N815
+
+    def to_buildbot_nightly_kwargs(self, schedule_name: str = "") -> dict[str, Any]:
+        """Convert to Buildbot Nightly scheduler arguments.
+
+        Args:
+            schedule_name: Used as seed for deterministic random defaults
+                           to avoid thundering herd effects.
+        """
+
+        kwargs: dict[str, Any] = {}
+        seed = int(hashlib.sha256(schedule_name.encode()).hexdigest(), 16)
+
+        if self.minute is not None:
+            kwargs["minute"] = self.minute
+        else:
+            kwargs["minute"] = seed % 60
+
+        if self.hour is not None:
+            kwargs["hour"] = self.hour
+        else:
+            kwargs["hour"] = (seed // 60) % 24
+
+        if self.dayOfWeek is not None:
+            # Convert "Mon"->0, "Tue"->1, etc. for Buildbot
+            day_map = {
+                "Mon": 0,
+                "Tue": 1,
+                "Wed": 2,
+                "Thu": 3,
+                "Fri": 4,
+                "Sat": 5,
+                "Sun": 6,
+            }
+            kwargs["dayOfWeek"] = [day_map[d] for d in self.dayOfWeek]
+
+        if self.dayOfMonth is not None:
+            kwargs["dayOfMonth"] = self.dayOfMonth
+
+        return kwargs
+
+
+class ScheduledEffectConfig(BaseModel):
+    """A scheduled effect definition from the flake."""
+
+    name: str
+    when: ScheduleWhen
+    effects: list[str]
 
 
 class CacheStatus(str, Enum):

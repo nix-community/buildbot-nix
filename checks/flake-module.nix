@@ -30,6 +30,7 @@
           effects = import ./effects.nix checkArgs;
           poller = import ./poller.nix checkArgs;
           gitea = import ./gitea.nix checkArgs;
+          scheduled-effects = import ./scheduled-effects.nix checkArgs;
         };
     };
 }

@@ -119,6 +119,30 @@ def effect_function(opts: EffectsOptions) -> str:
     """
 
 
+def scheduled_effect_function(opts: EffectsOptions) -> str:
+    """Generate Nix expression to evaluate onSchedule attributes."""
+    args = effects_args(opts)
+    rev = args["rev"]
+    escaped_args = json.dumps(json.dumps(args))
+    url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
+    return f"""
+      let
+        flake = builtins.getFlake {url};
+        outputName = if flake.outputs ? herculesCI then
+          "herculesCI"
+        else if flake.outputs ? effects then
+          "effects"
+        else
+          null;
+      in
+        if outputName == null then
+          {{}}
+        else
+          (flake.outputs.${{outputName}}
+            (builtins.fromJSON {escaped_args})).onSchedule or {{}}
+    """
+
+
 def list_effects(opts: EffectsOptions) -> list[str]:
     cmd = nix_command(
         "eval",
@@ -130,11 +154,47 @@ def list_effects(opts: EffectsOptions) -> list[str]:
     return json.loads(proc.stdout)
 
 
+def list_scheduled_effects(opts: EffectsOptions) -> dict[str, Any]:
+    """List all scheduled effect definitions with their schedules.
+
+    Returns a dict mapping schedule name to {when: {...}, effects: [...]}.
+    """
+    cmd = nix_command(
+        "eval",
+        "--json",
+        "--expr",
+        f"""
+        let
+          schedules = {scheduled_effect_function(opts)};
+        in
+          builtins.mapAttrs (name: schedule: {{
+            when = schedule.when or {{}};
+            effects = builtins.attrNames (schedule.outputs.effects or {{}});
+          }}) schedules
+        """,
+    )
+    proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
+    return json.loads(proc.stdout)
+
+
 def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
     cmd = [
         "nix-instantiate",
         "--expr",
         f"({effect_function(opts)}).{effect}",
+    ]
+    proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
+    return proc.stdout.rstrip()
+
+
+def instantiate_scheduled_effect(
+    schedule_name: str, effect: str, opts: EffectsOptions
+) -> str:
+    """Instantiate a specific effect from a schedule."""
+    cmd = [
+        "nix-instantiate",
+        "--expr",
+        f"({scheduled_effect_function(opts)}).{schedule_name}.outputs.effects.{effect}",
     ]
     proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
     return proc.stdout.rstrip()

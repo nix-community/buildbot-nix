@@ -252,6 +252,31 @@ $ nix run github:nix-community/buildbot-nix#buildbot-effects -- --branch main ru
 Hello, world!
 ```
 
+### Effects Secrets Configuration
+
+Secrets for buildbot effects can be configured at different scopes:
+
+1. **Repository-specific**: `"github:owner/repo"` - applies to a single
+   repository
+2. **Organization-wide**: `"github:org/*"` - applies to all repositories in an
+   organization
+
+```nix
+services.buildbot-nix.master.effects.perRepoSecretFiles = {
+  # All repos in nix-community org get this token
+  "github:nix-community/*" = config.agenix.secrets.nix-community-effects.path;
+
+  # This specific repo gets its own token (overrides org-level)
+  "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects.path;
+
+  # All repos in a Gitea org
+  "gitea:my-org/*" = config.agenix.secrets.my-org-effects.path;
+};
+```
+
+The secrets files must be valid JSON files containing the secrets that will be
+made available to your effects at runtime.
+
 ## Incompatibilities with the lix overlay
 
 The lix overlay overrides nix-eval-jobs with a version that doesn't work with
