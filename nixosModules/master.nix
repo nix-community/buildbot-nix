@@ -25,10 +25,12 @@ let
       [
         "/"
         ":"
+        "*"
       ]
       [
         "_slash_"
         "_colon_"
+        "_star_"
       ]
       name;
 
@@ -713,9 +715,22 @@ in
 
       effects.perRepoSecretFiles = lib.mkOption {
         type = lib.types.attrsOf lib.types.path;
-        description = "Per-repository secrets files for buildbot effects. The attribute name is of the form \"github:owner/repo\". The secrets themselves need to be valid JSON files.";
+        description = ''
+          Per-repository or per-organization secrets files for buildbot effects.
+          The secrets themselves need to be valid JSON files.
+
+          Keys can be:
+          - Org secrets via wildcard: "github:org/*" or "gitea:org/*"
+          - Exact repo match: "github:owner/repo" or "gitea:owner/repo"
+            (overrides org secrets)
+        '';
         default = { };
-        example = ''{ "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects-secrets.path; }'';
+        example = lib.literalExpression ''
+          {
+            "github:nix-community/*" = config.agenix.secrets.nix-community-effects.path;
+            "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects.path;
+          }
+        '';
       };
 
       branches = lib.mkOption {

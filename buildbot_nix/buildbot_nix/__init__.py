@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 import os
 from pathlib import Path
@@ -27,6 +28,7 @@ from .nix_eval import NixEvalConfig
 from .oauth2_proxy_auth import OAuth2ProxyAuth
 from .project_config import ProjectConfig, config_for_project
 from .pull_based.backend import PullBasedBacked
+from .scheduled import parse_schedules_from_json
 
 if TYPE_CHECKING:
     from buildbot.www.auth import AuthBase
@@ -48,7 +50,9 @@ class PeriodicWithStartup(schedulers.Periodic):
 
 
 class NixConfigurator(ConfiguratorBase):
-    """Janitor is a configurator which create a Janitor Builder with all needed Janitor steps"""
+    """Configures buildbot-nix"""
+
+    SCHEDULES_CACHE_DIR = "/var/lib/buildbot/scheduled-effects-cache"
 
     def __init__(self, config: BuildbotNixConfig) -> None:
         super().__init__()
@@ -69,6 +73,22 @@ class NixConfigurator(ConfiguratorBase):
             backends["pull_based"] = PullBasedBacked(self.config.pull_based)
 
         return backends
+
+    def _load_cached_schedules(self, project: GitProject) -> dict[str, Any]:
+        """Load cached schedules for a project from the cache file."""
+
+        cache_file = (
+            Path(self.SCHEDULES_CACHE_DIR) / f"{project.project_id}-schedules.json"
+        )
+        if cache_file.exists():
+            try:
+                schedules_json = json.loads(cache_file.read_text())
+                return parse_schedules_from_json(schedules_json)
+            except (json.JSONDecodeError, OSError):
+                log.error(  # noqa: TRY400
+                    "Failed to load schedules cache for {name}", name=project.name
+                )
+        return {}
 
     def _setup_auth(self, backends: dict[str, GitBackend]) -> AuthBase | None:
         """Setup authentication based on configuration."""
@@ -145,6 +165,8 @@ class NixConfigurator(ConfiguratorBase):
                             outputs_path=self.config.outputs_path,
                         ),
                         per_repo_effects_secrets=self.config.effects_per_repo_secrets,
+                        scheduled_effects=self._load_cached_schedules(project),
+                        schedules_cache_dir=self.SCHEDULES_CACHE_DIR,
                     ),
                 )
             except Exception:  # noqa: BLE001
@@ -230,6 +252,8 @@ class NixConfigurator(ConfiguratorBase):
         config.setdefault("schedulers", [])
         config.setdefault("builders", [])
         config.setdefault("change_source", [])
+
+        Path(self.SCHEDULES_CACHE_DIR).mkdir(parents=True, exist_ok=True)
 
         # Setup components
         backends = self._initialize_backends()
