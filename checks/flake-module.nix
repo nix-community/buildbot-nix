@@ -24,7 +24,10 @@
         nixosMachines
         // packages
         // devShells
-        // lib.mkIf (pkgs.stdenv.hostPlatform.isLinux) {
+        // {
+          docsUpToDate = import ./docs.nix checkArgs;
+        }
+        // lib.optionalAttrs (pkgs.stdenv.hostPlatform.isLinux) {
           master = import ./master.nix checkArgs;
           worker = import ./worker.nix checkArgs;
           effects = import ./effects.nix checkArgs;
