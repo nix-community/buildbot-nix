@@ -286,6 +286,14 @@ with the buildbot-nix module.
 Possible workaround: Don't use the overlay and only set the
 `nix.package = pkgs.lix;` NixOS option.
 
+## Alternatives
+
+- [Garnix](https://garnix.io/) - Fully hosted, zero-config CI for flakes.
+- [Hercules CI](https://hercules-ci.com/) - Hosted CI with self-hosted agents.
+  Buildbot-nix's effects system is inspired by theirs.
+- [Hydra](https://github.com/NixOS/hydra) - The original Nix CI, powers
+  nixos.org. Written in Perl, not recommended for new deployments.
+
 ## Real-World Deployments
 
 See Buildbot-nix in action in these deployments:
