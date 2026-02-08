@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 jobs:
   update-flake-inputs:
+    if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
