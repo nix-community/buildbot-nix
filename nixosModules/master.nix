@@ -1003,7 +1003,8 @@ in
     };
 
     systemd.services.buildbot-master = {
-      after = [ "postgresql.target" ];
+      after = [ "postgresql.target" ] ++ lib.optional (cfg.authBackend == "oidc") "network-online.target";
+      wants = lib.optional (cfg.authBackend == "oidc") "network-online.target";
       path = [
         pkgs.openssl
         pkgs.openssh
