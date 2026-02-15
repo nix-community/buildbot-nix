@@ -1103,8 +1103,6 @@ in
       enable = true;
 
       clientID = cfg.accessMode.fullyPrivate.clientId;
-      clientSecret = null;
-      cookie.secret = null;
 
       extraConfig = lib.mkMerge [
         {
