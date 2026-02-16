@@ -7,8 +7,8 @@
         let
           eval = lib.evalModules {
             modules = [
-              ./nixosModules/master.nix
-              ./nixosModules/worker.nix
+              ../nixosModules/master.nix
+              ../nixosModules/worker.nix
               {
                 config._module.check = false;
                 options._module.args = lib.mkOption {
