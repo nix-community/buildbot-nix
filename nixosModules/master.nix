@@ -325,14 +325,7 @@ in
                     imports = [ common ];
 
                     options = {
-                      redirect-url = lib.mkOption {
-                        type = lib.types.str;
-                        description = ''
-                          https://internal.yourcompany.com/oauth2/callback
-                        '';
-                      };
-
-                      oidc-issuer-url = lib.mkOption {
+                      oidcIssuerUrl = lib.mkOption {
                         type = lib.types.str;
                         description = ''
                           https://<keycloak host>/realms/<your realm>
