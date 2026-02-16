@@ -75,4 +75,14 @@ in
       ./fully-private-github.nix
     ];
   };
+
+  "example-oauth2-keycloak-${system}" = nixosSystem {
+    inherit system;
+    modules = [
+      dummy
+      buildbot-nix.nixosModules.buildbot-master
+      buildbot-nix.nixosModules.buildbot-worker
+      ./fully-private-keycloak.nix
+    ];
+  };
 }
