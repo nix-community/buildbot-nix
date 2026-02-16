@@ -1142,7 +1142,7 @@ in
           ];
         }
         (lib.mkIf (cfg.authBackend == "httpbasicauth") { set-basic-auth = true; })
-        (lib.mkIf (lib.elem (cfg.accessMode.fullyPrivate ? github || cfg.accessMode.fullyPrivate ? gitea)) {
+        (lib.mkIf (cfg.accessMode.fullyPrivate ? github || cfg.accessMode.fullyPrivate ? gitea) {
           github-user = lib.concatStringsSep "," (
             cfg.accessMode.fullyPrivate.gitea.users or cfg.accessMode.fullyPrivate.github.users ++ cfg.admins
           );
