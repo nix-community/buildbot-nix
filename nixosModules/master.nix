@@ -1157,7 +1157,7 @@ in
           redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
           validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
         })
-        (lib.mkIf (cfg.accessMode.fullyPrivate.backend ? keycloak) {
+        (lib.mkIf (cfg.accessMode.fullyPrivate ? keycloak) {
           provider = "keycloak-oidc";
           redirect-url = cfg.accessMode.fullyPrivate.keycloak.redirectUrl;
           oidc-issuer-url = cfg.accessMode.fullyPrivate.keycloak.oidcIssuerUrl; # https://<keycloak host>/realms/<your realm>
