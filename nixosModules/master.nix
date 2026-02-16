@@ -32,9 +32,16 @@ let
       ]
       name;
 
+  getAttrTag = attr:
+    let
+      names = lib.attrNames attr;
+    in
+      assert lib.assertMsg (lib.length names == 1) "attribute set doesn't contain just one attribute, instead it contains: ${lib.concatStringsSep ", " names}";
+      attr.${lib.head names};
+
   backendPort =
     if (cfg.accessMode ? "fullyPrivate") then
-      cfg.accessMode.fullyPrivate.port
+      (getAttrTag cfg.accessMode.fullyPrivate).port
     else
       config.services.buildbot-master.port;
 in
@@ -1121,7 +1128,7 @@ in
     services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
       enable = true;
 
-      clientID = cfg.accessMode.fullyPrivate.clientId;
+      clientID = (getAttrTag cfg.accessMode.fullyPrivate).clientId;
       clientSecret = null;
       cookie.secret = null;
 
@@ -1130,7 +1137,7 @@ in
           config = "/etc/oauth2-proxy/oauth2-proxy.toml";
           redirect-url = "https://${cfg.domain}/oauth2/callback";
 
-          http-address = "127.0.0.1:${builtins.toString cfg.accessMode.fullyPrivate.port}";
+          http-address = "127.0.0.1:${builtins.toString (getAttrTag cfg.accessMode.fullyPrivate).port}";
 
           upstream = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
 
@@ -1172,8 +1179,8 @@ in
       serviceConfig = {
         ConfigurationDirectory = "oauth2-proxy";
         LoadCredential = [
-          "client-secret:${cfg.accessMode.fullyPrivate.clientSecretFile}"
-          "cookie-secret:${cfg.accessMode.fullyPrivate.cookieSecretFile}"
+          "client-secret:${(getAttrTag cfg.accessMode.fullyPrivate).clientSecretFile}"
+          "cookie-secret:${(getAttrTag cfg.accessMode.fullyPrivate).cookieSecretFile}"
           "basic-auth-password:${cfg.httpBasicAuthPasswordFile}"
         ];
       };
