@@ -1146,7 +1146,7 @@ in
           github-user = lib.concatStringsSep "," (
             cfg.accessMode.fullyPrivate.gitea.users or cfg.accessMode.fullyPrivate.github.users ++ cfg.admins
           );
-          github-team = cfg.accessMode.fullyPrivate.gitea.teams ++ cfg.accessMode.fullyPrivate.github.teams;
+          github-team = cfg.accessMode.fullyPrivate.gitea.teams or cfg.accessMode.fullyPrivate.github.teams;
           email-domain = "*";
         })
         (lib.mkIf (cfg.accessMode.fullyPrivate ? github) { provider = "github"; })
