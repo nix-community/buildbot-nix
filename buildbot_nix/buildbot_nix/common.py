@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import http.client
@@ -116,12 +116,6 @@ def atomic_write_file(file: Path, data: str) -> None:
             raise
 
 
-Y = TypeVar("Y")
-
-
-T = TypeVar("T")
-
-
 @dataclass
 class RepoAccessors[T]:
     repo_name: Callable[[T], str]
@@ -129,7 +123,7 @@ class RepoAccessors[T]:
     topics: Callable[[T], list[str]]
 
 
-def filter_repos(
+def filter_repos[Y](
     filters: RepoFilters,
     repos: list[Y],
     accessors: RepoAccessors[Y],
