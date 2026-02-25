@@ -162,7 +162,10 @@ If you've set `authBackend` previously, unset it, or you will get an error about
 a conflicting definitions. `fullyPrivate` requires the `authBackend` to be set
 to `basichttpauth` to function (this is handled by the module, which is why you
 can leave it unset). For a concrete example please refer to
-[fully-private-github](./examples/fully-private-github.nix)
+[fully-private-github](./examples/fully-private-github.nix).
+
+For Keycloak OIDC as the fullyPrivate provider, see the
+[Keycloak documentation](./docs/KEYCLOAK.md).
 
 ### Per Repository Configuration
 
