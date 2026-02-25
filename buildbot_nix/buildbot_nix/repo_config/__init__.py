@@ -23,6 +23,8 @@ class BranchConfig(BaseModel):
     flake_dir: str = "."
     lock_file: str = "flake.lock"
     attribute: str = "checks"
+    effects_on_pull_requests: bool = False
+    effects_branches: list[str] = []
 
     @classmethod
     async def extract_during_step(cls, buildstep: BuildStepShellMixin) -> Self:

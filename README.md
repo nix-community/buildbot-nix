@@ -171,11 +171,24 @@ root of whichever branch it's currently evaluating, parse it as TOML and apply
 the configuration specified. The following table illustrates the supported
 options.
 
-|           | key         | type  | description                                                                 | default      | example                                                                                                                                                                                                 |
-| :-------- | :---------- | :---- | :-------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| lock file | `lock_file` | `str` | dictates which lock file `buildbot-nix` will use when evaluating your flake | `flake.lock` | have multiple lockfiles, one for `nixpkgs-stable`, one for `nixpkgs-unstable` or by default pin an input to a private repo, but have a lockfile with that private repo replaced by a public repo for CI |
-| attribute | `attribute` | `str` | which attribute in the flake to evaluate and build                          | `checks`     | using a different attribute, like `hydraJobs`                                                                                                                                                           |
-| flake_dir | `flake_dir` | `str` | which directory the flake is located                                        | `.`          | using a different flake, like `./tests`                                                                                                                                                                 |
+|                          | key                        | type        | description                                                                 | default      | example                                                                                                                                                                                                 |
+| :----------------------- | :------------------------- | :---------- | :-------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| lock file                | `lock_file`                | `str`       | dictates which lock file `buildbot-nix` will use when evaluating your flake | `flake.lock` | have multiple lockfiles, one for `nixpkgs-stable`, one for `nixpkgs-unstable` or by default pin an input to a private repo, but have a lockfile with that private repo replaced by a public repo for CI |
+| attribute                | `attribute`                | `str`       | which attribute in the flake to evaluate and build                          | `checks`     | using a different attribute, like `hydraJobs`                                                                                                                                                           |
+| flake_dir                | `flake_dir`                | `str`       | which directory the flake is located                                        | `.`          | using a different flake, like `./tests`                                                                                                                                                                 |
+| effects on pull requests | `effects_on_pull_requests` | `bool`      | run hercules-ci effects on pull requests                                    | `false`      | set to `true` to run effects on PRs                                                                                                                                                                     |
+| effects branches         | `effects_branches`         | `list[str]` | glob patterns for additional branches that run effects                      | `[]`         | `["staging", "release/*"]`                                                                                                                                                                              |
+
+By default, effects only run on the default branch. The `effects_branches` and
+`effects_on_pull_requests` settings are always read from the **default
+branch's** `buildbot-nix.toml` (via `git show`) so that pull request authors
+cannot grant themselves effects access.
+
+> **⚠️ Security warning:** PR effects receive the same
+> `effects_per_repo_secrets` as default-branch effects. A malicious PR can
+> modify the effect code to exfiltrate these secrets. Only enable
+> `effects_on_pull_requests` for repositories where you trust all contributors,
+> or where no secrets are configured.
 
 ## Binary caches
 
