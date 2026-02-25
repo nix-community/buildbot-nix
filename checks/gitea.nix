@@ -229,7 +229,11 @@
             }
             EOF
 
-            git add flake.nix
+            cat > buildbot-nix.toml << 'TOML'
+            effects_on_pull_requests = true
+            TOML
+
+            git add flake.nix buildbot-nix.toml
             git commit -m "Initial commit"
 
             # Verify repository exists before pushing
@@ -317,27 +321,94 @@
             git push origin master
         """)
 
-    with subtest("Webhook triggers build automatically"):
-        # Wait for build to be triggered and complete successfully
-        def check_build_success(_ignore: Any) -> bool:
-            builds_json = buildbot.succeed("curl --fail -v http://localhost:8010/api/v2/builds")
-            builds = json.loads(builds_json)
-            pprint(builds)
-            
-            if len(builds["builds"]) == 0:
-                print("No builds found - webhook hasn't triggered yet")
-                return False
-            
-            build = builds["builds"][0]
-            if build["results"] is None:
-                print(f"Build still running (state: {build.get('state_string', 'unknown')})")
-                return False
-            
-            result = build["results"]
-            print(f"Build completed with result: {result}")
-            assert result == 0, f"Build failed with result: {result}"
-            return True
+    def get_build_prop(build_id: int, prop: str) -> Any:
+        props_json = buildbot.succeed(
+            f"curl --fail http://localhost:8010/api/v2/builds/{build_id}/properties"
+        )
+        props = json.loads(props_json).get("properties", [{}])
+        properties = props[0] if props else {}
+        return properties.get(prop, [None])[0] if prop in properties else None
 
-        retry(check_build_success, timeout_seconds=180)
+    def get_build_steps(build_id: int) -> list[dict[str, Any]]:
+        steps_json = buildbot.succeed(
+            f"curl --fail http://localhost:8010/api/v2/builds/{build_id}/steps"
+        )
+        return json.loads(steps_json).get("steps", [])
+
+    def get_builds() -> list[dict[str, Any]]:
+        return json.loads(
+            buildbot.succeed("curl --fail http://localhost:8010/api/v2/builds")
+        )["builds"]
+
+    def assert_step_result(build_id: int, step_name: str, expected: int) -> None:
+        for s in get_build_steps(build_id):
+            if s["name"] == step_name:
+                assert s["results"] == expected, \
+                    f"step {step_name!r}: expected result {expected}, got {s['results']}"
+                return
+
+    def assert_step_not_result(build_id: int, step_name: str, forbidden: int) -> None:
+        for s in get_build_steps(build_id):
+            if s["name"] == step_name:
+                assert s["results"] != forbidden, \
+                    f"step {step_name!r}: got forbidden result {forbidden}"
+                return
+
+    with subtest("Webhook triggers nix-eval build"):
+        def check_nix_eval_complete(_ignore: Any) -> bool:
+            for build in get_builds():
+                bid = build["buildid"]
+                if get_build_prop(bid, "status_name") != "nix-eval":
+                    continue
+                if build["results"] is None:
+                    print("nix-eval build still running")
+                    return False
+                print(f"nix-eval build completed with result: {build['results']}")
+                assert_step_result(bid, "git", 0)
+                assert_step_result(bid, "Evaluate flake", 0)
+                return True
+            print("nix-eval build not found yet")
+            return False
+
+        retry(check_nix_eval_complete, timeout_seconds=180)
+
+    with subtest("PR with effects_on_pull_requests runs effects"):
+        buildbot.succeed("""
+            cd /tmp/test-flake
+            git checkout -b test-pr-effects
+            echo '# PR change' >> flake.nix
+            git add flake.nix
+            git commit -m 'PR to test effects on pull requests'
+            git push origin test-pr-effects
+        """)
+
+        buildbot.succeed("""
+            TOKEN=$(cat /tmp/gitea-token)
+            curl -X POST \
+              -H "Authorization: token $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"title":"Test PR effects","head":"test-pr-effects","base":"master"}' \
+              http://localhost:3742/api/v1/repos/gitea-admin/test-flake/pulls
+        """)
+
+        def check_pr_eval_complete(_ignore: Any) -> bool:
+            for build in get_builds():
+                bid = build["buildid"]
+                if get_build_prop(bid, "status_name") != "nix-eval":
+                    continue
+                branch = get_build_prop(bid, "branch")
+                if not branch or "test-pr-effects" not in str(branch):
+                    continue
+                if build["results"] is None:
+                    print("PR eval build still running")
+                    return False
+                print(f"PR eval build result: {build['results']}")
+                assert_step_result(bid, "git", 0)
+                assert_step_not_result(bid, "Evaluate effects", 3)
+                return True
+            print("PR eval build not found yet")
+            return False
+
+        retry(check_pr_eval_complete, timeout_seconds=180)
   '';
 }

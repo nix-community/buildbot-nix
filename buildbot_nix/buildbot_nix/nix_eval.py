@@ -6,7 +6,9 @@ import contextlib
 import copy
 import html
 import json
+import tomllib
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -15,6 +17,7 @@ from buildbot.plugins import steps, util
 from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.properties import Properties
 from buildbot.steps.trigger import Trigger
+from pydantic import ValidationError
 from twisted.internet import reactor
 from twisted.logger import Logger
 
@@ -64,6 +67,10 @@ class GitLocalPrMerge(steps.Git):
     This is a workaround to fetch the merge commit and checkout the PR branch in CI.
     """
 
+    def __init__(self, default_branch: str = "main", **kwargs: Any) -> None:
+        self.default_branch = default_branch
+        super().__init__(**kwargs)
+
     async def run_vc(
         self,
         branch: str,
@@ -112,7 +119,15 @@ class GitLocalPrMerge(steps.Git):
                 await self._dovccmd(["clean", "-f", "-f", "-d", "-x"])
 
             await self._dovccmd(
-                ["fetch", "-f", "-t", self.repourl, merge_base, pr_head]
+                [
+                    "fetch",
+                    "-f",
+                    "-t",
+                    self.repourl,
+                    merge_base,
+                    pr_head,
+                    f"+refs/heads/{self.default_branch}:refs/remotes/origin/{self.default_branch}",
+                ]
             )
 
             await self._dovccmd(["checkout", "--detach", "-f", pr_head])
@@ -571,8 +586,6 @@ class NixEvalCommand(buildstep.ShellMixin, steps.BuildStep):
 
 
 class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
-    """Evaluate the effects of a flake and run them on the default branch."""
-
     def __init__(self, project: GitProject, **kwargs: Any) -> None:
         kwargs = self.setupShellMixin(kwargs)
         super().__init__(**kwargs)
@@ -580,16 +593,57 @@ class BuildbotEffectsCommand(buildstep.ShellMixin, steps.BuildStep):
         self.observer = logobserver.BufferLogObserver()
         self.addLogObserver("stdio", self.observer)
 
+    async def _read_default_branch_config(self) -> BranchConfig:
+        # makeRemoteShellCommand overwrites self.command, breaking the
+        # subsequent buildbot-effects call — save and restore it.
+        saved_command = self.command
+        cmd = await self.makeRemoteShellCommand(
+            collectStdout=True,
+            collectStderr=True,
+            stdioLogName=None,  # type: ignore[arg-type]
+            command=[
+                "git",
+                "show",
+                f"origin/{self.project.default_branch}:buildbot-nix.toml",
+            ],
+        )
+        self.command = saved_command
+        await self.runCommand(cmd)
+
+        if cmd.didFail():
+            return BranchConfig()
+
+        try:
+            return BranchConfig.model_validate(tomllib.loads(cmd.stdout))
+        except (tomllib.TOMLDecodeError, ValidationError):
+            return BranchConfig()
+
+    async def _should_run_effects(self) -> bool:
+        branch = self.getProperty("branch", "")
+        if branch == self.project.default_branch:
+            return True
+
+        config = await self._read_default_branch_config()
+
+        is_pull_request = self.getProperty("event", "push") != "push"
+        if is_pull_request:
+            return config.effects_on_pull_requests
+
+        return any(fnmatch(branch, pattern) for pattern in config.effects_branches)
+
     async def run(self) -> int:
-        # run nix-eval-jobs --flake .#checks to generate the dict of stages
+        if not await self._should_run_effects():
+            return util.SKIPPED
+
         cmd: remotecommand.RemoteCommand = await self.makeRemoteShellCommand()
         await self.runCommand(cmd)
 
-        # if the command passes extract the list of stages
         result = cmd.results()
         if result == util.SUCCESS:
-            # create a ShellCommand for each stage and add them to the build
-            effects = json.loads(self.observer.getStdout())
+            stdout = self.observer.getStdout()
+            if not stdout.strip():
+                return result
+            effects = json.loads(stdout)
 
             if self.build:
                 self.build.addStepsAfterCurrentStep(
@@ -759,6 +813,7 @@ def nix_eval_config(  # noqa: PLR0913
     url_with_secret = util.Interpolate(git_url)
     factory.addStep(
         GitLocalPrMerge(
+            default_branch=project.default_branch,
             repourl=url_with_secret,
             method="clean",
             submodules=True,
@@ -833,11 +888,7 @@ def nix_eval_config(  # noqa: PLR0913
                 "list",
             ],
             flunkOnFailure=True,
-            # TODO: support other branches?
-            doStepIf=lambda c: (
-                c.getProperty("branch", "") == project.default_branch
-                and c.build.results in (util.SUCCESS, util.WARNINGS)
-            ),
+            doStepIf=lambda c: c.build.results in (util.SUCCESS, util.WARNINGS),
             logEnviron=False,
         )
     )
