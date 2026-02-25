@@ -25,9 +25,9 @@ def require_env(key: str) -> str:
 @dataclass
 class WorkerConfig:
     password: str = field(
-        default_factory=lambda: Path(require_env("WORKER_PASSWORD_FILE"))
-        .read_text()
-        .rstrip("\r\n")
+        default_factory=lambda: (
+            Path(require_env("WORKER_PASSWORD_FILE")).read_text().rstrip("\r\n")
+        )
     )
     worker_name: str = field(
         default_factory=lambda: os.environ.get("WORKER_NAME", socket.gethostname())

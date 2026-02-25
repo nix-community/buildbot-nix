@@ -64,8 +64,10 @@ def config_for_project(
                 name=f"{project.project_id}-primary",
                 change_filter=util.ChangeFilter(
                     repository=project.url,
-                    filter_fn=lambda c: project_config.build_config.branch_config_dict.do_run(
-                        project.default_branch, c.branch
+                    filter_fn=lambda c: (
+                        project_config.build_config.branch_config_dict.do_run(
+                            project.default_branch, c.branch
+                        )
                     ),
                 ),
                 builderNames=[f"{project.name}/nix-eval"],

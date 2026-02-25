@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import http.client
@@ -116,12 +116,6 @@ def atomic_write_file(file: Path, data: str) -> None:
             raise
 
 
-Y = TypeVar("Y")
-
-
-T = TypeVar("T")
-
-
 @dataclass
 class RepoAccessors[T]:
     repo_name: Callable[[T], str]
@@ -129,7 +123,7 @@ class RepoAccessors[T]:
     topics: Callable[[T], list[str]]
 
 
-def filter_repos(
+def filter_repos[Y](
     filters: RepoFilters,
     repos: list[Y],
     accessors: RepoAccessors[Y],
@@ -142,19 +136,20 @@ def filter_repos(
     return list(
         filter(
             lambda repo: (
-                filters.user_allowlist is None and filters.repo_allowlist is None
-            )
-            or (
-                filters.user_allowlist is not None
-                and accessors.user(repo) in filters.user_allowlist
-            )
-            or (
-                filters.repo_allowlist is not None
-                and accessors.repo_name(repo) in filters.repo_allowlist
+                (filters.user_allowlist is None and filters.repo_allowlist is None)
+                or (
+                    filters.user_allowlist is not None
+                    and accessors.user(repo) in filters.user_allowlist
+                )
+                or (
+                    filters.repo_allowlist is not None
+                    and accessors.repo_name(repo) in filters.repo_allowlist
+                )
             ),
             filter(
-                lambda repo: filters.topic is None
-                or filters.topic in accessors.topics(repo),
+                lambda repo: (
+                    filters.topic is None or filters.topic in accessors.topics(repo)
+                ),
                 repos,
             ),
         )
