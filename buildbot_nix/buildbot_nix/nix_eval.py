@@ -18,7 +18,7 @@ from buildbot.process import buildstep, logobserver, remotecommand
 from buildbot.process.properties import Properties
 from buildbot.steps.trigger import Trigger
 from pydantic import ValidationError
-from twisted.internet import reactor
+from twisted.internet import reactor, threads
 from twisted.logger import Logger
 
 from .build_trigger import BuildTrigger, JobsConfig, TriggerConfig
@@ -724,6 +724,21 @@ class BuildbotEffectsTrigger(Trigger):
         return triggered_schedulers
 
 
+def _read_schedules_cache(cache_path: Path) -> dict[str, Any]:
+    """Read the schedules cache file (sync I/O, run in thread)."""
+    old_schedules: dict[str, Any] = {}
+    if cache_path.exists():
+        with contextlib.suppress(json.JSONDecodeError, OSError):
+            old_schedules = json.loads(cache_path.read_text())
+    return old_schedules
+
+
+def _write_schedules_cache(cache_path: Path, schedules: dict[str, Any]) -> None:
+    """Write the schedules cache file (sync I/O, run in thread)."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(schedules, indent=2))
+
+
 class ScheduledEffectsEvaluateCommand(buildstep.ShellMixin, steps.BuildStep):
     """Evaluate scheduled effects from a flake and update schedulers if changed.
 
@@ -759,14 +774,14 @@ class ScheduledEffectsEvaluateCommand(buildstep.ShellMixin, steps.BuildStep):
             return util.FAILURE
 
         cache_path = Path(self.schedules_cache_file)
-        old_schedules: dict[str, Any] = {}
-        if cache_path.exists():
-            with contextlib.suppress(json.JSONDecodeError, OSError):
-                old_schedules = json.loads(cache_path.read_text())
+        old_schedules: dict[str, Any] = await threads.deferToThread(  # type: ignore[no-untyped-call]
+            _read_schedules_cache, cache_path
+        )
 
         if new_schedules != old_schedules:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(new_schedules, indent=2))
+            await threads.deferToThread(  # type: ignore[no-untyped-call]
+                _write_schedules_cache, cache_path, new_schedules
+            )
 
             schedule_count = len(new_schedules)
             effect_count = sum(
@@ -853,9 +868,11 @@ def nix_eval_config(  # noqa: PLR0913
             branch_config=build_config.branch_config_dict,
             outputs_path=build_config.outputs_path,
             name="Process skipped builds",
-            doStepIf=lambda s: (s.getProperty("event", "push") == "push")
-            and build_config.branch_config_dict.do_register_gcroot(
-                project.default_branch, s.getProperty("branch")
+            doStepIf=lambda s: (
+                (s.getProperty("event", "push") == "push")
+                and build_config.branch_config_dict.do_register_gcroot(
+                    project.default_branch, s.getProperty("branch")
+                )
             ),
             hideStepIf=lambda results, _s: results == util.SKIPPED,
         ),
@@ -914,7 +931,7 @@ def nix_eval_config(  # noqa: PLR0913
             flunkOnFailure=False,  # Don't fail the build if schedule eval fails
             warnOnFailure=True,
             alwaysRun=True,
-            doStepIf=lambda c: (c.getProperty("branch", "") == project.default_branch),
+            doStepIf=lambda c: c.getProperty("branch", "") == project.default_branch,
             hideStepIf=lambda results, _s: results == util.SKIPPED,
             logEnviron=False,
         )

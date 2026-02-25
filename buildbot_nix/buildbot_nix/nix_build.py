@@ -11,6 +11,7 @@ from buildbot.plugins import steps, util
 from buildbot.process import buildstep, remotecommand
 from buildbot.steps.trigger import Trigger
 from buildbot.util.twisted import async_to_deferred
+from twisted.internet import threads
 
 if TYPE_CHECKING:
     from buildbot.config.builder import BuilderConfig
@@ -206,6 +207,12 @@ class ProcessSkippedBuilds(buildstep.ShellMixin, steps.BuildStep):
         return util.SUCCESS
 
 
+def _gcroot_already_points_to(gc_root: str, out_path: str) -> bool:
+    """Check if gc_root symlink already points to out_path (sync I/O)."""
+    p = Path(gc_root)
+    return p.exists() and p.readlink() == Path(out_path)
+
+
 @async_to_deferred
 async def do_register_gcroot_if(
     s: steps.BuildStep | Build,
@@ -217,16 +224,17 @@ async def do_register_gcroot_if(
     ).getRenderingFor(s.getProperties())
     out_path = s.getProperty("out_path")
 
-    return (
-        s.getProperty("event", "push") == "push"
-        and branch_config.do_register_gcroot(
-            s.getProperty("default_branch"), s.getProperty("branch")
-        )
-        and not (
-            Path(str(gc_root)).exists()
-            and Path(str(gc_root)).readlink() == Path(out_path)
-        )
+    if s.getProperty("event", "push") != "push":
+        return False
+    if not branch_config.do_register_gcroot(
+        s.getProperty("default_branch"), s.getProperty("branch")
+    ):
+        return False
+
+    already_registered: bool = await threads.deferToThread(  # type: ignore[no-untyped-call]
+        _gcroot_already_points_to, str(gc_root), out_path
     )
+    return not already_registered
 
 
 def nix_build_steps(

@@ -15,6 +15,15 @@ class BuildStepShellMixin(BuildStep, ShellMixin):  # type: ignore[misc]
     pass
 
 
+def _validate_flake_dir(flake_dir: str) -> None:
+    """Validate that flake_dir is a safe relative path within the repo root."""
+    resolved = Path(flake_dir).resolve()
+    root_dir = Path.cwd().resolve()
+    if ":" in flake_dir or not resolved.is_relative_to(root_dir):
+        msg = f"Invalid flake_dir {flake_dir}"
+        raise BuildbotNixError(msg)
+
+
 class RepoConfig(BaseModel):
     branches: list[str]
 
@@ -49,11 +58,7 @@ class BranchConfig(BaseModel):
             return cls()
         try:
             config = cls.model_validate(tomllib.loads(cmd.stdout))
-            flake_dir = Path(config.flake_dir).resolve()
-            root_dir = Path.cwd().resolve()
-            if ":" in config.flake_dir or not flake_dir.is_relative_to(root_dir):
-                msg = f"Invalid flake_dir {config.flake_dir}"
-                raise BuildbotNixError(msg)
+            _validate_flake_dir(config.flake_dir)
         except ValidationError as e:
             stdio.addStderr(  # type: ignore[attr-defined]
                 f"Failed to read repository local configuration, {e}.\n"

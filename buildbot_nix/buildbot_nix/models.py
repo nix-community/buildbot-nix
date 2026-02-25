@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Callable, Mapping  # noqa: TC003
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Self
 
@@ -28,7 +28,7 @@ class InternalError(Exception):
     pass
 
 
-class AuthBackendConfig(str, Enum):
+class AuthBackendConfig(StrEnum):
     github = "github"
     gitea = "gitea"
     httpbasicauth = "httpbasicauth"
@@ -408,7 +408,7 @@ class ScheduledEffectConfig(BaseModel):
     effects: list[str]
 
 
-class CacheStatus(str, Enum):
+class CacheStatus(StrEnum):
     cached = "cached"
     local = "local"
     notBuilt = "notBuilt"  # noqa: N815

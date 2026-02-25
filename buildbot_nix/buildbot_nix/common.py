@@ -142,19 +142,20 @@ def filter_repos(
     return list(
         filter(
             lambda repo: (
-                filters.user_allowlist is None and filters.repo_allowlist is None
-            )
-            or (
-                filters.user_allowlist is not None
-                and accessors.user(repo) in filters.user_allowlist
-            )
-            or (
-                filters.repo_allowlist is not None
-                and accessors.repo_name(repo) in filters.repo_allowlist
+                (filters.user_allowlist is None and filters.repo_allowlist is None)
+                or (
+                    filters.user_allowlist is not None
+                    and accessors.user(repo) in filters.user_allowlist
+                )
+                or (
+                    filters.repo_allowlist is not None
+                    and accessors.repo_name(repo) in filters.repo_allowlist
+                )
             ),
             filter(
-                lambda repo: filters.topic is None
-                or filters.topic in accessors.topics(repo),
+                lambda repo: (
+                    filters.topic is None or filters.topic in accessors.topics(repo)
+                ),
                 repos,
             ),
         )
