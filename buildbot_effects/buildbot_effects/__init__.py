@@ -96,11 +96,23 @@ def nix_command(*args: str) -> list[str]:
     return ["nix", "--extra-experimental-features", "nix-command flakes", *args]
 
 
+def _flake_url(opts: EffectsOptions, rev: str) -> str:
+    """Return the Nix flake URL to use with builtins.getFlake.
+
+    When a locked_url is available (from a resolved remote flake ref),
+    use it directly. Otherwise fall back to constructing a git+file:// URL
+    from the local path.
+    """
+    if opts.locked_url:
+        return opts.locked_url
+    return f"git+file://{opts.path}?rev={rev}#"
+
+
 def effect_function(opts: EffectsOptions) -> str:
     args = effects_args(opts)
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
-    url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
+    url = json.dumps(_flake_url(opts, rev))
     return f"""
       let
         flake = builtins.getFlake {url};
@@ -124,7 +136,7 @@ def scheduled_effect_function(opts: EffectsOptions) -> str:
     args = effects_args(opts)
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
-    url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
+    url = json.dumps(_flake_url(opts, rev))
     return f"""
       let
         flake = builtins.getFlake {url};
