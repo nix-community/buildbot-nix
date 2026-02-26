@@ -69,8 +69,18 @@ def git_get_tag(path: Path, rev: str) -> str | None:
     return None
 
 
+def get_git_branch_rev(path: Path, branch: str) -> str:
+    """Resolve the tip commit of a given branch."""
+    return git_command(["rev-parse", "--verify", branch], path)
+
+
 def effects_args(opts: EffectsOptions) -> dict[str, Any]:
-    rev = opts.rev or get_git_rev(opts.path)
+    if opts.rev:
+        rev = opts.rev
+    elif opts.branch:
+        rev = get_git_branch_rev(opts.path, opts.branch)
+    else:
+        rev = get_git_rev(opts.path)
     short_rev = rev[:7]
     branch = opts.branch or get_git_branch(opts.path)
     repo = opts.repo or opts.path.name
