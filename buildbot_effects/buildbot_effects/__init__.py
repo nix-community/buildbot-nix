@@ -74,18 +74,31 @@ def get_git_branch_rev(path: Path, branch: str) -> str:
     return git_command(["rev-parse", "--verify", branch], path)
 
 
+def _is_git_repo(path: Path) -> bool:
+    """Check if path is inside a git repository."""
+    try:
+        git_command(["rev-parse", "--git-dir"], path)
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
 def effects_args(opts: EffectsOptions) -> dict[str, Any]:
+    has_git = _is_git_repo(opts.path)
     if opts.rev:
         rev = opts.rev
-    elif opts.branch:
+    elif opts.branch and has_git:
         rev = get_git_branch_rev(opts.path, opts.branch)
-    else:
+    elif has_git:
         rev = get_git_rev(opts.path)
+    else:
+        msg = "No --rev specified and path is not a git repository"
+        raise BuildbotEffectsError(msg)
     short_rev = rev[:7]
-    branch = opts.branch or get_git_branch(opts.path)
+    branch = opts.branch or (get_git_branch(opts.path) if has_git else None)
     repo = opts.repo or opts.path.name
-    tag = opts.tag or git_get_tag(opts.path, rev)
-    url = opts.url or get_git_remote_url(opts.path)
+    tag = opts.tag or (git_get_tag(opts.path, rev) if has_git else None)
+    url = opts.url or (get_git_remote_url(opts.path) if has_git else None)
     primary_repo = {
         "name": repo,
         "branch": branch,

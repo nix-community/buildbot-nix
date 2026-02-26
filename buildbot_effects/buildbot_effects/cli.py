@@ -40,6 +40,8 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
     """Resolve a flake reference to EffectsOptions via nix flake metadata."""
     meta = resolve_flake(flake_ref, debug=base.debug)
     locked = meta.get("locked", {})
+    # lockedUrl can be null in JSON (None in Python), fall back to url
+    locked_url = meta.get("lockedUrl") or meta.get("url", "")
     return EffectsOptions(
         secrets=base.secrets,
         path=Path(meta.get("path", "")),
@@ -47,7 +49,7 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
         rev=locked.get("rev"),
         branch=locked.get("ref"),
         url=meta.get("resolvedUrl", meta.get("url", "")),
-        locked_url=meta.get("lockedUrl", ""),
+        locked_url=locked_url,
         debug=base.debug,
     )
 
