@@ -69,7 +69,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]  # Allow asserts in test files
+"buildbot_nix/tests/*" = ["S101"]  # Allow asserts in test files
 
 [tool.ruff.lint.pep8-naming]
 ignore-names = [

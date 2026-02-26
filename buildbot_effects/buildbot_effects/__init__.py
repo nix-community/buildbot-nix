@@ -7,12 +7,12 @@ import shutil
 import subprocess
 import sys
 from contextlib import contextmanager
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from .options import EffectsOptions
 
@@ -69,13 +69,39 @@ def git_get_tag(path: Path, rev: str) -> str | None:
     return None
 
 
+def get_git_branch_rev(path: Path, branch: str) -> str:
+    """Resolve the tip commit of a given branch."""
+    return git_command(["rev-parse", "--verify", branch], path)
+
+
+def _is_git_repo(path: Path) -> bool:
+    """Check if path is inside a git repository."""
+    try:
+        cmd = ["git", "-C", str(path), "rev-parse", "--git-dir"]
+        subprocess.run(
+            cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
 def effects_args(opts: EffectsOptions) -> dict[str, Any]:
-    rev = opts.rev or get_git_rev(opts.path)
+    has_git = _is_git_repo(opts.path)
+    if opts.rev:
+        rev = opts.rev
+    elif opts.branch and has_git:
+        rev = get_git_branch_rev(opts.path, opts.branch)
+    elif has_git:
+        rev = get_git_rev(opts.path)
+    else:
+        msg = "No --rev specified and path is not a git repository"
+        raise BuildbotEffectsError(msg)
     short_rev = rev[:7]
-    branch = opts.branch or get_git_branch(opts.path)
+    branch = opts.branch or (get_git_branch(opts.path) if has_git else None)
     repo = opts.repo or opts.path.name
-    tag = opts.tag or git_get_tag(opts.path, rev)
-    url = opts.url or get_git_remote_url(opts.path)
+    tag = opts.tag or (git_get_tag(opts.path, rev) if has_git else None)
+    url = opts.url or (get_git_remote_url(opts.path) if has_git else None)
     primary_repo = {
         "name": repo,
         "branch": branch,
@@ -96,11 +122,23 @@ def nix_command(*args: str) -> list[str]:
     return ["nix", "--extra-experimental-features", "nix-command flakes", *args]
 
 
+def _flake_url(opts: EffectsOptions, rev: str) -> str:
+    """Return the Nix flake URL to use with builtins.getFlake.
+
+    When a locked_url is available (from a resolved remote flake ref),
+    use it directly. Otherwise fall back to constructing a git+file:// URL
+    from the local path.
+    """
+    if opts.locked_url:
+        return opts.locked_url
+    return f"git+file://{opts.path}?rev={rev}#"
+
+
 def effect_function(opts: EffectsOptions) -> str:
     args = effects_args(opts)
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
-    url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
+    url = json.dumps(_flake_url(opts, rev))
     return f"""
       let
         flake = builtins.getFlake {url};
@@ -124,7 +162,7 @@ def scheduled_effect_function(opts: EffectsOptions) -> str:
     args = effects_args(opts)
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
-    url = json.dumps(f"git+file://{opts.path}?rev={rev}#")
+    url = json.dumps(_flake_url(opts, rev))
     return f"""
       let
         flake = builtins.getFlake {url};
@@ -177,27 +215,36 @@ def list_scheduled_effects(opts: EffectsOptions) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
-def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
+def _instantiate(expr: str, opts: EffectsOptions, gcroot: Path) -> str:
     cmd = [
         "nix-instantiate",
+        "--add-root",
+        str(gcroot),
         "--expr",
-        f"let e = ({effect_function(opts)}).{effect}; in if e ? run then e.run else e",
+        expr,
     ]
     proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
-    return proc.stdout.rstrip()
+    # --add-root prints the symlink path; resolve to the actual store path
+    return str(Path(proc.stdout.rstrip()).resolve())
+
+
+def instantiate_effects(effect: str, opts: EffectsOptions, gcroot: Path) -> str:
+    return _instantiate(
+        f"let e = ({effect_function(opts)}).{effect}; in if e ? run then e.run else e",
+        opts,
+        gcroot,
+    )
 
 
 def instantiate_scheduled_effect(
-    schedule_name: str, effect: str, opts: EffectsOptions
+    schedule_name: str, effect: str, opts: EffectsOptions, gcroot: Path
 ) -> str:
     """Instantiate a specific effect from a schedule."""
-    cmd = [
-        "nix-instantiate",
-        "--expr",
+    return _instantiate(
         f"({scheduled_effect_function(opts)}).{schedule_name}.outputs.effects.{effect}",
-    ]
-    proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
-    return proc.stdout.rstrip()
+        opts,
+        gcroot,
+    )
 
 
 def parse_derivation(path: str, *, debug: bool = False) -> dict[str, Any]:
