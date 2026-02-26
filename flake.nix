@@ -24,6 +24,7 @@
         ./devShells/flake-module.nix
         ./nixosModules/flake-module.nix
         ./nix/flake-module.nix
+        ./nix/option-docs.nix
         ./checks/flake-module.nix
         ./packages/flake-module.nix
       ]
