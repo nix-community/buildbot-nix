@@ -33,7 +33,14 @@ def resolve_flake(flake_ref: str, *, debug: bool = False) -> dict[str, Any]:
     ]
     if debug:
         print("$", shlex.join(cmd), file=sys.stderr)
-    proc = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    try:
+        proc = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        msg = f"Failed to resolve flake reference '{flake_ref}'\n"
+        msg += f"Command: {shlex.join(cmd)}\n"
+        msg += f"Exit code: {e.returncode}\n"
+        msg += f"Output: {e.stderr}\n"
+        raise RuntimeError(msg) from e
     return json.loads(proc.stdout)
 
 
