@@ -261,6 +261,7 @@ in
                   type = lib.types.enum [
                     "gitea"
                     "github"
+                    "keycloak-oidc"
                   ];
                 };
 
@@ -307,6 +308,53 @@ in
                     Port number at which the `oauth2-proxy' will listen on.
                   '';
                   default = 8020;
+                };
+
+                issuerUrl = lib.mkOption {
+                  type = lib.types.nullOr lib.types.str;
+                  default = null;
+                  description = ''
+                    Keycloak OIDC issuer URL. Required when backend is "keycloak-oidc".
+                    Example: https://keycloak.example.com/realms/myrealm
+                  '';
+                };
+
+                allowedRoles = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  default = [ ];
+                  description = ''
+                    Roles allowed to access BuildBot when using the keycloak-oidc backend.
+                    For realm roles, use the role name directly.
+                    For client roles, use "client-id:role-name".
+                  '';
+                };
+
+                allowedGroups = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  default = [ ];
+                  description = ''
+                    Groups allowed to access BuildBot when using the keycloak-oidc backend.
+                  '';
+                };
+
+                emailDomain = lib.mkOption {
+                  type = lib.types.str;
+                  default = "*";
+                  description = ''
+                    Email domain restriction for the keycloak-oidc backend.
+                    Use "*" to allow all email domains.
+                  '';
+                };
+
+                scope = lib.mkOption {
+                  type = lib.types.nullOr lib.types.str;
+                  default = null;
+                  description = ''
+                    OAuth2 scope string passed to the provider. When null, a
+                    backend-specific default is used: "openid email profile"
+                    for keycloak-oidc, "read:user user:email repo" for
+                    github and gitea.
+                  '';
                 };
               };
             };
@@ -856,6 +904,17 @@ in
           If `cfg.authBackend` is set to `"oidc"` a discovery URL must be set with `cfg.oidc.discoveryUrl`, a client id must be set with `cfg.oidc.clientId`, and a file containing the client secret must be provided with `cfg.oidc.clientSecretFile`;
         '';
       }
+      {
+        assertion =
+          (cfg.accessMode ? "fullyPrivate")
+          -> (
+            cfg.accessMode.fullyPrivate.backend == "keycloak-oidc"
+            -> cfg.accessMode.fullyPrivate.issuerUrl != null
+          );
+        message = ''
+          When accessMode.fullyPrivate.backend is "keycloak-oidc", accessMode.fullyPrivate.issuerUrl must be set.
+        '';
+      }
     ];
 
     services.buildbot-master = {
@@ -1140,6 +1199,35 @@ in
           redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
           validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
         })
+        (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "keycloak-oidc") {
+          provider = "keycloak-oidc";
+          oidc-issuer-url = cfg.accessMode.fullyPrivate.issuerUrl;
+          email-domain = cfg.accessMode.fullyPrivate.emailDomain;
+          # Map the email slot to preferred_username so that the Basic Auth
+          # header forwarded to buildbot carries the human-readable username
+          # rather than the Keycloak sub (UUID).  prefer-email-to-user then
+          # tells oauth2-proxy to use that slot instead of session.User.
+          user-id-claim = "preferred_username";
+          prefer-email-to-user = true;
+        })
+        (lib.mkIf
+          (
+            cfg.accessMode.fullyPrivate.backend == "keycloak-oidc"
+            && cfg.accessMode.fullyPrivate.allowedRoles != [ ]
+          )
+          {
+            allowed-role = cfg.accessMode.fullyPrivate.allowedRoles;
+          }
+        )
+        (lib.mkIf
+          (
+            cfg.accessMode.fullyPrivate.backend == "keycloak-oidc"
+            && cfg.accessMode.fullyPrivate.allowedGroups != [ ]
+          )
+          {
+            allowed-group = cfg.accessMode.fullyPrivate.allowedGroups;
+          }
+        )
       ];
     };
 
@@ -1152,18 +1240,31 @@ in
           "basic-auth-password:${cfg.httpBasicAuthPasswordFile}"
         ];
       };
-      preStart = ''
-        (
-          umask 0077
-          cat > "$CONFIGURATION_DIRECTORY/oauth2-proxy.toml" <<EOF
-        client_secret = "$(cat "$CREDENTIALS_DIRECTORY/client-secret")"
-        cookie_secret = "$(cat "$CREDENTIALS_DIRECTORY/cookie-secret")"
-        basic_auth_password = "$(cat "$CREDENTIALS_DIRECTORY/basic-auth-password")"
-        # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
-        scope = "read:user user:email repo"
-        EOF
-        )
-      '';
+      preStart =
+        let
+          defaultScope =
+            if cfg.accessMode.fullyPrivate.backend == "keycloak-oidc" then
+              "openid email profile"
+            else
+              "read:user user:email repo";
+          scope =
+            if cfg.accessMode.fullyPrivate.scope != null then
+              cfg.accessMode.fullyPrivate.scope
+            else
+              defaultScope;
+        in
+        ''
+          (
+            umask 0077
+            cat > "$CONFIGURATION_DIRECTORY/oauth2-proxy.toml" <<EOF
+          client_secret = "$(cat "$CREDENTIALS_DIRECTORY/client-secret")"
+          cookie_secret = "$(cat "$CREDENTIALS_DIRECTORY/cookie-secret")"
+          basic_auth_password = "$(cat "$CREDENTIALS_DIRECTORY/basic-auth-password")"
+          # https://github.com/oauth2-proxy/oauth2-proxy/issues/1724
+          scope = "${scope}"
+          EOF
+          )
+        '';
     };
   };
 }
