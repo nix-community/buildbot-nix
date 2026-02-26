@@ -62,6 +62,7 @@ def buildbot_effects_scheduled_config(
                 name="Run scheduled effect",
                 command=[
                     "buildbot-effects",
+                    "run-scheduled",
                     "--rev",
                     util.Property("got_revision"),
                     "--branch",
@@ -69,7 +70,6 @@ def buildbot_effects_scheduled_config(
                     "--repo",
                     util.Property("project"),
                     *secrets_args,
-                    "run-scheduled",
                     util.Property("schedule_name"),
                     util.Property("effect_name"),
                 ],

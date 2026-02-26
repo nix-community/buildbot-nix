@@ -54,13 +54,26 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
     )
 
 
-def list_command(_args: argparse.Namespace, options: EffectsOptions) -> None:
-    if _args.flake_ref:
-        options = options_from_flake_ref(_args.flake_ref, options)
+def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
+    return EffectsOptions(
+        secrets=getattr(args, "secrets", None),
+        branch=args.branch,
+        rev=args.rev,
+        repo=args.repo,
+        path=args.path.resolve(),
+        debug=args.debug,
+    )
+
+
+def list_command(args: argparse.Namespace) -> None:
+    options = _options_from_args(args)
+    if args.flake_ref:
+        options = options_from_flake_ref(args.flake_ref, options)
     json.dump(list_effects(options), fp=sys.stdout, indent=2)
 
 
-def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
+def run_command(args: argparse.Namespace) -> None:
+    options = _options_from_args(args)
     effect = args.effect
 
     # Support flakeref#effect syntax: github:org/repo/branch#my-effect
@@ -81,15 +94,17 @@ def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
     run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
 
 
-def list_schedules_command(_args: argparse.Namespace, options: EffectsOptions) -> None:
+def list_schedules_command(args: argparse.Namespace) -> None:
     """List all scheduled effects defined in the flake."""
-    if _args.flake_ref:
-        options = options_from_flake_ref(_args.flake_ref, options)
+    options = _options_from_args(args)
+    if args.flake_ref:
+        options = options_from_flake_ref(args.flake_ref, options)
     json.dump(list_scheduled_effects(options), fp=sys.stdout, indent=2)
 
 
-def run_scheduled_command(args: argparse.Namespace, options: EffectsOptions) -> None:
+def run_scheduled_command(args: argparse.Namespace) -> None:
     """Run a specific effect from a schedule."""
+    options = _options_from_args(args)
     schedule_name = args.schedule_name
     effect = args.effect
 
@@ -114,24 +129,8 @@ def run_scheduled_command(args: argparse.Namespace, options: EffectsOptions) -> 
     run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
 
 
-def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
-    parser = argparse.ArgumentParser(
-        description="Run effects from a hercules-ci flake",
-        epilog=(
-            "Flake reference syntax:\n"
-            "  Commands accept flake references to operate on remote repositories\n"
-            "  without requiring a local checkout:\n\n"
-            "  buildbot-effects run github:org/repo/branch#my-effect\n"
-            "  buildbot-effects list github:org/repo/branch\n"
-            "  buildbot-effects run-scheduled github:org/repo#schedule effect\n"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--secrets",
-        type=Path,
-        help="Path to a json file with secrets (for run/run-scheduled)",
-    )
+def _add_common_flags(parser: argparse.ArgumentParser) -> None:
+    """Add flags shared by all subcommands."""
     parser.add_argument(
         "--rev",
         type=str,
@@ -159,16 +158,42 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         action="store_true",
         help="Enable debug mode (may leak secrets such as GITHUB_TOKEN)",
     )
+
+
+def _add_secrets_flag(parser: argparse.ArgumentParser) -> None:
+    """Add --secrets flag for commands that execute effects."""
+    parser.add_argument(
+        "--secrets",
+        type=Path,
+        help="Path to a json file with secrets",
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run effects from a hercules-ci flake",
+        epilog=(
+            "Flake reference syntax:\n"
+            "  Commands accept flake references to operate on remote repositories\n"
+            "  without requiring a local checkout:\n\n"
+            "  buildbot-effects run github:org/repo/branch#my-effect\n"
+            "  buildbot-effects list github:org/repo/branch\n"
+            "  buildbot-effects run-scheduled github:org/repo#schedule effect\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparser = parser.add_subparsers(
         dest="command",
         required=True,
         help="Command to run",
     )
+
     list_parser = subparser.add_parser(
         "list",
         help="List available effects (optionally from a flake reference)",
     )
-    list_parser.set_defaults(command=list_command)
+    _add_common_flags(list_parser)
+    list_parser.set_defaults(func=list_command)
     list_parser.add_argument(
         "flake_ref",
         nargs="?",
@@ -179,7 +204,9 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         "run",
         help="Run an effect (supports flakeref#effect syntax)",
     )
-    run_parser.set_defaults(command=run_command)
+    _add_common_flags(run_parser)
+    _add_secrets_flag(run_parser)
+    run_parser.set_defaults(func=run_command)
     run_parser.add_argument(
         "effect",
         help="Effect to run, or flakeref#effect (e.g. github:org/repo/branch#deploy)",
@@ -189,7 +216,8 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         "list-schedules",
         help="List all scheduled effects (optionally from a flake reference)",
     )
-    list_schedules_parser.set_defaults(command=list_schedules_command)
+    _add_common_flags(list_schedules_parser)
+    list_schedules_parser.set_defaults(func=list_schedules_command)
     list_schedules_parser.add_argument(
         "flake_ref",
         nargs="?",
@@ -200,7 +228,9 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         "run-scheduled",
         help="Run a specific effect from a schedule",
     )
-    run_scheduled_parser.set_defaults(command=run_scheduled_command)
+    _add_common_flags(run_scheduled_parser)
+    _add_secrets_flag(run_scheduled_parser)
+    run_scheduled_parser.set_defaults(func=run_scheduled_command)
     run_scheduled_parser.add_argument(
         "schedule_name",
         help="Schedule name, or flakeref#schedule (e.g. github:org/repo#my-schedule)",
@@ -210,18 +240,9 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         help="Effect to run within the schedule",
     )
 
-    args = parser.parse_args()
-    opts = EffectsOptions(
-        secrets=args.secrets,
-        branch=args.branch,
-        rev=args.rev,
-        repo=args.repo,
-        path=args.path.resolve(),
-        debug=args.debug,
-    )
-    return args, opts
+    return parser.parse_args()
 
 
 def main() -> None:
-    args, options = parse_args()
-    args.command(args, options)
+    args = parse_args()
+    args.func(args)

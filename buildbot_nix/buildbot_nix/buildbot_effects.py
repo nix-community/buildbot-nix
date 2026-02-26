@@ -43,6 +43,7 @@ def buildbot_effects_config(
                 name="Run effects",
                 command=[
                     "buildbot-effects",
+                    "run",
                     "--rev",
                     util.Property("revision"),
                     "--branch",
@@ -50,7 +51,6 @@ def buildbot_effects_config(
                     "--repo",
                     util.Property("project"),
                     *secrets_args,
-                    "run",
                     util.Property("command"),
                 ],
                 logEnviron=False,
