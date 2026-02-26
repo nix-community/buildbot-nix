@@ -81,10 +81,6 @@ def run_command(args: argparse.Namespace, options: EffectsOptions) -> None:
     run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
 
 
-def run_all_command(_args: argparse.Namespace, _options: EffectsOptions) -> None:
-    print("TODO")
-
-
 def list_schedules_command(_args: argparse.Namespace, options: EffectsOptions) -> None:
     """List all scheduled effects defined in the flake."""
     if _args.flake_ref:
@@ -134,7 +130,7 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
     parser.add_argument(
         "--secrets",
         type=Path,
-        help="Path to a json file with secrets",
+        help="Path to a json file with secrets (for run/run-scheduled)",
     )
     parser.add_argument(
         "--rev",
@@ -149,7 +145,7 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
     parser.add_argument(
         "--repo",
         type=str,
-        help="Git repo to prepend to be",
+        help="Git repo name",
     )
     parser.add_argument(
         "--path",
@@ -188,11 +184,6 @@ def parse_args() -> tuple[argparse.Namespace, EffectsOptions]:
         "effect",
         help="Effect to run, or flakeref#effect (e.g. github:org/repo/branch#deploy)",
     )
-    run_all_parser = subparser.add_parser(
-        "run-all",
-        help="Run all effects",
-    )
-    run_all_parser.set_defaults(command=run_all_command)
 
     list_schedules_parser = subparser.add_parser(
         "list-schedules",
