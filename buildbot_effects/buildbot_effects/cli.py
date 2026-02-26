@@ -5,6 +5,7 @@ import json
 import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -42,11 +43,12 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
     locked = meta.get("locked", {})
     # lockedUrl can be null in JSON (None in Python), fall back to url
     locked_url = meta.get("lockedUrl") or meta.get("url", "")
+    rev = locked.get("rev") or locked.get("dirtyRev")
     return EffectsOptions(
         secrets=base.secrets,
         path=Path(meta.get("path", "")),
         repo="",
-        rev=locked.get("rev"),
+        rev=rev,
         branch=locked.get("ref"),
         url=meta.get("resolvedUrl", meta.get("url", "")),
         locked_url=locked_url,
@@ -80,18 +82,27 @@ def run_command(args: argparse.Namespace) -> None:
     if "#" in effect:
         flake_ref, _, effect = effect.partition("#")
         options = options_from_flake_ref(flake_ref, options)
+    elif ":" in effect or effect.startswith("/"):
+        print(
+            f"error: '{effect}' looks like a flake reference but is missing '#<effect>'\n"
+            f"  usage: buildbot-effects run {effect}#<effect-name>",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-    drv_path = instantiate_effects(effect, options)
-    if drv_path == "":
-        print(f"Effect {effect} not found or not runnable for {options}")
-        return
-    drvs = parse_derivation(drv_path)
-    if "derivations" in drvs:
-        drvs = drvs["derivations"]
-    drv = next(iter(drvs.values()))
+    with tempfile.TemporaryDirectory() as tmpdir:
+        gcroot = Path(tmpdir) / "result"
+        drv_path = instantiate_effects(effect, options, gcroot)
+        if drv_path == "":
+            print(f"Effect {effect} not found or not runnable for {options}")
+            return
+        drvs = parse_derivation(drv_path)
+        if "derivations" in drvs:
+            drvs = drvs["derivations"]
+        drv = next(iter(drvs.values()))
 
-    secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-    run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
+        secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
+        run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
 
 
 def list_schedules_command(args: argparse.Namespace) -> None:
@@ -112,21 +123,30 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
     if "#" in schedule_name:
         flake_ref, _, schedule_name = schedule_name.partition("#")
         options = options_from_flake_ref(flake_ref, options)
-
-    drv_path = instantiate_scheduled_effect(schedule_name, effect, options)
-    if drv_path == "":
+    elif ":" in schedule_name or schedule_name.startswith("/"):
         print(
-            f"Scheduled effect {schedule_name}/{effect} not found or not runnable"
-            f" for {options}"
+            f"error: '{schedule_name}' looks like a flake reference but is missing '#<schedule>'\n"
+            f"  usage: buildbot-effects run-scheduled {schedule_name}#<schedule-name> <effect>",
+            file=sys.stderr,
         )
-        return
-    drvs = parse_derivation(drv_path)
-    if "derivations" in drvs:
-        drvs = drvs["derivations"]
-    drv = next(iter(drvs.values()))
+        sys.exit(1)
 
-    secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-    run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        gcroot = Path(tmpdir) / "result"
+        drv_path = instantiate_scheduled_effect(schedule_name, effect, options, gcroot)
+        if drv_path == "":
+            print(
+                f"Scheduled effect {schedule_name}/{effect} not found or not runnable"
+                f" for {options}"
+            )
+            return
+        drvs = parse_derivation(drv_path)
+        if "derivations" in drvs:
+            drvs = drvs["derivations"]
+        drv = next(iter(drvs.values()))
+
+        secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
+        run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
 
 
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:

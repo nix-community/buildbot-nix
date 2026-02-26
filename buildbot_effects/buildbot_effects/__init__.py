@@ -7,12 +7,12 @@ import shutil
 import subprocess
 import sys
 from contextlib import contextmanager
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from .options import EffectsOptions
 
@@ -77,7 +77,10 @@ def get_git_branch_rev(path: Path, branch: str) -> str:
 def _is_git_repo(path: Path) -> bool:
     """Check if path is inside a git repository."""
     try:
-        git_command(["rev-parse", "--git-dir"], path)
+        cmd = ["git", "-C", str(path), "rev-parse", "--git-dir"]
+        subprocess.run(
+            cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
     except subprocess.CalledProcessError:
         return False
     return True
@@ -212,27 +215,36 @@ def list_scheduled_effects(opts: EffectsOptions) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
-def instantiate_effects(effect: str, opts: EffectsOptions) -> str:
+def _instantiate(expr: str, opts: EffectsOptions, gcroot: Path) -> str:
     cmd = [
         "nix-instantiate",
+        "--add-root",
+        str(gcroot),
         "--expr",
-        f"let e = ({effect_function(opts)}).{effect}; in if e ? run then e.run else e",
+        expr,
     ]
     proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
-    return proc.stdout.rstrip()
+    # --add-root prints the symlink path; resolve to the actual store path
+    return str(Path(proc.stdout.rstrip()).resolve())
+
+
+def instantiate_effects(effect: str, opts: EffectsOptions, gcroot: Path) -> str:
+    return _instantiate(
+        f"let e = ({effect_function(opts)}).{effect}; in if e ? run then e.run else e",
+        opts,
+        gcroot,
+    )
 
 
 def instantiate_scheduled_effect(
-    schedule_name: str, effect: str, opts: EffectsOptions
+    schedule_name: str, effect: str, opts: EffectsOptions, gcroot: Path
 ) -> str:
     """Instantiate a specific effect from a schedule."""
-    cmd = [
-        "nix-instantiate",
-        "--expr",
+    return _instantiate(
         f"({scheduled_effect_function(opts)}).{schedule_name}.outputs.effects.{effect}",
-    ]
-    proc = run(cmd, stdout=subprocess.PIPE, debug=opts.debug)
-    return proc.stdout.rstrip()
+        opts,
+        gcroot,
+    )
 
 
 def parse_derivation(path: str, *, debug: bool = False) -> dict[str, Any]:

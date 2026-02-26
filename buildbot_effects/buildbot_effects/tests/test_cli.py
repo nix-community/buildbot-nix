@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from buildbot_effects.cli import run_command
 
 FAKE_METADATA: dict = {
@@ -64,3 +66,9 @@ class TestRunCommandFlakeRef:
 
         mock_resolve.assert_not_called()
         assert mock_inst.call_args[0][0] == "deploy"
+
+    def test_flake_ref_without_fragment_errors(self) -> None:
+        args = _mock_args(effect="git+file:///some/repo")
+
+        with pytest.raises(SystemExit, match="1"):
+            run_command(args)
