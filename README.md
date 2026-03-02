@@ -219,76 +219,8 @@ contents to the attic cache.
 
 ## (experimental) Hercules CI effects
 
-See [flake.nix](flake.nix) for an example and
-[https://docs.hercules-ci.com/hercules-ci/effects/] for documentation.
-
-You can run hercules-effects locally using the `buildbot-effects` cli:
-
-```
-$ buildbot-effects --help
-usage: buildbot-effects [-h] [--secrets SECRETS] [--rev REV] [--branch BRANCH] [--repo REPO] [--path PATH] {list,run,run-all} ...
-
-Run effects from a hercules-ci flake
-
-positional arguments:
-  {list,run,run-all}  Command to run
-    list              List available effects
-    run               Run an effect
-    run-all           Run all effects
-
-options:
-  -h, --help          show this help message and exit
-  --secrets SECRETS   Path to a json file with secrets
-  --rev REV           Git revision to use
-  --branch BRANCH     Git branch to use
-  --repo REPO         Git repo to prepend to be
-  --path PATH         Path to the repository
-```
-
-Example from the buildbot-nix repository:
-
-```console
-$ git clone github.com/nix-community/buildbot-nix
-$ cd buildbot-nix
-```
-
-```console
-$ nix run github:nix-community/buildbot-nix#buildbot-effects -- list
-[
-  "deploy"
-]
-```
-
-```console
-$ nix run github:nix-community/buildbot-nix#buildbot-effects -- --branch main run deploy
-{branch:main,rev:5d2e0af1cfccfc209b893b89392cf80f5640d936,tag:null}
-Hello, world!
-```
-
-### Effects Secrets Configuration
-
-Secrets for buildbot effects can be configured at different scopes:
-
-1. **Repository-specific**: `"github:owner/repo"` - applies to a single
-   repository
-2. **Organization-wide**: `"github:org/*"` - applies to all repositories in an
-   organization
-
-```nix
-services.buildbot-nix.master.effects.perRepoSecretFiles = {
-  # All repos in nix-community org get this token
-  "github:nix-community/*" = config.agenix.secrets.nix-community-effects.path;
-
-  # This specific repo gets its own token (overrides org-level)
-  "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects.path;
-
-  # All repos in a Gitea org
-  "gitea:my-org/*" = config.agenix.secrets.my-org-effects.path;
-};
-```
-
-The secrets files must be valid JSON files containing the secrets that will be
-made available to your effects at runtime.
+See [docs/EFFECTS.md](docs/EFFECTS.md) for CLI usage, flake reference support,
+and secrets configuration.
 
 ## Incompatibilities with the lix overlay
 

@@ -13,4 +13,5 @@ class EffectsOptions:
     branch: str | None = None
     url: str | None = None
     tag: str | None = None
+    locked_url: str | None = None
     debug: bool = False
