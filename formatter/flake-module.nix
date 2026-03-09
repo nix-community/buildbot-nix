@@ -9,7 +9,13 @@
         programs.nixfmt.enable = pkgs.lib.meta.availableOn pkgs.stdenv.buildPlatform pkgs.nixfmt.compiler;
         programs.nixfmt.package = pkgs.nixfmt;
         programs.shellcheck.enable = true;
-        programs.deno.enable = true;
+        programs.deno = {
+          excludes = [
+            "docs/OPTIONS.md"
+          ];
+          enable = true;
+        };
+
         programs.ruff.check = true;
         programs.ruff.format = true;
         settings.formatter.shellcheck.options = [
