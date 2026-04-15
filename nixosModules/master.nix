@@ -713,24 +713,34 @@ in
         default = 47; # 50 total notifications - 3 reserved for eval/build/effects
       };
 
-      effects.perRepoSecretFiles = lib.mkOption {
-        type = lib.types.attrsOf lib.types.path;
-        description = ''
-          Per-repository or per-organization secrets files for buildbot effects.
-          The secrets themselves need to be valid JSON files.
+      effects = {
+        perRepoSecretFiles = lib.mkOption {
+          type = lib.types.attrsOf lib.types.path;
+          description = ''
+            Per-repository or per-organization secrets files for buildbot effects.
+            The secrets themselves need to be valid JSON files.
 
-          Keys can be:
-          - Org secrets via wildcard: "github:org/*" or "gitea:org/*"
-          - Exact repo match: "github:owner/repo" or "gitea:owner/repo"
-            (overrides org secrets)
-        '';
-        default = { };
-        example = lib.literalExpression ''
-          {
-            "github:nix-community/*" = config.agenix.secrets.nix-community-effects.path;
-            "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects.path;
-          }
-        '';
+            Keys can be:
+            - Org secrets via wildcard: "github:org/*" or "gitea:org/*"
+            - Exact repo match: "github:owner/repo" or "gitea:owner/repo"
+              (overrides org secrets)
+          '';
+          default = { };
+          example = lib.literalExpression ''
+            {
+              "github:nix-community/*" = config.agenix.secrets.nix-community-effects.path;
+              "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects.path;
+            }
+          '';
+        };
+
+        extraSandboxPaths = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          description = ''
+            A list of extra paths to be added to the effects sandbox from the host.
+          '';
+          default = [ ];
+        };
       };
 
       branches = lib.mkOption {
@@ -974,6 +984,7 @@ in
                   inherit name;
                   value = "effects-secret__${cleanUpRepoName name}";
                 }) cfg.effects.perRepoSecretFiles;
+                effects_extra_sandbox_paths = cfg.effects.extraSandboxPaths;
                 branches = cfg.branches;
                 nix_workers_secret_file = "buildbot-nix-workers";
                 show_trace_on_failure = cfg.showTrace;

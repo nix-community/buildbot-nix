@@ -327,6 +327,7 @@ class BuildbotNixConfig(BaseModel):
 
     nix_workers_secret_file: Path | None = None
     effects_per_repo_secrets: dict[str, str] = {}
+    effects_extra_sandbox_paths: list[Path] = []
     show_trace_on_failure: bool = False
     cache_failed_builds: bool = False
     allow_unauthenticated_control: bool = False

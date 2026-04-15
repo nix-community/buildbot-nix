@@ -143,6 +143,7 @@ class NixConfigurator(ConfiguratorBase):
             try:
                 config_for_project(
                     config=config,
+                    effects_extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
                     project=project,
                     project_config=ProjectConfig(
                         worker_names=worker_names,

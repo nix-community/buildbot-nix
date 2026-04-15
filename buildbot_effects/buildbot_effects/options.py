@@ -15,3 +15,4 @@ class EffectsOptions:
     tag: str | None = None
     locked_url: str | None = None
     debug: bool = False
+    extra_sandbox_path: list[Path] = field(default_factory=list)

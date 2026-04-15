@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import functools
 import json
+import operator
 import os
 import shlex
 import shutil
@@ -287,12 +289,10 @@ def pipe() -> Iterator[tuple[IO[str], IO[str]]]:
 def run_effects(
     drv_path: str,
     drv: dict[str, Any],
-    secrets: dict[str, Any] | None = None,
-    *,
-    debug: bool = False,
+    secrets: dict[str, Any],
+    extra_sandbox_paths: list[Path],
+    debug: bool,
 ) -> None:
-    if secrets is None:
-        secrets = {}
     builder = drv["builder"]
     args = drv["args"]
     sandboxed_cmd = [
@@ -348,6 +348,11 @@ def run_effects(
         "--ro-bind",
         "/nix/store",
         "/nix/store",
+        *functools.reduce(
+            operator.add,
+            (["--ro-bind", path, path] for path in extra_sandbox_paths),
+            [],
+        ),
         "--hostname",
         "hercules-ci",
         "--bind",

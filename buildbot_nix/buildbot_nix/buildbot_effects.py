@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import operator
 from typing import TYPE_CHECKING
 
 from buildbot.plugins import steps, util
@@ -9,11 +11,17 @@ from buildbot.plugins import steps, util
 from .nix_eval import GitLocalPrMerge
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .projects import GitProject
 
 
 def buildbot_effects_config(
-    project: GitProject, git_url: str, worker_names: list[str], secrets: str | None
+    project: GitProject,
+    git_url: str,
+    worker_names: list[str],
+    secrets: str | None,
+    effects_extra_sandbox_paths: list[Path],
 ) -> util.BuilderConfig:
     """Builds one nix flake attribute."""
     factory = util.BuildFactory()
@@ -50,6 +58,14 @@ def buildbot_effects_config(
                     util.Property("branch"),
                     "--repo",
                     util.Property("project"),
+                    *functools.reduce(
+                        operator.add,
+                        (
+                            ["--extra-sandbox-path", str(path)]
+                            for path in effects_extra_sandbox_paths
+                        ),
+                        [],
+                    ),
                     *secrets_args,
                     util.Property("command"),
                 ],

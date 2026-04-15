@@ -71,6 +71,7 @@ def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
         repo=args.repo,
         path=args.path.resolve(),
         debug=args.debug,
+        extra_sandbox_path=args.extra_sandbox_path,
     )
 
 
@@ -109,7 +110,13 @@ def run_command(args: argparse.Namespace) -> None:
         drv = next(iter(drvs.values()))
 
         secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-        run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
+        run_effects(
+            drv_path,
+            drv,
+            secrets=secrets,
+            debug=options.debug,
+            extra_sandbox_paths=options.extra_sandbox_path,
+        )
 
 
 def list_schedules_command(args: argparse.Namespace) -> None:
@@ -153,7 +160,13 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
         drv = next(iter(drvs.values()))
 
         secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-        run_effects(drv_path, drv, secrets=secrets, debug=options.debug)
+        run_effects(
+            drv_path,
+            drv,
+            secrets=secrets,
+            debug=options.debug,
+            extra_sandbox_paths=options.extra_sandbox_path,
+        )
 
 
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
@@ -185,6 +198,13 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Enable debug mode (may leak secrets such as GITHUB_TOKEN)",
     )
+    parser.add_argument(
+        "--extra-sandbox-path",
+        type=Path,
+        action="append",
+        default=[],
+        help="Path that should be included in the sandbox from the host.",
+    )
 
 
 def _add_secrets_flag(parser: argparse.ArgumentParser) -> None:
@@ -192,6 +212,7 @@ def _add_secrets_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--secrets",
         type=Path,
+        default=[],
         help="Path to a json file with secrets",
     )
 
