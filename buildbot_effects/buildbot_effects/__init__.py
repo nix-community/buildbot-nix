@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import functools
 import json
-import operator
 import os
 import shlex
 import shutil
@@ -348,11 +346,11 @@ def run_effects(
         "--ro-bind",
         "/nix/store",
         "/nix/store",
-        *functools.reduce(
-            operator.add,
-            (["--ro-bind", path, path] for path in extra_sandbox_paths),
-            [],
-        ),
+        *[
+            arg
+            for path in extra_sandbox_paths
+            for arg in ("--ro-bind", str(path), str(path))
+        ],
         "--hostname",
         "hercules-ci",
         "--bind",

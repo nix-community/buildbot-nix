@@ -212,7 +212,6 @@ def _add_secrets_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--secrets",
         type=Path,
-        default=[],
         help="Path to a json file with secrets",
     )
 

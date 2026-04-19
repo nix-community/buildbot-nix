@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import functools
-import operator
 from typing import TYPE_CHECKING
 
 from buildbot.plugins import steps, util
@@ -58,14 +56,11 @@ def buildbot_effects_config(
                     util.Property("branch"),
                     "--repo",
                     util.Property("project"),
-                    *functools.reduce(
-                        operator.add,
-                        (
-                            ["--extra-sandbox-path", str(path)]
-                            for path in effects_extra_sandbox_paths
-                        ),
-                        [],
-                    ),
+                    *[
+                        arg
+                        for path in effects_extra_sandbox_paths
+                        for arg in ("--extra-sandbox-path", str(path))
+                    ],
                     *secrets_args,
                     util.Property("command"),
                 ],

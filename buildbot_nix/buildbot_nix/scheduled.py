@@ -6,8 +6,6 @@ Scheduled effects run on a cron-like schedule rather than in response to git pus
 
 from __future__ import annotations
 
-import functools
-import operator
 from typing import TYPE_CHECKING, Any
 
 from buildbot.plugins import steps, util
@@ -74,14 +72,11 @@ def buildbot_effects_scheduled_config(
                     project.default_branch,
                     "--repo",
                     util.Property("project"),
-                    *functools.reduce(
-                        operator.add,
-                        (
-                            ["--extra-sandbox-path", str(path)]
-                            for path in effects_extra_sandbox_paths
-                        ),
-                        [],
-                    ),
+                    *[
+                        arg
+                        for path in effects_extra_sandbox_paths
+                        for arg in ("--extra-sandbox-path", str(path))
+                    ],
                     *secrets_args,
                     util.Property("schedule_name"),
                     util.Property("effect_name"),
