@@ -287,10 +287,15 @@ def pipe() -> Iterator[tuple[IO[str], IO[str]]]:
 def run_effects(
     drv_path: str,
     drv: dict[str, Any],
-    secrets: dict[str, Any],
-    extra_sandbox_paths: list[Path],
-    debug: bool,
+    *,
+    secrets: dict[str, Any] | None = None,
+    extra_sandbox_paths: list[Path] | None = None,
+    debug: bool = False,
 ) -> None:
+    if secrets is None:
+        secrets = {}
+    if extra_sandbox_paths is None:
+        extra_sandbox_paths = []
     builder = drv["builder"]
     args = drv["args"]
     sandboxed_cmd = [

@@ -60,6 +60,7 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
         url=meta.get("resolvedUrl", meta.get("url", "")),
         locked_url=locked_url,
         debug=base.debug,
+        extra_sandbox_paths=base.extra_sandbox_paths,
     )
 
 
@@ -71,7 +72,7 @@ def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
         repo=args.repo,
         path=args.path.resolve(),
         debug=args.debug,
-        extra_sandbox_path=args.extra_sandbox_path,
+        extra_sandbox_paths=args.extra_sandbox_path,
     )
 
 
@@ -115,7 +116,7 @@ def run_command(args: argparse.Namespace) -> None:
             drv,
             secrets=secrets,
             debug=options.debug,
-            extra_sandbox_paths=options.extra_sandbox_path,
+            extra_sandbox_paths=options.extra_sandbox_paths,
         )
 
 
@@ -165,7 +166,7 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
             drv,
             secrets=secrets,
             debug=options.debug,
-            extra_sandbox_paths=options.extra_sandbox_path,
+            extra_sandbox_paths=options.extra_sandbox_paths,
         )
 
 
