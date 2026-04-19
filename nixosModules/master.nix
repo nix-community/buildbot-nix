@@ -735,9 +735,9 @@ in
         };
 
         extraSandboxPaths = lib.mkOption {
-          type = lib.types.listOf lib.types.str;
+          type = lib.types.listOf lib.types.path;
           description = ''
-            A list of extra paths to be added to the effects sandbox from the host.
+            Extra host paths to bind read-only into the effects sandbox.
           '';
           default = [ ];
         };
