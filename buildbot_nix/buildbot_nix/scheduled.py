@@ -15,6 +15,8 @@ from .models import ScheduledEffectConfig, ScheduleWhen
 from .nix_eval import GitLocalPrMerge
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from buildbot.config.builder import BuilderConfig
 
     from .projects import GitProject
@@ -25,6 +27,7 @@ def buildbot_effects_scheduled_config(
     git_url: str,
     worker_names: list[str],
     secrets: str | None,
+    effects_extra_sandbox_paths: list[Path],
 ) -> BuilderConfig:
     """Builder for running scheduled effects.
 
@@ -69,6 +72,11 @@ def buildbot_effects_scheduled_config(
                     project.default_branch,
                     "--repo",
                     util.Property("project"),
+                    *[
+                        arg
+                        for path in effects_extra_sandbox_paths
+                        for arg in ("--extra-sandbox-path", str(path))
+                    ],
                     *secrets_args,
                     util.Property("schedule_name"),
                     util.Property("effect_name"),

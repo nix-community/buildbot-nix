@@ -165,6 +165,7 @@ class NixConfigurator(ConfiguratorBase):
                             outputs_path=self.config.outputs_path,
                         ),
                         per_repo_effects_secrets=self.config.effects_per_repo_secrets,
+                        effects_extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
                         scheduled_effects=self._load_cached_schedules(project),
                         schedules_cache_dir=self.SCHEDULES_CACHE_DIR,
                     ),

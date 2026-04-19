@@ -23,6 +23,8 @@ from .scheduled import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .models import ScheduledEffectConfig
     from .projects import GitProject
 
@@ -48,6 +50,7 @@ class ProjectConfig:
     nix_eval_config: NixEvalConfig
     build_config: BuildConfig
     per_repo_effects_secrets: dict[str, str]
+    effects_extra_sandbox_paths: list[Path] = field(default_factory=list)
     scheduled_effects: dict[str, ScheduledEffectConfig] = field(default_factory=dict)
     schedules_cache_dir: str | None = None
 
@@ -178,12 +181,14 @@ def config_for_project(
                 git_url=project.get_project_url(),
                 worker_names=project_config.worker_names,
                 secrets=effects_secrets_cred,
+                effects_extra_sandbox_paths=project_config.effects_extra_sandbox_paths,
             ),
             buildbot_effects_scheduled_config(
                 project,
                 git_url=project.get_project_url(),
                 worker_names=project_config.worker_names,
                 secrets=effects_secrets_cred,
+                effects_extra_sandbox_paths=project_config.effects_extra_sandbox_paths,
             ),
             nix_failed_eval_config(project, project_config.worker_names),
             nix_dependency_failed_config(project, project_config.worker_names),
