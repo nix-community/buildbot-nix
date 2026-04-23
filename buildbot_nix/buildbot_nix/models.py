@@ -430,7 +430,12 @@ class NixEvalJobSuccess(BaseModel):
     drvPath: str  # noqa: N815
     inputDrvs: dict[str, list[str]] | None = None  # noqa: N815
     name: str
-    outputs: dict[str, str]
+    # nix-eval-jobs emits null output paths for impure and some
+    # content-addressed derivations: it cannot know their store paths
+    # without actually building them. Accept None so the whole eval step
+    # does not crash; downstream consumers already treat a missing
+    # out path as "not statically known" via `job.outputs["out"] or None`.
+    outputs: dict[str, str | None]
     system: str
 
 
