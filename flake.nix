@@ -4,8 +4,6 @@
 
   inputs = {
     nixpkgs.url = "git+https://github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable-small";
-    flake-parts.url = "github:hercules-ci/flake-parts";
-    flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 
     # used for development
     treefmt-nix.url = "github:numtide/treefmt-nix";
@@ -13,30 +11,72 @@
 
     hercules-ci-effects.url = "github:hercules-ci/hercules-ci-effects";
     hercules-ci-effects.inputs.nixpkgs.follows = "nixpkgs";
-    hercules-ci-effects.inputs.flake-parts.follows = "flake-parts";
   };
 
   outputs =
-    inputs@{ flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; } {
-      imports = [
-        ./examples/flake-module.nix
-        ./devShells/flake-module.nix
-        ./nixosModules/flake-module.nix
-        ./nix/flake-module.nix
-        ./checks/flake-module.nix
-        ./packages/flake-module.nix
-      ]
-      ++ inputs.nixpkgs.lib.optional (inputs.treefmt-nix ? flakeModule) ./formatter/flake-module.nix
-      ++ inputs.nixpkgs.lib.optionals (inputs.hercules-ci-effects ? flakeModule) [
-        inputs.hercules-ci-effects.flakeModule
-        ./herculesCI/flake-module.nix
-      ];
+    inputs@{
+      self,
+      nixpkgs,
+      treefmt-nix,
+      hercules-ci-effects,
+      ...
+    }:
+    let
+      inherit (nixpkgs) lib;
 
       systems = [
         "x86_64-linux"
         "aarch64-linux"
         "aarch64-darwin"
       ];
+
+      eachSystem =
+        f:
+        lib.genAttrs systems (
+          system:
+          f {
+            inherit
+              self
+              inputs
+              lib
+              system
+              ;
+            pkgs = nixpkgs.legacyPackages.${system};
+          }
+        );
+    in
+    {
+      lib = import ./nix/lib.nix;
+
+      nixosModules = {
+        buildbot-master = ./nixosModules/master.nix;
+        buildbot-worker = ./nixosModules/worker.nix;
+      };
+
+      nixosConfigurations =
+        let
+          examplesFor =
+            system:
+            import ./examples {
+              inherit system nixpkgs;
+              buildbot-nix = self;
+            };
+        in
+        examplesFor "x86_64-linux" // examplesFor "aarch64-linux";
+
+      packages = eachSystem (import ./packages);
+
+      devShells = eachSystem (import ./devShells);
+
+      checks = eachSystem (import ./checks);
+
+      formatter = eachSystem (
+        { pkgs, ... }: (treefmt-nix.lib.evalModule pkgs ./formatter/treefmt.nix).config.build.wrapper
+      );
+
+      herculesCI = import ./herculesCI {
+        inherit self hercules-ci-effects;
+        pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      };
     };
 }

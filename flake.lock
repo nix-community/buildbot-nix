@@ -3,6 +3,7 @@
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": [
+          "hercules-ci-effects",
           "nixpkgs"
         ]
       },
@@ -15,16 +16,13 @@
         "type": "github"
       },
       "original": {
-        "owner": "hercules-ci",
-        "repo": "flake-parts",
-        "type": "github"
+        "id": "flake-parts",
+        "type": "indirect"
       }
     },
     "hercules-ci-effects": {
       "inputs": {
-        "flake-parts": [
-          "flake-parts"
-        ],
+        "flake-parts": "flake-parts",
         "nixpkgs": [
           "nixpkgs"
         ]
@@ -62,7 +60,6 @@
     },
     "root": {
       "inputs": {
-        "flake-parts": "flake-parts",
         "hercules-ci-effects": "hercules-ci-effects",
         "nixpkgs": "nixpkgs",
         "treefmt-nix": "treefmt-nix"
