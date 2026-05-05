@@ -1,11 +1,10 @@
 {
   self,
   pkgs,
-  hercules-ci-effects,
   ...
 }:
 let
-  hci-effects = hercules-ci-effects.lib.withPkgs pkgs;
+  hci-effects = import ./effects-lib.nix { inherit pkgs; };
 in
 { primaryRepo, ... }:
 {

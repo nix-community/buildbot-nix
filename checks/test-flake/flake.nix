@@ -1,14 +1,12 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    hercules-ci-effects.url = "github:hercules-ci/hercules-ci-effects";
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      hercules-ci-effects,
     }:
     let
       systems = [
@@ -31,7 +29,7 @@
         args:
         let
           pkgs = nixpkgs.legacyPackages.x86_64-linux;
-          hci-effects = hercules-ci-effects.lib.withPkgs pkgs;
+          hci-effects = import ./effects-lib.nix { inherit pkgs; };
         in
         {
           onPush.default.outputs.effects = { };

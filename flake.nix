@@ -8,9 +8,6 @@
     # used for development
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
-
-    hercules-ci-effects.url = "github:hercules-ci/hercules-ci-effects";
-    hercules-ci-effects.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -18,7 +15,6 @@
       self,
       nixpkgs,
       treefmt-nix,
-      hercules-ci-effects,
       ...
     }:
     let
@@ -75,7 +71,7 @@
       );
 
       herculesCI = import ./herculesCI {
-        inherit self hercules-ci-effects;
+        inherit self;
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
       };
     };
