@@ -120,7 +120,7 @@
             git config user.name 'Test User'
             git config user.email 'test@example.com'
 
-            git add flake.nix flake.lock
+            git add flake.nix flake.lock effects-lib.nix
             git commit -m "Initial commit with scheduled effects"
 
             # Push to bare repository
