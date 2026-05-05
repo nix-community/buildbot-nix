@@ -86,7 +86,7 @@ def config_for_project(
                 change_filter=util.ChangeFilter(
                     # TODO add filter
                     repository=project.url,
-                    branch_re="(gh-readonly-queue/.*|staging|trying)",
+                    branch_re="(gh-readonly-queue/.*|gitea-mq/.*|staging|trying)",
                 ),
                 builderNames=[f"{project.name}/nix-eval"],
             ),
