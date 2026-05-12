@@ -251,6 +251,83 @@
               echo "Response: $REPO_CHECK"
               exit 1
             fi
+
+            # Create a second (non-admin) user who owns their own repo.
+            # The buildbot site-admin should discover this repo WITHOUT
+            # being added as a collaborator.
+            echo "Creating regular user 'other-user'..."
+            cd /var/lib/gitea
+            runuser -u gitea -- \
+              env GITEA_WORK_DIR=/var/lib/gitea \
+              GITEA_CUSTOM=/var/lib/gitea/custom \
+              ${pkgs.gitea}/bin/gitea admin user create \
+              --config /var/lib/gitea/custom/conf/app.ini \
+              --username 'other-user' \
+              --password 'otherpassword123' \
+              --email 'other@example.com' \
+              --must-change-password=false
+
+            # Create a token for other-user to create their repo
+            OTHER_TOKEN_RESPONSE=$(curl -s -X POST \
+              -H "Content-Type: application/json" \
+              -d '{"name":"other-token","scopes":["write:repository","write:user"]}' \
+              -u "other-user:otherpassword123" \
+              http://localhost:3742/api/v1/users/other-user/tokens)
+
+            OTHER_TOKEN=$(echo "$OTHER_TOKEN_RESPONSE" | jq -r '.sha1')
+
+            echo "Creating repo owned by other-user..."
+            curl -s -X POST \
+              -H "Authorization: token $OTHER_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"other-flake","private":false}' \
+              http://localhost:3742/api/v1/user/repos
+
+            # Add buildbot-nix topic so it passes topic filtering
+            curl -s -X PUT \
+              -H "Authorization: token $OTHER_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"topics":["buildbot-nix"]}' \
+              http://localhost:3742/api/v1/repos/other-user/other-flake/topics
+
+            # Push a flake to it
+            rm -rf /tmp/other-flake
+            mkdir -p /tmp/other-flake
+            cd /tmp/other-flake
+            git init
+            git config user.name 'Other User'
+            git config user.email 'other@example.com'
+
+            cat > flake.nix << 'EOF'
+            {
+              outputs = { self }: {
+                checks.x86_64-linux.test = derivation {
+                  name = "other-test";
+                  system = "x86_64-linux";
+                  builder = "/bin/sh";
+                  args = [ "-c" "echo 'Hello from other-user' > $out" ];
+                };
+              };
+            }
+            EOF
+
+            git add flake.nix
+            git commit -m "Initial commit"
+            git remote add origin http://other-user:otherpassword123@localhost:3742/other-user/other-flake.git
+            git push -u origin master
+
+            echo "other-user/other-flake created — admin is NOT a collaborator"
+
+            # Create a repo WITHOUT the buildbot-nix topic.
+            # It should NOT be discovered by buildbot.
+            echo "Creating repo without buildbot-nix topic..."
+            curl -s -X POST \
+              -H "Authorization: token $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"no-topic-repo","private":false}' \
+              http://localhost:3742/api/v1/user/repos
+
+            echo "gitea-admin/no-topic-repo created — no buildbot-nix topic"
           '';
         };
 
@@ -302,6 +379,31 @@
             return True
         
         retry(check_project_registered, timeout_seconds=120)
+
+    with subtest("Site admin discovers repo owned by another user without being a collaborator"):
+        # other-user/other-flake was created by a non-admin user.
+        # The gitea-admin site admin was NOT added as a collaborator.
+        # buildbot should still discover it because it is a site admin.
+        def check_other_project_registered(_ignore):
+            projects_json = buildbot.wait_until_succeeds("curl --fail http://localhost:8010/api/v2/projects")
+            projects = json.loads(projects_json)
+            project_names = [p["name"] for p in projects["projects"]]
+            if "other-user/other-flake" not in project_names:
+                print(f"other-user/other-flake not yet discovered, current projects: {project_names}")
+                return False
+            return True
+
+        retry(check_other_project_registered, timeout_seconds=120)
+
+    with subtest("Repos without the configured topic are not discovered"):
+        # gitea-admin/no-topic-repo exists but lacks the buildbot-nix topic.
+        # Since discovery has already completed (previous subtest passed),
+        # it should not be in the project list.
+        projects_json = buildbot.succeed("curl --fail http://localhost:8010/api/v2/projects")
+        projects = json.loads(projects_json)
+        project_names = [p["name"] for p in projects["projects"]]
+        assert "gitea-admin/no-topic-repo" not in project_names, \
+            f"no-topic-repo should not be discovered, but got: {project_names}"
 
     with subtest("Verify webhook was created by buildbot"):
         # Wait for buildbot to create the webhook
