@@ -71,6 +71,9 @@ class BuildConfig:
     post_build_steps: list[steps.BuildStep] | list[models.PostBuildStep]
     branch_config_dict: models.BranchConfigDict
     outputs_path: Path | None = None
+    max_silent_time: int = 60 * 20  # stop stuck builds after 20 minutes
+    timeout: int = 60 * 60 * 3  # 3 hours, defaults to 20 minutes
+    # We increase this over the default since the build output might end up in a different `nix build`.
 
 
 class NixBuildCommand(buildstep.ShellMixin, steps.BuildStep):
@@ -257,17 +260,14 @@ def nix_build_steps(
                 "--option",
                 "keep-going",
                 "true",
-                # stop stuck builds after 20 minutes
                 "--max-silent-time",
-                str(60 * 20),
+                str(build_config.max_silent_time),
                 "--accept-flake-config",
                 "--out-link",
                 util.Interpolate("result-%(prop:attr)s"),
                 util.Interpolate("%(prop:drv_path)s^*"),
             ],
-            # 3 hours, defaults to 20 minutes
-            # We increase this over the default since the build output might end up in a different `nix build`.
-            timeout=60 * 60 * 3,
+            timeout=build_config.timeout,
             haltOnFailure=True,
             logEnviron=False,
         ),
