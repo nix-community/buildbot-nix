@@ -262,6 +262,7 @@ in
                     "gitea"
                     "github"
                   ];
+                  description = "Authentication provider for the oauth2-proxy reverse proxy.";
                 };
 
                 cookieSecretFile = lib.mkOption {
@@ -510,6 +511,7 @@ in
               email = lib.mkOption {
                 type = lib.types.str;
                 default = "email";
+                description = "Name of the OIDC claim that contains the user's email address.";
               };
               username = lib.mkOption {
                 type = lib.types.str;
@@ -519,6 +521,7 @@ in
               full_name = lib.mkOption {
                 type = lib.types.str;
                 default = "name";
+                description = "Name of the OIDC claim that contains the user's full name.";
               };
               groups = lib.mkOption {
                 type = lib.types.nullOr lib.types.str;
@@ -534,6 +537,7 @@ in
       pullBased = {
         repositories = lib.mkOption {
           default = { };
+          description = "Repositories to poll for changes.";
           type = lib.types.attrsOf (
             lib.types.submodule {
               options = {
