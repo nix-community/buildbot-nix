@@ -6,6 +6,7 @@ let
     self:
     {
       buildbot-nix = self.callPackage ./buildbot-nix.nix { };
+      buildbot-dev = self.callPackage ./buildbot-dev.nix { };
     }
     // lib.optionalAttrs pkgs.stdenv.isLinux {
       buildbot-effects = self.callPackage ./buildbot-effects.nix { };

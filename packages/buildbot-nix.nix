@@ -1,5 +1,6 @@
 {
   buildPythonPackage,
+  git,
   hatchling,
   nix,
   pydantic,
@@ -39,6 +40,7 @@ buildPythonPackage {
   buildInputs = [ nix ];
 
   nativeCheckInputs = [
+    git
     pytestCheckHook
     pytest-timeout
     pytest-xdist
