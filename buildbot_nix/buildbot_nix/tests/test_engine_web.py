@@ -6,6 +6,7 @@ ephemeral Postgres via the httpx ASGI test client."""
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -115,6 +116,23 @@ def test_build_page(client: WebClient) -> None:
     assert "/builds/3" in text
     # Forge links.
     assert "https://github.com/acme/widget/commit/sha-2" in text
+
+
+def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
+    async def seed() -> None:
+        ctx = client.app.state.web_context
+        await ctx.pool.execute(
+            "UPDATE builds SET eval_warnings = $1::jsonb WHERE number = 2",
+            json.dumps(["evaluation warning: foo is deprecated", "trace: bar"]),
+        )
+
+    client.loop.run_until_complete(seed())
+    text = get(client, "/projects/acme/widget/builds/2").text
+    assert "evaluation warning: foo is deprecated" in text
+    assert "trace: bar" in text
+    # Decoded, not the raw jsonb string.
+    assert "[&#34;" not in text
+    assert '["' not in text
 
 
 def test_build_page_live_poll_marker(client: WebClient) -> None:

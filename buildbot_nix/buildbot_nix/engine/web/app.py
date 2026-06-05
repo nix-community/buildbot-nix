@@ -15,6 +15,7 @@ Visibility filtering hooks (`visible_project_ids`) are wired by task
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -254,6 +255,9 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
+        if isinstance(build.get("eval_warnings"), str):
+            # asyncpg returns jsonb as a string; render plain text.
+            build["eval_warnings"] = "\n\n".join(json.loads(build["eval_warnings"]))
         prev_number, next_number = await ctx.queries.neighbor_numbers(
             project["id"], number
         )
