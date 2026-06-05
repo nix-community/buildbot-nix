@@ -5,6 +5,10 @@
   programs.nixfmt.package = pkgs.nixfmt;
   programs.shellcheck.enable = true;
   programs.deno.enable = true;
+  # deno fmt cannot parse Jinja syntax in the engine's HTML templates.
+  settings.formatter.deno.excludes = [
+    "buildbot_nix/buildbot_nix/engine/web/templates/*"
+  ];
   programs.ruff.check = true;
   programs.ruff.format = true;
   settings.formatter.shellcheck.options = [
@@ -14,20 +18,23 @@
 
   programs.mypy = {
     enable = pkgs.stdenv.buildPlatform.isLinux;
-    package = pkgs.buildbot.python.pkgs.mypy;
+    package = pkgs.python3.pkgs.mypy;
     directories."." = {
       modules = [
         "buildbot_nix"
         "buildbot_effects"
       ];
       extraPythonPackages = [
-        (pkgs.python3.pkgs.toPythonModule pkgs.buildbot)
-        pkgs.buildbot-worker
-        pkgs.python3.pkgs.twisted
         pkgs.python3.pkgs.pydantic
         pkgs.python3.pkgs.pytest
-        pkgs.python3.pkgs.zope-interface
-        pkgs.python3.pkgs.types-requests
+        pkgs.python3.pkgs.httpx
+        pkgs.python3.pkgs.fastapi
+        pkgs.python3.pkgs.uvicorn
+        pkgs.python3.pkgs.asyncpg
+        pkgs.python3.pkgs.jinja2
+        pkgs.python3.pkgs.zstandard
+        pkgs.python3.pkgs.python-multipart
+        pkgs.python3.pkgs.playwright
       ];
     };
   };

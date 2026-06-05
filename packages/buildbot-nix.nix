@@ -1,13 +1,23 @@
 {
   buildPythonPackage,
-  buildbot-gitea,
   hatchling,
   nix,
-  psycopg2,
   pydantic,
   pytestCheckHook,
-  requests,
-  treq,
+  pytest-timeout,
+  pytest-xdist,
+  fastapi,
+  uvicorn,
+  asyncpg,
+  jinja2,
+  httpx,
+  zstandard,
+  python-multipart,
+  postgresql,
+  playwright,
+  playwright-driver,
+  makeFontsConf,
+  dejavu_fonts,
   lib,
 }:
 buildPythonPackage {
@@ -17,20 +27,41 @@ buildPythonPackage {
   build-system = [ hatchling ];
   dependencies = [
     pydantic
-    requests
-    treq
-    psycopg2
-    buildbot-gitea
+    fastapi
+    uvicorn
+    asyncpg
+    jinja2
+    httpx
+    zstandard
+    python-multipart
   ];
 
   buildInputs = [ nix ];
 
   nativeCheckInputs = [
     pytestCheckHook
+    pytest-timeout
+    pytest-xdist
+    postgresql
+    playwright
   ];
 
+  # Browser tests run headless Chromium from the pinned playwright
+  # driver; the version matches the python playwright package.
+  # Chromium refuses to start with the unwritable default HOME.
+  preCheck = ''
+    export HOME=$(mktemp -d)
+  '';
+
+  env = {
+    PLAYWRIGHT_BROWSERS_PATH = playwright-driver.browsers;
+    PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+    # Chromium aborts in Skia without a fontconfig setup.
+    FONTCONFIG_FILE = makeFontsConf { fontDirectories = [ dejavu_fonts ]; };
+  };
+
   meta = {
-    description = "Buildbot plugin for building Nix projects";
+    description = "A standalone CI engine for Nix projects";
     homepage = "https://github.com/nix-community/buildbot-nix";
     license = lib.licenses.mit;
     maintainers = [ lib.maintainers.mic92 ];

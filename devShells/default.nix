@@ -4,26 +4,33 @@
   system,
   ...
 }:
-let
-  # Reuse the python interpreter that the buildbot packages are built against
-  # so the dev shell closure does not mix the patched and unpatched twisted.
-  buildbotPackages = pkgs.callPackage ../packages/buildbot-packages.nix { };
-in
 {
   default = pkgs.mkShell {
     packages = [
       pkgs.bashInteractive
       pkgs.mypy
       pkgs.ruff
-      (buildbotPackages.python.withPackages (
+      pkgs.postgresql
+      pkgs.nix-eval-jobs
+      (pkgs.python3.withPackages (
         ps:
         [
           ps.pytest
-          (ps.toPythonModule buildbotPackages.buildbot)
-          (ps.toPythonModule buildbotPackages.buildbot-worker)
+          ps.pytest-timeout
+          ps.pytest-xdist
+          ps.playwright
         ]
         ++ self.packages.${system}.buildbot-nix.dependencies
       ))
     ];
+    # pkgs.mypy's setup hook disables pytest plugin autoloading, which
+    # silently turns off pytest-timeout and pytest-xdist.
+    shellHook = ''
+      unset PYTEST_DISABLE_PLUGIN_AUTOLOAD
+    '';
+    env = {
+      PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+      PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+    };
   };
 }

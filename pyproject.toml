@@ -1,3 +1,10 @@
 [tool.pytest.ini_options]
 pythonpath = ["buildbot_nix"]
 testpaths = ["tests"]
+timeout = 60
+
+[tool.mypy]
+# asyncpg ships no type stubs and no py.typed marker.
+[[tool.mypy.overrides]]
+module = "asyncpg.*"
+ignore_missing_imports = true

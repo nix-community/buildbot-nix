@@ -45,8 +45,11 @@
       lib = import ./nix/lib.nix;
 
       nixosModules = {
-        buildbot-master = ./nixosModules/master.nix;
-        buildbot-worker = ./nixosModules/worker.nix;
+        buildbot-nix = ./nixosModules/buildbot-nix.nix;
+        # Old entry points alias the engine module; its
+        # mkRemovedOptionModule stubs explain the migration.
+        buildbot-master = ./nixosModules/buildbot-nix.nix;
+        buildbot-worker = ./nixosModules/buildbot-nix.nix;
       };
 
       nixosConfigurations =

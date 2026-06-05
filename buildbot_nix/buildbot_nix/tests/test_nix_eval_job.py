@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from buildbot_nix.models import NixEvalJobModel, NixEvalJobSuccess
+from buildbot_nix.engine.models import NixEvalJobModel, NixEvalJobSuccess
 
 
 def test_impure_job_with_null_out_parses() -> None:
