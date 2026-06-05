@@ -668,6 +668,12 @@ in
         default = config.services.buildbot-master.buildbotUrl;
         defaultText = lib.literalExpression "config.services.buildbot-master.buildbotUrl";
       };
+      enableNginx = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Whether to enable automatic nginx configuration.";
+      };
+
       useHTTPS = lib.mkOption {
         type = lib.types.nullOr lib.types.bool;
         default = false;
@@ -1015,8 +1021,14 @@ in
       ];
       buildbotUrl =
         let
-          host = config.services.nginx.virtualHosts.${cfg.domain};
-          hasSSL = host.forceSSL || host.addSSL || cfg.useHTTPS;
+          hasSSL =
+            if cfg.enableNginx then
+              let
+                host = config.services.nginx.virtualHosts.${cfg.domain};
+              in
+              host.forceSSL || host.addSSL || cfg.useHTTPS
+            else
+              cfg.useHTTPS;
         in
         "${if hasSSL then "https" else "http"}://${cfg.domain}/";
       dbUrl = config.services.buildbot-nix.master.dbUrl;
@@ -1077,38 +1089,40 @@ in
       ];
     };
 
-    services.nginx.enable = true;
-    services.nginx.virtualHosts.${cfg.domain} = {
-      locations = {
-        "/" = {
-          proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
+    services.nginx = lib.mkIf cfg.enableNginx {
+      enable = true;
+      virtualHosts.${cfg.domain} = {
+        locations = {
+          "/" = {
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/";
 
-          # Big build matrixes can generated quiet a bit of concurrent requests
-          extraConfig = ''
-            proxy_connect_timeout 120s;
-            proxy_send_timeout 120s;
-            proxy_read_timeout 120s;
-          '';
-        };
-        "/sse" = {
-          proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
-          # proxy buffering will prevent sse to work
-          extraConfig = "proxy_buffering off;";
-        };
-        "/ws" = {
-          proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
-          proxyWebsockets = true;
-          # raise the proxy timeout for the websocket
-          extraConfig = "proxy_read_timeout 6000s;";
-        };
-      }
-      // lib.optionalAttrs (cfg.outputsPath != null) {
-        "/nix-outputs/" = {
-          alias = cfg.outputsPath;
-          extraConfig = ''
-            charset utf-8;
-            autoindex on;
-          '';
+            # Big build matrixes can generated quiet a bit of concurrent requests
+            extraConfig = ''
+              proxy_connect_timeout 120s;
+              proxy_send_timeout 120s;
+              proxy_read_timeout 120s;
+            '';
+          };
+          "/sse" = {
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/sse";
+            # proxy buffering will prevent sse to work
+            extraConfig = "proxy_buffering off;";
+          };
+          "/ws" = {
+            proxyPass = "http://127.0.0.1:${builtins.toString backendPort}/ws";
+            proxyWebsockets = true;
+            # raise the proxy timeout for the websocket
+            extraConfig = "proxy_read_timeout 6000s;";
+          };
+        }
+        // lib.optionalAttrs (cfg.outputsPath != null) {
+          "/nix-outputs/" = {
+            alias = cfg.outputsPath;
+            extraConfig = ''
+              charset utf-8;
+              autoindex on;
+            '';
+          };
         };
       };
     };
