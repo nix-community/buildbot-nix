@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}API tokens{% endblock %}
+{% block body %}
+<main>
+  <section class="content">
+    <h2>API tokens <small>for {{ user.qualified }}</small></h2>
+    {% if new_token %}
+    <pre class="error warning">Your new token (shown only once):
+{{ new_token }}</pre>
+    {% endif %}
+    <form method="post" action="/tokens">
+      <input type="text" name="name" placeholder="token name">
+      <input type="number" name="expires_days" min="1" placeholder="expires in days (optional)">
+      <button>generate token</button>
+    </form>
+    <table>
+      <tr><th>name</th><th>created</th><th>expires</th><th></th></tr>
+      {% for t in tokens %}
+      <tr>
+        <td>{{ t.name }}</td>
+        <td><time title="{{ t.created_at }}">{{ t.created_at | timeago }}</time></td>
+        <td>{{ t.expires_at or "never" }}</td>
+        <td>
+          <form method="post" action="/tokens/{{ t.id }}/revoke">
+            <button>revoke</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">no tokens</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+</main>
+{% endblock %}

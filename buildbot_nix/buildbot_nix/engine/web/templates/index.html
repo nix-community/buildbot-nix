@@ -1,0 +1,45 @@
+{% extends "base.html" %} {% block body %}
+<main>
+  <nav class="sidebar">
+    <h2>Projects</h2>
+    <ul>
+      {% for p in projects %}
+      <li>
+        <a href="/projects/{{ p.owner }}/{{ p.name }}"
+        >{{ p.owner }}/{{ p.name }}</a>
+      </li>
+      {% else %}
+      <li class="muted">no enabled projects</li>
+      {% endfor %}
+    </ul>
+    {% if all_projects %}
+    <h2>Administration</h2>
+    <ul>
+      {% for p in all_projects %}
+      <li>
+        {{ p.owner }}/{{ p.name }}
+        <form method="post" action="/admin/projects/{{ p.id }}/toggle">
+          <button>{{ "disable" if p.enabled else "enable" }}</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </nav>
+  <section class="content">
+    <h2>Recent builds</h2>
+    <table>
+      <tr>
+        <th>#</th>
+        <th>project</th>
+        <th>branch</th>
+        <th>status</th>
+        <th>commit</th>
+        <th>when</th>
+        <th>took</th>
+      </tr>
+      {% for b in builds %}{% include "_build_row.html" %}{% endfor %}
+    </table>
+  </section>
+</main>
+{% endblock %}

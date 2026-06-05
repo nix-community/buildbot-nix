@@ -1,0 +1,42 @@
+{% extends "base.html" %} {% block title %}{{ attr }} history{% endblock %} {%
+block body %}
+<main>
+  <section class="content">
+    <h2>
+      <code>{{ attr }}</code>
+      <small>in <a href="/projects/{{ project.owner }}/{{ project.name }}"
+        >{{ project.owner }}/{{ project.name }}</a></small>
+    </h2>
+    <table>
+      <tr>
+        <th>build</th>
+        <th>branch</th>
+        <th>status</th>
+        <th>commit</th>
+        <th>when</th>
+      </tr>
+      {% for h in history %}
+      <tr>
+        <td>
+          <a
+            href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ h.build_number }}"
+          >#{{ h.build_number }}</a>
+        </td>
+        <td>{{ h.branch }}</td>
+        <td>
+          <span class="status {{ h.status }}"
+          >{{ h.status.replace("_", " ") }}</span>
+        </td>
+        <td><code>{{ h.commit_sha[:10] }}</code></td>
+        <td>
+          <time title="{{ h.build_created_at }}"
+          >{{ h.build_created_at | timeago }}</time>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">no history</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+</main>
+{% endblock %}

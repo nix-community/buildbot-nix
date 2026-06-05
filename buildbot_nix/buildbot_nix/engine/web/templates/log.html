@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ attr }} log{% endblock %}
+{% block body %}
+<main>
+  <section class="content">
+    <h2>
+      <code>{{ attr }}</code>
+      <small>
+        <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>
+        · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.txt">raw</a>
+        · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.zst">.zst</a>
+      </small>
+    </h2>
+    {% if live %}
+    <label><input type="checkbox" id="follow" checked> follow tail</label>
+    {% endif %}
+    <pre class="log" id="log">{{ content | safe }}</pre>
+  </section>
+</main>
+{% if live %}
+<script>
+const log = document.getElementById('log');
+const follow = document.getElementById('follow');
+const source = new EventSource(
+  '/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}/stream');
+/* The stream replays full history on every (re)connect. */
+source.onopen = () => { log.textContent = ''; };
+source.onmessage = (event) => {
+  log.textContent += event.data; // chunks carry their own newlines
+  if (follow.checked) window.scrollTo(0, document.body.scrollHeight);
+};
+source.addEventListener('done', () => source.close());
+</script>
+{% endif %}
+{% endblock %}

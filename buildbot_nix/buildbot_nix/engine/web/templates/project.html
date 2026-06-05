@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ project.owner }}/{{ project.name }}{% endblock %}
+{% block body %}
+<main>
+  <section class="content">
+    <h2>{{ project.owner }}/{{ project.name }}
+      <small><a href="{{ project.url }}">repo</a> · default branch {{ project.default_branch }}</small>
+    </h2>
+    <form method="get">
+      <select name="status">
+        <option value="">all statuses</option>
+        {% for s in ["succeeded", "failed", "cancelled", "building", "pending"] %}
+        <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="branch" placeholder="branch" value="{{ branch }}">
+      <button>filter</button>
+    </form>
+    <table>
+      <tr><th>#</th><th>branch</th><th>status</th><th>commit</th><th>when</th><th>took</th></tr>
+      {% for b in builds["items"] %}{% include "_build_row.html" %}{% endfor %}
+    </table>
+    <div class="pager">
+      {% if builds.page > 1 %}
+      <a href="?page={{ builds.page - 1 }}&status={{ status }}&branch={{ branch }}">← newer</a>
+      {% endif %}
+      {% if builds.has_next %}
+      <a href="?page={{ builds.page + 1 }}&status={{ status }}&branch={{ branch }}">older →</a>
+      {% endif %}
+    </div>
+  </section>
+</main>
+{% endblock %}

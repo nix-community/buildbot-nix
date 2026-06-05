@@ -1,0 +1,46 @@
+{% extends "base.html" %} {% block title %}search{% endblock %} {% block body %}
+<main>
+  <section class="content">
+    <h2>Search results for “{{ q }}”</h2>
+    <h3>Projects</h3>
+    <ul>
+      {% for p in results.projects %}
+      <li>
+        <a href="/projects/{{ p.owner }}/{{ p.name }}"
+        >{{ p.owner }}/{{ p.name }}</a>
+      </li>
+      {% else %}<li class="muted">none</li>{% endfor %}
+    </ul>
+    <h3>Attributes</h3>
+    <table>
+      <tr>
+        <th>attribute</th>
+        <th>project</th>
+        <th>status</th>
+        <th>latest build</th>
+      </tr>
+      {% for a in results.attributes %}
+      <tr>
+        <td>
+          <a
+            href="/projects/{{ a.owner }}/{{ a.project_name }}/attrs/{{ a.attr }}"
+          ><code>{{ a.attr }}</code></a>
+        </td>
+        <td>{{ a.owner }}/{{ a.project_name }}</td>
+        <td>
+          <span class="status {{ a.status }}"
+          >{{ a.status.replace("_", " ") }}</span>
+        </td>
+        <td>
+          <a
+            href="/projects/{{ a.owner }}/{{ a.project_name }}/builds/{{ a.build_number }}"
+          >#{{ a.build_number }}</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">none</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+</main>
+{% endblock %}

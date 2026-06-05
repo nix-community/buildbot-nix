@@ -1,0 +1,331 @@
+"""FastAPI web frontend.
+
+Server-rendered Jinja2 with a small inline poller for live updates
+(htmx-style partial swaps without a JS build step), classless CSS with system-preference
+dark mode. Per-project sequential build numbers in URLs; prev/next
+navigation between builds and per-attribute history; homepage
+recent-builds feed with project sidebar; substring search; attributes
+grouped by system with failed-first ordering and inline error
+excerpts; live updates while builds run (htmx polling fragments);
+global queue page with FIFO positions.
+
+Visibility filtering hooks (`visible_project_ids`) are wired by task
+5.3b; None means everything is visible.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+from ..auth import is_admin  # noqa: TID252
+from ..recovery import check_db_health  # noqa: TID252
+from .api_routes import create_api_router
+from .auth_routes import SESSION_COOKIE
+from .logs import LogRegistry, create_log_router
+from .metrics import create_metrics_router
+from .queries import WebQueries
+
+if TYPE_CHECKING:
+    from ..api_tokens import ApiTokenStore  # noqa: TID252
+    from ..auth import SessionSigner, User  # noqa: TID252
+    from ..forge_tokens import TokenVault  # noqa: TID252
+    from ..visibility import VisibilityService  # noqa: TID252
+
+if TYPE_CHECKING:
+    import asyncpg
+
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
+
+RUNNING_STATUSES = ("pending", "evaluating", "building")
+
+
+def timeago(value: datetime | None) -> str:
+    if value is None:
+        return "—"
+    delta = datetime.now(tz=UTC) - value
+    seconds = int(delta.total_seconds())
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size:
+            return f"{seconds // size}{unit} ago"
+    return f"{max(seconds, 0)}s ago"
+
+
+def duration(row: dict[str, Any]) -> str:
+    started, finished = row.get("started_at"), row.get("finished_at")
+    if not started:
+        return "—"
+    end = finished or datetime.now(tz=UTC)
+    seconds = int((end - started).total_seconds())
+    if seconds >= 3600:  # noqa: PLR2004
+        return f"{seconds // 3600}h {seconds % 3600 // 60}m"
+    if seconds >= 60:  # noqa: PLR2004
+        return f"{seconds // 60}m {seconds % 60}s"
+    return f"{seconds}s"
+
+
+def commit_url(project: dict[str, Any], sha: str) -> str:
+    base = project["url"].removesuffix(".git")
+    if project["forge"] == "github":
+        return f"{base}/commit/{sha}"
+    return f"{base}/commit/{sha}"
+
+
+def pr_url(project: dict[str, Any], pr_number: int) -> str:
+    base = project["url"].removesuffix(".git")
+    if project["forge"] == "github":
+        return f"{base}/pull/{pr_number}"
+    return f"{base}/pulls/{pr_number}"
+
+
+def excerpt(text: str | None, limit: int = 600) -> str:
+    if not text:
+        return ""
+    return text if len(text) <= limit else text[:limit] + " …"
+
+
+def group_by_system(
+    attributes: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for attr in attributes:
+        groups.setdefault(attr.get("system") or "unknown", []).append(attr)
+    return groups
+
+
+def make_env() -> Environment:
+    env = Environment(
+        loader=FileSystemLoader(TEMPLATES_DIR),
+        autoescape=select_autoescape(["html"]),
+    )
+    env.filters["timeago"] = timeago
+    env.filters["duration"] = duration
+    env.filters["excerpt"] = excerpt
+    env.globals["commit_url"] = commit_url
+    env.globals["pr_url"] = pr_url
+    env.globals["group_by_system"] = group_by_system
+    env.globals["RUNNING_STATUSES"] = RUNNING_STATUSES
+    # Header login links; the service composition fills this in.
+    env.globals["login_providers"] = []
+    return env
+
+
+class WebContext:
+    """Shared state for the routes; auth (5.3) extends this."""
+
+    def __init__(
+        self,
+        pool: asyncpg.Pool,
+        state_dir: Path | None = None,
+        signer: SessionSigner | None = None,
+        visibility: VisibilityService | None = None,
+    ) -> None:
+        self.pool = pool
+        self.state_dir = state_dir or Path("/var/lib/buildbot-nix")
+        self.queries = WebQueries(pool)
+        self.env = make_env()
+        self.signer = signer
+        self.visibility = visibility
+        self.token_store: ApiTokenStore | None = None
+        self.forge_tokens: TokenVault | None = None
+
+    def current_user(self, request: Request) -> User | None:
+        if self.signer is None:
+            return None
+        return self.signer.user_from(request.cookies.get(SESSION_COOKIE))
+
+    async def request_user(self, request: Request) -> User | None:
+        """Session cookie or personal API token (Authorization: Bearer)."""
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer ") and self.token_store is not None:
+            return await self.token_store.authenticate(
+                auth_header.removeprefix("Bearer ")
+            )
+        return self.current_user(request)
+
+    def render(
+        self, template: str, request: Request | None = None, **context: Any
+    ) -> HTMLResponse:
+        if request is not None:
+            context.setdefault("user", self.current_user(request))
+        return HTMLResponse(self.env.get_template(template).render(**context))
+
+    async def visible_project_ids(self, request: Request) -> list[int] | None:
+        """None = all projects visible."""
+        if self.visibility is None:
+            return None
+        user = await self.request_user(request)
+        token = None
+        if self.signer is not None and self.forge_tokens is not None:
+            session_id = self.signer.session_id_from(
+                request.cookies.get(SESSION_COOKIE)
+            )
+            if session_id is not None:
+                token = await self.forge_tokens.get(session_id)
+        return await self.visibility.visible_project_ids(user, token)
+
+    async def project_or_404(
+        self, owner: str, name: str, request: Request | None = None
+    ) -> dict[str, Any]:
+        """404 for unknown projects AND for private projects the
+        requester cannot see (their existence stays hidden)."""
+        project = await self.queries.project_by_name(owner, name)
+        if project is None:
+            raise HTTPException(status_code=404)
+        if request is not None:
+            visible = await self.visible_project_ids(request)
+            if visible is not None and project["id"] not in visible:
+                raise HTTPException(status_code=404)
+        return project
+
+
+def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
+    router = APIRouter()
+
+    @router.get("/", response_class=HTMLResponse)
+    async def index(request: Request) -> HTMLResponse:
+        visible = await ctx.visible_project_ids(request)
+        projects = await ctx.queries.projects()
+        if visible is not None:
+            projects = [p for p in projects if p["id"] in visible]
+        # Discovery inserts repos disabled; admins enable them here.
+        admin = ctx.visibility is not None and is_admin(
+            ctx.current_user(request), ctx.visibility.authz
+        )
+        all_projects = await ctx.queries.projects(enabled_only=False) if admin else None
+        return ctx.render(
+            "index.html",
+            request=request,
+            projects=projects,
+            builds=await ctx.queries.recent_builds(project_ids=visible),
+            all_projects=all_projects,
+        )
+
+    @router.get("/search", response_class=HTMLResponse)
+    async def search(request: Request, q: str = "") -> HTMLResponse:
+        visible = await ctx.visible_project_ids(request)
+        results = (
+            await ctx.queries.search(q, project_ids=visible)
+            if q
+            else {"projects": [], "attributes": []}
+        )
+        return ctx.render("search.html", request=request, q=q, results=results)
+
+    @router.get("/queue", response_class=HTMLResponse)
+    async def queue(request: Request) -> HTMLResponse:
+        visible = await ctx.visible_project_ids(request)
+        return ctx.render(
+            "queue.html", request=request, queue=await ctx.queries.queue(visible)
+        )
+
+    @router.get("/projects/{owner}/{name}", response_class=HTMLResponse)
+    async def project_page(  # noqa: PLR0913
+        request: Request,
+        owner: str,
+        name: str,
+        page: int = 1,
+        status: str | None = None,
+        branch: str | None = None,
+    ) -> HTMLResponse:
+        project = await ctx.project_or_404(owner, name, request)
+        builds = await ctx.queries.builds_for_project(
+            project["id"], page=page, status=status, branch=branch
+        )
+        return ctx.render(
+            "project.html",
+            request=request,
+            project=project,
+            builds=builds,
+            status=status or "",
+            branch=branch or "",
+        )
+
+    @router.get("/projects/{owner}/{name}/builds/{number}", response_class=HTMLResponse)
+    async def build_page(
+        request: Request, owner: str, name: str, number: int
+    ) -> HTMLResponse:
+        project = await ctx.project_or_404(owner, name, request)
+        build = await ctx.queries.build_by_number(project["id"], number)
+        if build is None:
+            raise HTTPException(status_code=404)
+        prev_number, next_number = await ctx.queries.neighbor_numbers(
+            project["id"], number
+        )
+        return ctx.render(
+            "build.html",
+            request=request,
+            project=project,
+            build=build,
+            attributes=await ctx.queries.attributes(build["id"]),
+            prev_number=prev_number,
+            next_number=next_number,
+        )
+
+    @router.get(
+        "/projects/{owner}/{name}/builds/{number}/attributes",
+        response_class=HTMLResponse,
+    )
+    async def build_attributes_fragment(
+        request: Request, owner: str, name: str, number: int
+    ) -> HTMLResponse:
+        """htmx polling target for live updates while builds run."""
+        project = await ctx.project_or_404(owner, name, request)
+        build = await ctx.queries.build_by_number(project["id"], number)
+        if build is None:
+            raise HTTPException(status_code=404)
+        return ctx.render(
+            "_attributes.html",
+            project=project,
+            build=build,
+            attributes=await ctx.queries.attributes(build["id"]),
+        )
+
+    @router.get("/projects/{owner}/{name}/attrs/{attr}", response_class=HTMLResponse)
+    async def attribute_history(
+        request: Request, owner: str, name: str, attr: str
+    ) -> HTMLResponse:
+        project = await ctx.project_or_404(owner, name, request)
+        return ctx.render(
+            "attribute_history.html",
+            request=request,
+            project=project,
+            attr=attr,
+            history=await ctx.queries.attribute_history(project["id"], attr),
+        )
+
+    @router.get("/health", response_class=PlainTextResponse)
+    async def health() -> PlainTextResponse:
+        if not await check_db_health(ctx.pool):
+            return PlainTextResponse("database unavailable", status_code=503)
+        return PlainTextResponse("ok")
+
+    @router.get("/static/style.css")
+    async def stylesheet() -> PlainTextResponse:
+        return PlainTextResponse(
+            (STATIC_DIR / "style.css").read_text(), media_type="text/css"
+        )
+
+    return router
+
+
+def create_app(
+    pool: asyncpg.Pool,
+    state_dir: Path | None = None,
+    log_registry: LogRegistry | None = None,
+) -> FastAPI:
+    app = FastAPI(title="buildbot-nix", openapi_url="/api/openapi.json")
+    ctx = WebContext(pool, state_dir)
+    app.state.web_context = ctx
+    app.include_router(create_router(ctx))
+    registry = log_registry or LogRegistry()
+    app.state.log_registry = registry
+    app.include_router(create_log_router(ctx, registry))
+    app.include_router(create_metrics_router(pool))
+    app.include_router(create_api_router(ctx))
+    return app

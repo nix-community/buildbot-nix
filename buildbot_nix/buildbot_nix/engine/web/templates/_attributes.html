@@ -1,0 +1,38 @@
+{% for system, attrs in group_by_system(attributes).items() %}
+<h3>{{ system }}</h3>
+<table>
+  <tr>
+    <th>attribute</th>
+    <th>status</th>
+    <th>log</th>
+    <th>history</th>
+  </tr>
+  {% for a in attrs %}
+  <tr data-attr="{{ a.attr | lower }}">
+    <td><code>{{ a.attr }}</code></td>
+    <td>
+      <span class="status {{ a.status }}"
+      >{{ a.status.replace("_", " ") }}</span>
+    </td>
+    <td>
+      {% if a.log_path or a.status in ('pending', 'building') %}
+      <a
+        href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ a.attr }}"
+      >log</a>
+      {% else %}<span class="muted">—</span>{% endif %}
+    </td>
+    <td>
+      <a
+        href="/projects/{{ project.owner }}/{{ project.name }}/attrs/{{ a.attr }}"
+      >history</a>
+    </td>
+  </tr>
+  {% if a.error %}
+  <tr data-attr="{{ a.attr | lower }}">
+    <td colspan="4"><pre class="error">{{ a.error | excerpt }}</pre></td>
+  </tr>
+  {% endif %} {% endfor %}
+</table>
+{% else %}
+<p class="muted">no attributes (yet)</p>
+{% endfor %}
