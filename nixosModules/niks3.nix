@@ -5,14 +5,14 @@
   ...
 }:
 let
-  cfg = config.services.buildbot-nix.master;
+  cfg = config.services.buildbot-nix;
   interpolate = value: {
     _type = "interpolate";
     inherit value;
   };
 in
 {
-  options.services.buildbot-nix.master.niks3 = {
+  options.services.buildbot-nix.niks3 = {
     enable = lib.mkEnableOption "Enable niks3 integration";
 
     serverUrl = lib.mkOption {
@@ -35,20 +35,20 @@ in
   };
 
   config = lib.mkIf cfg.niks3.enable {
-    systemd.services.buildbot-master.serviceConfig.LoadCredential = [
+    systemd.services.buildbot-nix.serviceConfig.LoadCredential = [
       "niks3-auth-token:${builtins.toString cfg.niks3.authTokenFile}"
     ];
 
-    systemd.services.buildbot-worker.path = [ cfg.niks3.package ];
+    systemd.services.buildbot-nix.path = [ cfg.niks3.package ];
 
-    services.buildbot-nix.master.postBuildSteps = [
+    services.buildbot-nix.postBuildSteps = [
       {
         name = "Upload to niks3";
         environment = {
           NIKS3_SERVER_URL = cfg.niks3.serverUrl;
         };
         command = [
-          "niks3" # note that this is the niks3 from the worker's $PATH
+          "niks3"
           "push"
           "--auth-token"
           (interpolate "%(secret:niks3-auth-token)s")
