@@ -331,6 +331,8 @@ class BuildbotNixConfig(BaseModel):
     show_trace_on_failure: bool = False
     cache_failed_builds: bool = False
     allow_unauthenticated_control: bool = False
+    build_max_silent_time: int = 60 * 20  # stop stuck builds after 20 minutes
+    build_timeout: int = 60 * 60 * 3  # 3 hours default for nix build
 
     def nix_worker_secrets(self) -> WorkerConfig:
         if self.nix_workers_secret_file is None:

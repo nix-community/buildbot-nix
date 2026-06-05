@@ -682,6 +682,18 @@ in
         description = "Show stack traces on failed evaluations";
       };
 
+      buildMaxSilentTime = lib.mkOption {
+        type = lib.types.int;
+        default = 60 * 20;
+        description = "Maximum time in seconds a nix build can be silent before being killed. Defaults to 20 minutes.";
+      };
+
+      buildTimeout = lib.mkOption {
+        type = lib.types.int;
+        default = 60 * 60 * 3;
+        description = "Overall timeout in seconds for nix build steps. Defaults to 3 hours.";
+      };
+
       cacheFailedBuilds = lib.mkEnableOption ''
         cache failed builds in local database to avoid retrying them.
         When enabled, failed builds will be remembered and skipped in subsequent evaluations
@@ -994,6 +1006,8 @@ in
                 show_trace_on_failure = cfg.showTrace;
                 cache_failed_builds = cfg.cacheFailedBuilds;
                 allow_unauthenticated_control = cfg.allowUnauthenticatedControl;
+                build_max_silent_time = cfg.buildMaxSilentTime;
+                build_timeout = cfg.buildTimeout;
               }
             }").read_text()))
           )

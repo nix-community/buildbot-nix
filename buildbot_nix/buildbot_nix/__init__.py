@@ -163,6 +163,8 @@ class NixConfigurator(ConfiguratorBase):
                             ],
                             branch_config_dict=self.config.branches,
                             outputs_path=self.config.outputs_path,
+                            max_silent_time=self.config.build_max_silent_time,
+                            timeout=self.config.build_timeout,
                         ),
                         per_repo_effects_secrets=self.config.effects_per_repo_secrets,
                         effects_extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
