@@ -1,0 +1,314 @@
+"""Tests for commit status reporting: contexts, caps, success-flip,
+stale-generation dropping (with fake posters and in-memory store)."""
+
+# ruff: noqa: PLR2004, ARG002, FBT003, RUF059 (test fakes and literals)
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+
+import httpx
+
+from buildbot_nix.engine.db import BuildRecord
+from buildbot_nix.engine.models import NixEvalJobError
+from buildbot_nix.engine.orchestrator import ChangeEvent, ProjectInfo
+from buildbot_nix.engine.scheduler import AttributeResult, AttributeStatus
+from buildbot_nix.engine.status import (
+    ForgeStatusReporter,
+    StatusState,
+    attr_status_context,
+    eval_description,
+)
+
+
+@dataclass
+class Posted:
+    sha: str
+    context: str
+    state: StatusState
+    description: str
+    target_url: str
+
+
+@dataclass
+class FakePoster:
+    posts: list[Posted] = field(default_factory=list)
+
+    async def post(  # noqa: PLR0913
+        self,
+        owner: str,
+        repo: str,
+        sha: str,
+        context: str,
+        state: StatusState,
+        description: str,
+        target_url: str,
+    ) -> None:
+        self.posts.append(Posted(sha, context, state, description, target_url))
+
+
+class MemoryFailedStatuses:
+    def __init__(self) -> None:
+        self.failed: dict[str, set[str]] = {}
+
+    async def mark_failed(self, revision: str, status_name: str) -> None:
+        self.failed.setdefault(revision, set()).add(status_name)
+
+    async def get_failed(self, revision: str) -> set[str]:
+        return set(self.failed.get(revision, set()))
+
+    async def clear(self, revision: str, status_name: str) -> None:
+        self.failed.get(revision, set()).discard(status_name)
+
+
+PROJECT = ProjectInfo(
+    id=1,
+    key="github/acme/widget",
+    name="acme/widget",
+    owner="acme",
+    repo="widget",
+    forge="github",
+    clone_url="https://github.com/acme/widget.git",
+    default_branch="main",
+)
+
+EVENT = ChangeEvent(project=PROJECT, branch="main", commit_sha="sha1")
+
+BUILD = BuildRecord(
+    id=10,
+    project_id=1,
+    number=42,
+    tree_hash="tree",
+    commit_sha="sha1",
+    branch="main",
+    pr_number=None,
+    status="building",
+    status_generation=0,
+    effects_started=False,
+)
+
+
+def attr_result(
+    attr: str, status: AttributeStatus, error: str | None = None
+) -> AttributeResult:
+    return AttributeResult(
+        attr=attr,
+        status=status,
+        job=NixEvalJobError(error=error or "", attr=attr, attrPath=[attr]),
+        error=error,
+    )
+
+
+def make_reporter(
+    limit: int = 47,
+) -> tuple[ForgeStatusReporter, FakePoster, MemoryFailedStatuses]:
+    poster = FakePoster()
+    store = MemoryFailedStatuses()
+    reporter = ForgeStatusReporter(
+        {"github": poster, "gitea": poster},
+        store,
+        "https://ci.test",
+        failed_build_report_limit=limit,
+    )
+    return reporter, poster, store
+
+
+def test_context_names_unchanged() -> None:
+    assert (
+        attr_status_context("github", "acme/widget", "x86_64-linux.foo")
+        == "nix-build github:acme/widget#checks.x86_64-linux.foo"
+    )
+
+
+def test_eval_description_warning_count() -> None:
+    assert eval_description(True, []) == "evaluation succeeded"
+    assert eval_description(True, ["w"]) == "evaluation succeeded (1 warning)"
+    assert eval_description(False, ["a", "b"]) == "evaluation failed (2 warnings)"
+
+
+def test_phase_statuses_and_target_url() -> None:
+    reporter, poster, _ = make_reporter()
+
+    async def run() -> None:
+        await reporter.build_started(EVENT, BUILD)
+        await reporter.eval_finished(EVENT, BUILD, success=True, warnings=["w"])
+        await reporter.build_finished(EVENT, BUILD, "succeeded", 1, [])
+
+    asyncio.run(run())
+    contexts = [(p.context, p.state) for p in poster.posts]
+    assert contexts == [
+        ("nix-eval", StatusState.pending),
+        ("nix-eval", StatusState.success),
+        ("nix-build", StatusState.pending),
+        ("nix-build", StatusState.success),
+    ]
+    assert all(
+        p.target_url == "https://ci.test/projects/acme/widget/builds/42"
+        for p in poster.posts
+    )
+    assert "(1 warning)" in poster.posts[1].description
+
+
+def test_per_attribute_failure_statuses_capped() -> None:
+    reporter, poster, store = make_reporter(limit=2)
+    results = [
+        attr_result(f"a{i}", AttributeStatus.failed, error=f"boom {i}")
+        for i in range(4)
+    ]
+
+    asyncio.run(reporter.build_finished(EVENT, BUILD, "failed", 1, results))
+    failure_posts = [p for p in poster.posts if p.context.startswith("nix-build ")]
+    assert len(failure_posts) == 2  # capped at the limit
+    # Combined nix-build context still reports the full picture.
+    combined = next(p for p in poster.posts if p.context == "nix-build")
+    assert combined.state == StatusState.failure
+    assert "4 of 4" in combined.description
+
+
+def test_success_flip_on_rebuild() -> None:
+    reporter, poster, store = make_reporter()
+    context = attr_status_context("github", "acme/widget", "flaky")
+
+    async def run() -> None:
+        # First build: flaky fails.
+        await reporter.build_finished(
+            EVENT, BUILD, "failed", 1, [attr_result("flaky", AttributeStatus.failed)]
+        )
+        assert context in await store.get_failed("sha1")
+        # force_attrs derived from persisted failed statuses.
+        assert await reporter.force_attrs_for(EVENT) == {"flaky"}
+        # Rebuild succeeds: status flipped, record cleared.
+        await reporter.build_finished(
+            EVENT,
+            BUILD,
+            "succeeded",
+            2,
+            [attr_result("flaky", AttributeStatus.succeeded)],
+        )
+        assert context not in await store.get_failed("sha1")
+
+    asyncio.run(run())
+    flip = [p for p in poster.posts if p.context == context]
+    assert [p.state for p in flip] == [StatusState.failure, StatusState.success]
+
+
+def test_stale_generation_dropped() -> None:
+    reporter, poster, _ = make_reporter()
+
+    async def run() -> None:
+        await reporter.build_finished(EVENT, BUILD, "succeeded", 5, [])
+        posts_before = len(poster.posts)
+        # Stale post with lower generation: dropped entirely.
+        await reporter.build_finished(EVENT, BUILD, "failed", 3, [])
+        assert len(poster.posts) == posts_before
+
+    asyncio.run(run())
+
+
+def test_cancelled_attributes_recorded_as_failed_statuses() -> None:
+    reporter, poster, store = make_reporter()
+    asyncio.run(
+        reporter.build_finished(
+            EVENT,
+            BUILD,
+            "cancelled",
+            1,
+            [attr_result("a", AttributeStatus.cancelled)],
+        )
+    )
+    context = attr_status_context("github", "acme/widget", "a")
+    assert context in asyncio.run(store.get_failed("sha1"))
+    combined = next(p for p in poster.posts if p.context == "nix-build")
+    assert combined.state == StatusState.error
+
+
+def test_previously_failed_reposts_do_not_consume_budget() -> None:
+    """Re-posts of previously-failed contexts must not eat the report
+    limit for new failures on a rebuild."""
+    reporter, poster, store = make_reporter(limit=2)
+
+    async def run() -> None:
+        # First build: a0, a1 fail (consume the full budget).
+        await reporter.build_finished(
+            EVENT,
+            BUILD,
+            "failed",
+            1,
+            [attr_result(f"a{i}", AttributeStatus.failed) for i in range(2)],
+        )
+        poster.posts.clear()
+        # Rebuild: same two still fail, plus one new failure.
+        await reporter.build_finished(
+            EVENT,
+            BUILD,
+            "failed",
+            2,
+            [attr_result(f"a{i}", AttributeStatus.failed) for i in range(3)],
+        )
+
+    asyncio.run(run())
+    failure_posts = {
+        p.context for p in poster.posts if p.context.startswith("nix-build ")
+    }
+    # a2 is reported: the re-posts did not exhaust the budget of 2.
+    assert attr_status_context("github", "acme/widget", "a2") in failure_posts
+
+
+def test_summary_counts_use_all_attribute_statuses() -> None:
+    """Reruns pass only the re-run subset as results; the summary
+    description must still cover the whole build."""
+    reporter, poster, _ = make_reporter()
+    all_statuses = {f"ok{i}": "succeeded" for i in range(99)} | {"flaky": "succeeded"}
+    asyncio.run(
+        reporter.build_finished(
+            EVENT,
+            BUILD,
+            "succeeded",
+            1,
+            [attr_result("flaky", AttributeStatus.succeeded)],
+            attr_statuses=all_statuses,
+        )
+    )
+    combined = next(p for p in poster.posts if p.context == "nix-build")
+    assert combined.description == "100 attributes built"
+
+
+def test_attr_prefix_follows_repo_configuration() -> None:
+    """Repos with attribute = "hydraJobs" keep their old context names."""
+    reporter, poster, store = make_reporter()
+
+    async def run() -> None:
+        await reporter.build_finished(
+            EVENT,
+            BUILD,
+            "failed",
+            1,
+            [attr_result("foo", AttributeStatus.failed)],
+            attr_prefix="hydraJobs",
+        )
+        assert await reporter.force_attrs_for(EVENT, "hydraJobs") == {"foo"}
+
+    asyncio.run(run())
+    assert any(
+        p.context == "nix-build github:acme/widget#hydraJobs.foo" for p in poster.posts
+    )
+
+
+def test_poster_network_errors_do_not_propagate() -> None:
+    """Transport failures while posting must not wedge the build
+    pipeline (the orchestrator awaits the reporter inline)."""
+
+    class ExplodingPoster:
+        async def post(self, *args: object, **kwargs: object) -> None:
+            msg = "forge unreachable"
+            raise httpx.ConnectError(msg)
+
+    store = MemoryFailedStatuses()
+    reporter = ForgeStatusReporter({"github": ExplodingPoster()}, store, "https://ci")
+
+    async def run() -> None:
+        await reporter.build_started(EVENT, BUILD)
+        await reporter.build_finished(EVENT, BUILD, "succeeded", 1, [])
+
+    asyncio.run(run())  # must not raise
