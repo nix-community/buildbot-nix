@@ -1,0 +1,283 @@
+"""Tests for the engine's nix-eval-jobs runner (pure parts plus an
+optional integration test against a real nix-eval-jobs)."""
+
+# ruff: noqa: PLR2004 (literal values in test assertions are fine)
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import shutil
+from typing import TYPE_CHECKING
+
+import pytest
+
+from buildbot_nix.engine import nix_eval
+from buildbot_nix.engine.memory import (
+    EvalWorkerConfig,
+    MemoryInfo,
+    calculate_eval_workers,
+    get_memory_info,
+)
+from buildbot_nix.engine.nix_eval import (
+    EvalRunner,
+    EvalSettings,
+    build_eval_command,
+    build_full_command,
+    build_sandbox_command,
+    extract_eval_warnings,
+)
+from buildbot_nix.engine.repo_config import BranchConfig
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def test_branch_config_defaults(tmp_path: Path) -> None:
+    config = BranchConfig.load(tmp_path)
+    assert config.flake_dir == "."
+    assert config.lock_file == "flake.lock"
+    assert config.attribute == "checks"
+    assert not config.effects_on_pull_requests
+
+
+def test_branch_config_from_toml(tmp_path: Path) -> None:
+    (tmp_path / "buildbot-nix.toml").write_text(
+        'flake_dir = "subdir"\nlock_file = "dev.lock"\nattribute = "hydraJobs"\n'
+        "effects_on_pull_requests = true\n"
+    )
+    config = BranchConfig.load(tmp_path)
+    assert config.flake_dir == "subdir"
+    assert config.lock_file == "dev.lock"
+    assert config.attribute == "hydraJobs"
+    assert config.effects_on_pull_requests
+
+
+def test_branch_config_rejects_traversal(tmp_path: Path) -> None:
+    (tmp_path / "buildbot-nix.toml").write_text('flake_dir = "../../etc"\n')
+    # Falls back to defaults on invalid config.
+    assert BranchConfig.load(tmp_path).flake_dir == "."
+
+
+def test_branch_config_invalid_toml(tmp_path: Path) -> None:
+    (tmp_path / "buildbot-nix.toml").write_text("not toml :::")
+    assert BranchConfig.load(tmp_path).flake_dir == "."
+
+
+def test_eval_command(tmp_path: Path) -> None:
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", worker_count=4, max_memory_size_mib=1024
+    )
+    cmd = build_eval_command(BranchConfig(), settings)
+    assert cmd[0] == "nix-eval-jobs"
+    assert "--workers" in cmd
+    assert cmd[cmd.index("--workers") + 1] == "4"
+    assert cmd[cmd.index("--max-memory-size") + 1] == "1024"
+    assert cmd[cmd.index("--flake") + 1] == ".#checks"
+    assert "--show-trace" not in cmd
+    assert "--reference-lock-file" not in cmd
+
+    settings.show_trace = True
+    cmd = build_eval_command(
+        BranchConfig(flake_dir="sub", lock_file="alt.lock", attribute="hydraJobs"),
+        settings,
+    )
+    assert "--show-trace" in cmd
+    assert cmd[cmd.index("--flake") + 1] == "sub#hydraJobs"
+    assert cmd[cmd.index("--reference-lock-file") + 1] == "alt.lock"
+
+
+def test_sandbox_command_mounts(tmp_path: Path) -> None:
+    netrc = tmp_path / "netrc"
+    netrc.write_text("machine x login y password z\n")
+    settings = EvalSettings(gc_roots_dir=tmp_path / "gcroots", netrc_file=netrc)
+    worktree = tmp_path / "wt"
+    cmd = build_sandbox_command(worktree, settings)
+    assert cmd[0] == "bwrap"
+    joined = " ".join(cmd)
+    assert "--ro-bind /nix/store /nix/store" in joined
+    assert f"--bind {worktree} {worktree}" in joined
+    assert f"--bind {tmp_path / 'gcroots'} {tmp_path / 'gcroots'}" in joined
+    assert f"--ro-bind {netrc} /tmp/.netrc" in joined
+    # The credentials directory must never be mounted.
+    assert "CREDENTIALS_DIRECTORY" not in joined
+
+
+def test_full_command_composition(tmp_path: Path) -> None:
+    settings = EvalSettings(gc_roots_dir=tmp_path, sandbox=True, systemd_scope=True)
+    cmd = build_full_command(tmp_path / "wt", BranchConfig(), settings)
+    assert cmd[0] == "systemd-run"
+    assert "bwrap" in cmd
+    assert "nix-eval-jobs" in cmd
+
+    settings = EvalSettings(gc_roots_dir=tmp_path, sandbox=False, systemd_scope=False)
+    cmd = build_full_command(tmp_path / "wt", BranchConfig(), settings)
+    assert cmd[0] == "nix-eval-jobs"
+
+
+def test_extract_eval_warnings() -> None:
+    stderr = (
+        "warning: unknown setting 'foo'\n"
+        "evaluation warning: first warning\n"
+        "  with indented detail\n"
+        "\n"
+        "  more detail after blank\n"
+        "evaluation warning: second warning\n"
+        "some other output\n"
+    )
+    warnings = extract_eval_warnings(stderr)
+    assert len(warnings) == 2
+    assert warnings[0].startswith("first warning")
+    assert "with indented detail" in warnings[0]
+    assert "more detail after blank" in warnings[0]
+    assert warnings[1] == "second warning"
+    # Nix configuration warnings are not eval warnings.
+    assert extract_eval_warnings("warning: unknown setting 'bar'\n") == []
+    assert extract_eval_warnings("") == []
+
+
+def test_memory_info_zfs_arc(tmp_path: Path) -> None:
+    arcstats = tmp_path / "arcstats"
+    arcstats.write_text("name type data\nsize 4 2147483648\n")
+    info = get_memory_info(arcstats_path=arcstats)
+    assert info.zfs_arc_used == 2048
+    assert info.total_memory_mib > 0
+    # Missing arcstats: no ZFS.
+    assert get_memory_info(arcstats_path=tmp_path / "absent").zfs_arc_used == 0
+
+
+def test_calculate_eval_workers() -> None:
+    # Plenty of memory: CPU-bound worker count.
+    config = calculate_eval_workers(
+        MemoryInfo(total_memory_mib=65536, available_memory_mib=60000), cpu_count=8
+    )
+    assert config == EvalWorkerConfig(count=4, max_memory_mib=2048)
+
+    # Memory-tight host: fewer/smaller workers, at least one.
+    config = calculate_eval_workers(
+        MemoryInfo(total_memory_mib=4096, available_memory_mib=3000), cpu_count=16
+    )
+    assert config.count >= 1
+    assert config.max_memory_mib >= 1024
+
+    # ZFS ARC counts as reclaimable.
+    with_arc = calculate_eval_workers(
+        MemoryInfo(
+            total_memory_mib=16384, available_memory_mib=4096, zfs_arc_used=8192
+        ),
+        cpu_count=16,
+    )
+    without_arc = calculate_eval_workers(
+        MemoryInfo(total_memory_mib=16384, available_memory_mib=4096), cpu_count=16
+    )
+    assert with_arc.count >= without_arc.count
+
+
+@pytest.mark.skipif(
+    shutil.which("nix-eval-jobs") is None or shutil.which("nix") is None,
+    reason="nix-eval-jobs not available",
+)
+def test_eval_runner_integration(tmp_path: Path) -> None:
+    flake = tmp_path / "repo"
+    flake.mkdir()
+    (flake / "flake.nix").write_text(
+        """
+        {
+          outputs = { self }: {
+            checks.x86_64-linux.ok = builtins.warn "eval warning here" (
+              derivation {
+                name = "ok";
+                system = "x86_64-linux";
+                builder = "/bin/sh";
+                args = [ "-c" "echo ok > $out" ];
+              }
+            );
+          };
+        }
+        """
+    )
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots",
+        sandbox=False,
+        systemd_scope=False,
+    )
+    result = asyncio.run(EvalRunner().run(flake, BranchConfig(), settings))
+    assert len(result.jobs) == 1
+    job = result.jobs[0]
+    assert job.attr == "x86_64-linux.ok"  # type: ignore[union-attr]
+    assert any("eval warning here" in w for w in result.warnings)
+
+
+def test_cgroup_limiter_create_handles_missing_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No cgroup.controllers under the fake root: create() must return None
+    # instead of raising.
+    content = "0::/system.slice/test.service\n"
+
+    def fake_read_text(self: Path, *_args: object, **_kwargs: object) -> str:
+        if str(self) == "/proc/self/cgroup":
+            return content
+        msg = "no delegation"
+        raise OSError(msg)
+
+    monkeypatch.setattr(nix_eval.Path, "read_text", fake_read_text)
+    assert nix_eval.CgroupLimiter.create() is None
+
+
+def test_cgroup_limiter_eval_cgroup_lifecycle(tmp_path: Path) -> None:
+    # Filesystem-level behavior with a plain directory standing in for the
+    # delegated subtree; cgroup.kill writes fail and are tolerated.
+    limiter = nix_eval.CgroupLimiter(tmp_path)
+    path = limiter.new_eval_cgroup(123)
+    assert (path / "memory.max").read_text() == str(123 * 1024 * 1024)
+    (path / "memory.max").unlink()
+    asyncio.run(limiter.cleanup(path))
+    assert not path.exists()
+
+
+def test_eval_runner_handles_long_json_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # nix-eval-jobs emits one JSON object per line including the full
+    # neededBuilds closure; such lines easily exceed asyncio's 64 KiB
+    # default StreamReader limit and must not crash the evaluation.
+    job = {
+        "attr": "big",
+        "attrPath": ["big"],
+        "cacheStatus": "notBuilt",
+        "neededBuilds": [f"/nix/store/{i:056d}-dep.drv" for i in range(2000)],
+        "neededSubstitutes": [],
+        "drvPath": "/nix/store/big.drv",
+        "name": "big",
+        "outputs": {"out": "/nix/store/big-out"},
+        "system": "x86_64-linux",
+    }
+    payload = tmp_path / "payload.json"
+    payload.write_text(json.dumps(job) + "\n")
+    assert payload.stat().st_size > 64 * 1024
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "nix-eval-jobs"
+    fake.write_text(f'#!/bin/sh\ncat "{payload}"\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", sandbox=False, systemd_scope=False
+    )
+    result = asyncio.run(EvalRunner().run(tmp_path, BranchConfig(), settings))
+    assert len(result.jobs) == 1
+    assert result.jobs[0].attr == "big"
+
+
+def test_cgroup_limiter_retries_subtree_enable(tmp_path: Path) -> None:
+    # +memory could not be enabled at startup (e.g. an ExecStartPost
+    # health check still occupied the unit cgroup): the first eval
+    # retries instead of permanently losing the memory cap.
+    limiter = nix_eval.CgroupLimiter(tmp_path, subtree_enabled=False)
+    path = limiter.new_eval_cgroup(64)
+    assert (tmp_path / "cgroup.subtree_control").read_text() == "+memory"
+    assert (path / "memory.max").read_text() == str(64 * 1024 * 1024)
