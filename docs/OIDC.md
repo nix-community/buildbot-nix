@@ -8,11 +8,14 @@ etc.) for user login.
 
 ```nix
 {
-  services.buildbot-nix.master = {
+  services.buildbot-nix = {
     authBackend = "oidc";
 
-    # Users identified by their OIDC `preferred_username` claim
-    admins = [ "alice" "bob" ];
+    # Provider-qualified identities: "oidc:<issuer-host>:<preferred_username>"
+    admins = [
+      "oidc:keycloak.example.com:alice"
+      "oidc:keycloak.example.com:bob"
+    ];
 
     oidc = {
       # Display name shown on login button
@@ -43,37 +46,34 @@ etc.) for user login.
 ```
 
 Set your OIDC provider's callback URL to:
-`https://buildbot.example.com/auth/login`
+`https://buildbot.example.com/auth/oidc/callback`
 
-## Python Configuration
+## Manual Configuration
 
-For non-NixOS setups or local development:
+For non-NixOS setups or local development, the engine is configured via a JSON
+file passed to `buildbot-nix --config`:
 
-```python
-from buildbot_nix.models import (
-    AuthBackendConfig,
-    OIDCConfig,
-    OIDCMappingConfig,
-)
-
-buildbot_nix_config = BuildbotNixConfig(
-    # ... other config ...
-    admins=["alice", "bob"],
-    auth_backend=AuthBackendConfig.oidc,
-    oidc=OIDCConfig(
-        name="My Identity Provider",
-        discovery_url="https://keycloak.example.com/realms/myrealm/.well-known/openid-configuration",
-        client_id="buildbot",
-        client_secret_file="/path/to/client_secret",
-        scope=["openid", "email", "profile"],
-        mapping=OIDCMappingConfig(
-            email="email",
-            username="preferred_username",
-            full_name="name",
-            groups=None,  # Or "groups" for group sync
-        ),
-    ),
-)
+```json
+{
+  "admins": [
+    "oidc:keycloak.example.com:alice",
+    "oidc:keycloak.example.com:bob"
+  ],
+  "auth_backend": "oidc",
+  "oidc": {
+    "name": "My Identity Provider",
+    "discovery_url": "https://keycloak.example.com/realms/myrealm/.well-known/openid-configuration",
+    "client_id": "buildbot",
+    "client_secret_file": "/path/to/client_secret",
+    "scope": ["openid", "email", "profile"],
+    "mapping": {
+      "email": "email",
+      "username": "preferred_username",
+      "full_name": "name",
+      "groups": null
+    }
+  }
+}
 ```
 
 ## Provider Examples
@@ -113,29 +113,32 @@ nix run nixpkgs#pipx -- run oidc-provider-mock \
   --user-claims '{"sub": "alice", "email": "alice@example.com", "name": "Alice", "preferred_username": "alice123"}'
 ```
 
-Then configure buildbot-nix to use it:
+Then configure buildbot-nix to use it (in the JSON config file):
 
-```python
-oidc=OIDCConfig(
-    name="Mock",
-    discovery_url="http://localhost:9400/.well-known/openid-configuration",
-    client_id="123",
-    client_secret_file="/tmp/client_secret",
-    scope=["openid", "email", "profile"],
-    mapping=OIDCMappingConfig(
-        email="email",
-        username="preferred_username",
-        full_name="name",
-        groups=None,
-    ),
-),
+```json
+"oidc": {
+  "name": "Mock",
+  "discovery_url": "http://localhost:9400/.well-known/openid-configuration",
+  "client_id": "123",
+  "client_secret_file": "/tmp/client_secret",
+  "scope": ["openid", "email", "profile"],
+  "mapping": {
+    "email": "email",
+    "username": "preferred_username",
+    "full_name": "name",
+    "groups": null
+  }
+}
 ```
 
 ## User Identification
 
 Users are identified by their `preferred_username` claim. This means:
 
-- The `admins` list should contain usernames as they appear in the OIDC provider
+- The `admins` list entries must be provider-qualified:
+  `oidc:<issuer-host>:<username>` where `<issuer-host>` is the issuer URL
+  without the `https://` prefix and `<username>` is the value of the username
+  claim
 - You can customize which claim is used via `mapping.username`
 
 ## Groups Support

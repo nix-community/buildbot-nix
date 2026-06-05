@@ -16,7 +16,7 @@ secure authentication.
    - **Homepage URL**: `https://buildbot.<your-domain>`
    - **Webhook**: Disable (buildbot-nix creates webhooks per repository)
    - **Callback URL** (optional, for OAuth):
-     `https://buildbot.<your-domain>/auth/login`
+     `https://buildbot.<your-domain>/auth/github/callback`
 
 3. Set the required permissions:
    - **Repository Permissions:**
@@ -36,10 +36,9 @@ secure authentication.
 Add the GitHub configuration to your NixOS module:
 
 ```nix
-services.buildbot-nix.master = {
+services.buildbot-nix = {
   enable = true;
   domain = "buildbot.example.com";  # Your buildbot domain
-  workersFile = "/path/to/workers.json";  # See workers file format below
   authBackend = "github";
   github = {
     appId = <your-app-id>;  # The numeric App ID
@@ -57,24 +56,6 @@ services.buildbot-nix.master = {
   };
 };
 ```
-
-### Workers File Format
-
-The `workersFile` option expects a JSON file containing an array of worker
-definitions:
-
-```json
-[
-  { "name": "worker1", "pass": "secret-password", "cores": 16 }
-]
-```
-
-- `name`: The worker name (matches `services.buildbot-nix.worker.name`, defaults
-  to hostname)
-- `pass`: The password (must match
-  `services.buildbot-nix.worker.workerPasswordFile` contents)
-- `cores`: Number of CPU cores (must match the actual core count of the worker
-  machine)
 
 ## Step 3: Install the GitHub App
 

@@ -1,110 +1,74 @@
-# Local Development with buildbot-dev
+# Local Development
 
-## Quick Start
-
-```bash
-# Run the development server
-nix run .#buildbot-dev
-
-# Access web UI at http://localhost:8012
-# Login: admin / admin
-```
-
-## What It Does
-
-`buildbot-dev` creates a local Buildbot instance in `.buildbot-dev/` with:
-
-- SQLite database
-- 4 local workers
-- Web interface on port 8012
-- Pull-based repository monitoring
-- Default configuration for the buildbot-nix repository
-
-## Prerequisites
-
-Ensure GC roots directory exists:
+## Running the test suite
 
 ```bash
-sudo mkdir -p /nix/var/nix/gcroots/per-user/$(whoami)
-sudo chown $(whoami) /nix/var/nix/gcroots/per-user/$(whoami)
+nix develop
+cd buildbot_nix
+python -m pytest buildbot_nix/tests -q
 ```
 
-## Development Workflow
+The tests cover the full pipeline (webhook parsing, evaluation, scheduling,
+building, status reporting, web frontend) against an ephemeral PostgreSQL
+instance and real `nix`/`git` where available.
 
-1. **Make changes** to `buildbot_nix/` Python code
-2. **Restart** buildbot-dev (Ctrl+C and run again)
-3. **Test** through web interface
-4. **Check logs** in `.buildbot-dev/twistd.log`
+## Running the engine locally
 
-## Testing Your Repository
+The engine is a single process configured by a JSON file:
 
-Edit `packages/master.cfg.py` to add your repository:
+```bash
+# Start an ephemeral PostgreSQL
+initdb -D /tmp/bb-pg
+pg_ctl -D /tmp/bb-pg -o "-k /tmp/bb-pg -c listen_addresses=" start
+createdb -h /tmp/bb-pg buildbot-nix
 
-```python
-repositories={
-    "my-project": dict(
-        name="my-project",
-        url="https://github.com/myorg/my-project",
-        default_branch="main",
-    )
+cat > /tmp/engine.json <<EOF
+{
+  "db_url": "postgresql://$(whoami)@/buildbot-nix?host=/tmp/bb-pg",
+  "build_systems": ["x86_64-linux"],
+  "domain": "localhost",
+  "url": "http://localhost:8010/",
+  "state_dir": "/tmp/buildbot-nix-state",
+  "pull_based": {
+    "repositories": {
+      "my-project": {
+        "name": "my-project",
+        "default_branch": "main",
+        "url": "https://github.com/example/my-project"
+      }
+    }
+  }
 }
+EOF
+
+python -m buildbot_nix.engine.main --config /tmp/engine.json --log-format text
 ```
 
-## Running Tests
+Access the web UI at http://localhost:8010. Pull-based repositories need no
+forge credentials, which makes them convenient for local hacking; GitHub/Gitea
+configuration works the same way as in the NixOS module, with secret paths
+pointing at plain local files.
+
+## VM integration test
+
+The end-to-end NixOS test (fake GitHub + real Gitea) lives in
+`checks/engine.nix`:
 
 ```bash
-# Format and lint
-nix run .#flake-fmt
-
-# Type checking
-nix develop -c mypy buildbot_nix
+nix build .#checks.x86_64-linux.engine -L
 ```
 
-# Debugging NixOS Tests
-
-## Quick Start
-
-Build and run test driver with port forwarding:
+For interactive debugging:
 
 ```bash
-nix build .#checks.x86_64-linux.poller.driver
-QEMU_NET_OPTS="hostfwd=tcp:127.0.0.1:8010-:8010" ./result/bin/nixos-test-driver
+nix build .#checks.x86_64-linux.engine.driverInteractive
+./result/bin/nixos-test-driver
 ```
 
-Access Buildbot web UI at http://localhost:8010
+Add `breakpoint()` in the test script to pause execution.
 
-For the Gitea integration test:
+## Code quality
 
 ```bash
-nix build .#checks.x86_64-linux.gitea.driver
-QEMU_NET_OPTS="hostfwd=tcp:127.0.0.1:8010-:8010,hostfwd=tcp:127.0.0.1:3742-:3742" ./result/bin/nixos-test-driver
+nix develop -c flake-fmt   # treefmt: ruff format, ruff check, mypy, nixfmt
 ```
-
-Access Buildbot at http://localhost:8010 and Gitea at http://localhost:3742
-
-## Using Breakpoints
-
-Add `breakpoint()` in test script to pause execution:
-
-```python
-testScript = ''
-    buildbot.wait_for_unit("buildbot-master.service")
-    breakpoint()  # Drops into Python debugger
-    # Continue with 'c', quit with 'q'
-''
-```
-
-## Testing OIDC Authentication
-
-see [OIDC docs](./OIDC.md) for details.
-
-## Cleanup
-
-```bash
-rm -rf .buildbot-dev
-```
-
-## Troubleshooting
-
-- **Port conflict**: Change `PORT = 8012` in `packages/master.cfg.py`
-- **Logs**: See `.buildbot-dev/twistd.log` or console

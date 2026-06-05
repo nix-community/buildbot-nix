@@ -28,7 +28,7 @@ status updates, and secure authentication.
 
 2. **Configure the OAuth2 app**:
    - **Application Name**: `buildbot-nix`
-   - **Redirect URI**: `https://buildbot.<your-domain>/auth/login`
+   - **Redirect URI**: `https://buildbot.<your-domain>/auth/gitea/callback`
 
 3. **Note the credentials**:
    - Client ID
@@ -39,7 +39,7 @@ status updates, and secure authentication.
 Add the Gitea configuration to your NixOS module:
 
 ```nix
-services.buildbot-nix.master = {
+services.buildbot-nix = {
   authBackend = "gitea";
   gitea = {
     enable = true;

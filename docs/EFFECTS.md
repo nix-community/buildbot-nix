@@ -94,7 +94,7 @@ different scopes:
    organization
 
 ```nix
-services.buildbot-nix.master.effects.perRepoSecretFiles = {
+services.buildbot-nix.effects.perRepoSecretFiles = {
   # All repos in nix-community org get this token
   "github:nix-community/*" = config.agenix.secrets.nix-community-effects.path;
 

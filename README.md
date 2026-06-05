@@ -1,10 +1,12 @@
 # Buildbot-nix
 
-Buildbot-nix is a NixOS module designed to integrate
-[Buildbot](https://www.buildbot.net/), a continuous integration (CI) framework,
-into the Nix ecosystem. This module is under active development, and while it's
-generally stable and widely used, please be aware that some APIs may change over
-time.
+Buildbot-nix is a continuous integration (CI) engine for the Nix ecosystem,
+shipped as a single NixOS service. It started as a set of Buildbot plugins and
+now runs standalone: one asyncio process handles forge webhooks, nix-eval-jobs
+evaluation, builds through the local nix daemon (offloaded via remote builders),
+commit statuses, and its own web frontend. This project is under active
+development, and while it's generally stable and widely used, please be aware
+that some APIs may change over time.
 
 ## Features
 
@@ -21,53 +23,41 @@ time.
   [hercules-ci effect](https://docs.hercules-ci.com/hercules-ci-effects/) to run
   impure CI steps i.e. deploying NixOS
 
-## Getting Started with Buildbot Setup
+## Getting Started
 
-To set up Buildbot using Buildbot-nix, you can start by exploring the provided
-examples:
+To set up buildbot-nix, start by exploring the provided examples:
 
-- Check out the basic setup in [example](./examples/default.nix).
-- Learn about configuring the Buildbot master in
-  [master module](./nix/master.nix).
-- Understand how to set up a Buildbot worker in
-  [worker module](./nix/worker.nix).
+- Check out the basic setup in [example](./examples/engine.nix).
+- The NixOS module lives in
+  [nixosModules/buildbot-nix.nix](./nixosModules/buildbot-nix.nix).
 - For local development, see
   [Local Development Guide](./docs/LOCAL_DEVELOPMENT.md).
 
 Additionally, you can find real-world examples at the end of this document.
 
-Buildbot masters and workers can be deployed either on the same machine or on
-separate machines. To support multiple architectures, configure them as
+The engine runs on one machine; to support multiple architectures and to scale
+out builds, configure
 [nix remote builders](https://nixos.org/manual/nix/stable/advanced-topics/distributed-builds).
 For a practical NixOS example, see
 [this remote builder configuration](https://github.com/Mic92/dotfiles/blob/main/machines/eve/modules/remote-builder.nix).
 
-## Using `buildbot` with NixOS 24.05 (stable release)
+## Migrating from the buildbot-based versions
 
-The module applies custom patches that only apply to buildbot > 4.0.0. To use
-buildbot-nix with NixOS 24.05, you should therefore not override the nixpkgs
-input to your own stable version of buildbot-nix and leave it to the default
-instead that is set to nixos-unstable-small.
+This major release replaces the buildbot master/worker pair with a single
+service. When upgrading:
 
-So instead of using this in your flake
-
-```
-inputs = {
-  buildbot-nix.url = "github:nix-community/buildbot-nix";
-  buildbot-nix.inputs.nixpkgs.follows = "nixpkgs";
-};
-```
-
-Just use:
-
-```
-inputs = {
-  buildbot-nix.url = "github:nix-community/buildbot-nix";
-};
-```
-
-An alternative is to point nixpkgs to your own version of nixpkgs-unstable in
-case you are already using it elsewhere.
+- `services.buildbot-nix.master.*` options rename automatically to
+  `services.buildbot-nix.*` (with deprecation warnings); the module aliases
+  `nixosModules.buildbot-master` and `nixosModules.buildbot-worker` keep old
+  imports evaluating. Options without an engine equivalent raise descriptive
+  errors.
+- Removed: `workersFile`/worker passwords, `localWorkers`, the oauth2-proxy
+  `accessMode.fullyPrivate` mode, `httpbasicauth`, and GitHub token
+  authentication (use a GitHub App).
+- Build history does not migrate; the engine starts with a fresh PostgreSQL
+  schema (local PostgreSQL is provisioned by default).
+- Private repositories are hidden from unauthorized users by the built-in login,
+  replacing the oauth2-proxy workaround.
 
 ## Using Buildbot in Your Project
 
@@ -93,23 +83,11 @@ examples to guide you:
 
 ### Authentication backend
 
-At the moment `buildbot-nix` offers two access modes, `public` and
-`fullyPrivate`. `public` is the default and gives read-only access to all of
-buildbot, including builds, logs and builders. For read-write access,
-authentication is still needed, this is controlled by the `authBackend` option.
-
-`fullyPrivate` will hide buildbot behind `oauth2-proxy` which protects the whole
-buildbot instance. buildbot fetches the currently authenticated user from
-`oauth2-proxy` so the same admin, organisation rules apply.
-
-`fullyPrivate` acccess mode is a workaround as buildbot does not support hiding
-information natively as now.
-
-#### Public
-
-For some actions a login is required. The authentication backend is set by the
-`services.buildbot-nix.master.authBackend` NixOS option ("github", "gitea",
-"oidc", or others).
+Anonymous users get read-only access to public projects; private repositories
+and their builds are only visible to users with access on the forge. For write
+actions (restart, cancel, rebuild) a login is required. The authentication
+backend is set by the `services.buildbot-nix.authBackend` NixOS option
+("github", "gitea" or "oidc").
 
 **Note**: You can configure both GitHub and Gitea integrations simultaneously,
 regardless of which authentication backend you choose. The auth backend only
@@ -148,22 +126,6 @@ etc.) for user login.
 
 See the [OIDC documentation](./docs/OIDC.md) for configuration details.
 
-#### Fully Private
-
-To enable fully private mode, set `acessMode.fullyPrivate` to an attrset
-containing the required options for fully private use, refer to the examples and
-module implementation (`nix/master.nix`).
-
-This access mode honors the `admins` option in addition to the
-`accessMode.fullyPrivate.organisations` option. To allow access from certain
-organisations, you must explicitly list them.
-
-If you've set `authBackend` previously, unset it, or you will get an error about
-a conflicting definitions. `fullyPrivate` requires the `authBackend` to be set
-to `basichttpauth` to function (this is handled by the module, which is why you
-can leave it unset). For a concrete example please refer to
-[fully-private-github](./examples/fully-private-github.nix)
-
 ### Per Repository Configuration
 
 Currently `buildbot-nix` will look for a file named `buildbot-nix.toml` in the
@@ -197,16 +159,15 @@ moment
 
 #### Local binary cache (harmonia)
 
-You can set up a binary cache on your buildbot-worker machine to make its nix
-store accessible from other machines. Check out the README of the
+You can set up a binary cache on the CI machine to make its nix store accessible
+from other machines. Check out the README of the
 [project](https://github.com/nix-community/harmonia/?tab=readme-ov-file#configuration-for-public-binary-cache-on-nixos),
 for an example configuration
 
 #### Cachix
 
-Buildbot-nix also supports pushing packages to cachix. Check out the comment out
-[example configuration](https://github.com/Mic92/buildbot-nix/blob/main/examples/master.nix)
-in our repository.
+Buildbot-nix also supports pushing packages to cachix via the
+`services.buildbot-nix.cachix` options.
 
 #### Attic
 
@@ -214,8 +175,8 @@ Buildbot-nix does not have native support for pushing packages to
 [attic](https://github.com/zhaofengli/attic) yet. However it's possible to
 integrate run a systemd service as described in
 [this example configuration](./examples/attic-watch-store.nix). The systemd
-service watches for changes in the local buildbot-nix store and uploads the
-contents to the attic cache.
+service watches for changes in the local nix store and uploads the contents to
+the attic cache.
 
 ## (experimental) Hercules CI effects
 
