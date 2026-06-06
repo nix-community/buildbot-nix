@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import asyncpg
 import uvicorn
+import zstandard
 
 from buildbot_nix.engine.migrations import apply_migrations
 from buildbot_nix.engine.web.app import create_app
@@ -76,7 +77,7 @@ def ephemeral_postgres(
         proc.wait()
 
 
-async def seed(dsn: str) -> None:
+async def seed(dsn: str, state_dir: Path | None = None) -> None:
     """One project with a succeeded, a failed, and a running build."""
     pool = await asyncpg.create_pool(dsn)
     try:
@@ -122,6 +123,26 @@ async def seed(dsn: str) -> None:
                 "failed" if status == "failed" else "succeeded",
                 "error: builder failed loudly" if status == "failed" else None,
             )
+            # Finished builds get a log for the prev/next navigation.
+            if state_dir is not None and status != "building":
+                attr_id = await pool.fetchval(
+                    "SELECT id FROM build_attributes"
+                    " WHERE build_id = $1 AND attr = 'x86_64-linux.bad'",
+                    build_id,
+                )
+                rel_path = f"logs/{number}/x86_64-linux.bad.zst"
+                log_file = state_dir / rel_path
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                log_file.write_bytes(
+                    zstandard.ZstdCompressor().compress(f"log #{number}\n".encode())
+                )
+                await pool.execute(
+                    "INSERT INTO logs (attribute_id, path, size_bytes)"
+                    " VALUES ($1, $2, $3)",
+                    attr_id,
+                    rel_path,
+                    log_file.stat().st_size,
+                )
     finally:
         await pool.close()
 

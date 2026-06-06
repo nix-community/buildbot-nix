@@ -58,14 +58,12 @@ def test_project_filter_form(page: Page) -> None:
     assert ">#2<" not in content
 
 
-def test_attribute_history_via_build_page(page: Page) -> None:
-    page.goto("/projects/acme/widget/builds/2")
-    page.locator('a[href$="/attrs/x86_64-linux.bad"]').first.click()
-    page.wait_for_url("**/attrs/x86_64-linux.bad")
-    content = page.content()
-    # All three builds ran this attribute.
-    for number in (1, 2, 3):
-        assert f"/builds/{number}" in content
+def test_attribute_log_prev_next_navigation(page: Page) -> None:
+    page.goto("/projects/acme/widget/builds/2/logs/x86_64-linux.bad")
+    page.locator('a[rel="prev"]').click()
+    page.wait_for_url("**/builds/1/logs/x86_64-linux.bad")
+    page.locator('a[rel="next"]').click()
+    page.wait_for_url("**/builds/2/logs/x86_64-linux.bad")
 
 
 def test_header_search(page: Page) -> None:

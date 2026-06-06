@@ -5,7 +5,6 @@
     <th>attribute</th>
     <th>status</th>
     <th>duration</th>
-    <th class="actions"></th>
   </tr>
   {% for a in attrs %}
   <tr data-attr="{{ a.attr | lower }}">
@@ -21,16 +20,10 @@
       >{{ a.status.replace("_", " ") }}</span>
     </td>
     <td>{{ a | duration }}</td>
-    <td class="actions">
-      <a
-        href="/projects/{{ project.owner }}/{{ project.name }}/attrs/{{ a.attr }}"
-        title="result history across builds"
-      >history</a>
-    </td>
   </tr>
   {% if a.error %}
   <tr data-attr="{{ a.attr | lower }}">
-    <td colspan="4"><pre class="error">{{ a.error | excerpt }}</pre></td>
+    <td colspan="3"><pre class="error">{{ a.error | excerpt }}</pre></td>
   </tr>
   {% endif %} {% endfor %}
 </table>

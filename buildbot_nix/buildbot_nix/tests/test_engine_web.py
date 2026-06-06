@@ -264,6 +264,12 @@ def test_log_viewer_and_raw(client: WebClient, tmp_path: Path) -> None:
     assert "ansi-red" in viewer.text
     assert 'id="L1"' in viewer.text
 
+    # Prev/next navigation to the same attribute in neighboring builds.
+    assert 'rel="prev"' in viewer.text
+    assert "/builds/1/logs/x86_64-linux.bad" in viewer.text
+    assert 'rel="next"' in viewer.text
+    assert "/builds/3/logs/x86_64-linux.bad" in viewer.text
+
     raw = get(client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
     assert "build exploded" in raw.text
 

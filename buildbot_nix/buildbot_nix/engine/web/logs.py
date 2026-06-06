@@ -195,6 +195,9 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             )
         else:
             raise HTTPException(status_code=404)
+        prev_number, next_number = await ctx.queries.attribute_neighbors(
+            project["id"], attr, number
+        )
         return ctx.render(
             "log.html",
             request=request,
@@ -203,6 +206,8 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             attr=attr,
             content=content,
             live=live,
+            prev_number=prev_number,
+            next_number=next_number,
         )
 
     return router
