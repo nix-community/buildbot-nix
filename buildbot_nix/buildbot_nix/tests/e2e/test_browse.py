@@ -53,10 +53,17 @@ def test_project_filter_form(page: Page) -> None:
     assert "#2" in content
     assert ">#1<" not in content
 
-    page.fill("input[name=branch]", "feature")
+    page.fill("input[name=ref]", "feature")
     page.select_option("select[name=status]", "")
     page.get_by_role("button", name="filter").click()
-    page.wait_for_url("**branch=feature**")
+    page.wait_for_url("**ref=feature**")
+    content = page.content()
+    assert "#3" in content
+    assert ">#2<" not in content
+
+    page.fill("input[name=ref]", "5")
+    page.get_by_role("button", name="filter").click()
+    page.wait_for_url("**ref=5**")
     content = page.content()
     assert "#3" in content
     assert ">#2<" not in content

@@ -28,13 +28,13 @@
           {% endfor %}
         </select>
         <input type="text"
-               name="branch"
-               placeholder="branch"
-               aria-label="branch"
-               value="{{ branch }}">
+               name="ref"
+               placeholder="branch or PR #"
+               aria-label="branch or PR number"
+               value="{{ ref }}">
         <button>filter</button>
       </form>
-      {% set rows_url = "/projects/" ~ project.owner ~ "/" ~ project.name ~ "/rows?status=" ~ (status or "") ~ "&branch=" ~ (branch or "") %}
+      {% set rows_url = "/projects/" ~ project.owner ~ "/" ~ project.name ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
       <table class="builds">
         <thead>
           <tr>

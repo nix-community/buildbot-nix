@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -16,8 +17,17 @@ PAGE_SIZE = 50
 class BuildFilters:
     status: str | None = None
     branch: str | None = None
+    pr_number: int | None = None
     commit: str | None = None
     before: int | None = None  # cursor: only builds with a smaller id
+
+    @classmethod
+    def for_ref(cls, ref: str | None, **kwargs: Any) -> BuildFilters:
+        """Parse a ref filter: "#123" or "123" means a PR, anything
+        else a branch name."""
+        if ref and re.fullmatch(r"#?\d+", ref):
+            return cls(pr_number=int(ref.lstrip("#")), **kwargs)
+        return cls(branch=ref or None, **kwargs)
 
 
 def _like_escape(query: str) -> str:
@@ -200,6 +210,9 @@ class WebQueries:
         if f.branch:
             args.append(f.branch)
             conditions.append(f"branch = ${len(args)}")
+        if f.pr_number is not None:
+            args.append(f.pr_number)
+            conditions.append(f"pr_number = ${len(args)}")
         if f.commit:
             # Prefix match so agents can pass short revs.
             args.append(f.commit)

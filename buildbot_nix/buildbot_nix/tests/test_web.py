@@ -104,9 +104,14 @@ def test_project_page_with_filters(client: WebClient) -> None:
     assert "#2" in filtered.text
     assert ">#1<" not in filtered.text
 
-    by_branch = get(client, "/projects/acme/widget?branch=feature")
+    by_branch = get(client, "/projects/acme/widget?ref=feature")
     assert "#3" in by_branch.text
     assert ">#2<" not in by_branch.text
+
+    # A numeric ref means a PR; build 3 is PR #5.
+    by_pr = get(client, "/projects/acme/widget?ref=%235")
+    assert "#3" in by_pr.text
+    assert ">#2<" not in by_pr.text
 
 
 def test_build_page(client: WebClient) -> None:
@@ -214,7 +219,7 @@ def test_project_rows_fragment_filters(client: WebClient) -> None:
     assert failed.text.count("data-id=") == 1
     assert ">#2<" in failed.text
 
-    branch = get(client, "/projects/acme/widget/rows?before=999999&branch=feature")
+    branch = get(client, "/projects/acme/widget/rows?before=999999&ref=feature")
     assert branch.text.count("data-id=") == 1
     assert ">#3<" in branch.text
 

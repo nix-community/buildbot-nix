@@ -307,11 +307,13 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         name: str,
         page: int = 1,
         status: str | None = None,
-        branch: str | None = None,
+        ref: str | None = None,
     ) -> HTMLResponse:
         project = await ctx.project_or_404(owner, name, request)
         builds = await ctx.queries.builds_for_project(
-            project["id"], page=page, filters=BuildFilters(status=status, branch=branch)
+            project["id"],
+            page=page,
+            filters=BuildFilters.for_ref(ref, status=status),
         )
         return ctx.render(
             "project.html",
@@ -319,7 +321,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             project=project,
             builds=builds,
             status=status or "",
-            branch=branch or "",
+            ref=ref or "",
         )
 
     @router.get("/projects/{owner}/{name}/rows", response_class=HTMLResponse)
@@ -330,7 +332,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         before: int | None = None,
         limit: int = PAGE_SIZE,
         status: str | None = None,
-        branch: str | None = None,
+        ref: str | None = None,
     ) -> HTMLResponse:
         """Row fragments: infinite scroll (before=) and live refresh of
         the loaded rows (limit=)."""
@@ -339,9 +341,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         builds = await ctx.queries.builds_for_project(
             project["id"],
             limit=limit,
-            filters=BuildFilters(
-                status=status or None, branch=branch or None, before=before
-            ),
+            filters=BuildFilters.for_ref(ref, status=status or None, before=before),
         )
         return ctx.render(
             "_build_rows.html",
@@ -349,7 +349,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             builds=builds.items,
             has_more=builds.has_next,
             more_url=f"/projects/{owner}/{name}/rows?status={status or ''}"
-            f"&branch={branch or ''}",
+            f"&ref={quote(ref or '')}",
             project=project,
         )
 
@@ -415,7 +415,7 @@ the instance restricts project visibility.
 
 - GET /api/projects -> [{owner, name, ...}]
 - GET /api/projects/{owner}/{name}/builds?commit={sha-prefix} -> find the build number
-  (other filters: status, branch, page)
+  (other filters: status, branch, pr_number, page)
 - GET /api/projects/{owner}/{name}/builds/{number}/failures?tail=50
   -> {status, error, eval_warnings, failures: [{attr, status, error, log_tail}]}
 
