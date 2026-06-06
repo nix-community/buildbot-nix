@@ -40,7 +40,6 @@ Add the Gitea configuration to your NixOS module:
 
 ```nix
 services.buildbot-nix = {
-  authBackend = "gitea";
   gitea = {
     enable = true;
     instanceUrl = "https://gitea.example.com";

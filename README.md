@@ -85,13 +85,9 @@ examples to guide you:
 
 Anonymous users get read-only access to public projects; private repositories
 and their builds are only visible to users with access on the forge. For write
-actions (restart, cancel, rebuild) a login is required. The authentication
-backend is set by the `services.buildbot-nix.authBackend` NixOS option
-("github", "gitea" or "oidc").
-
-**Note**: You can configure both GitHub and Gitea integrations simultaneously,
-regardless of which authentication backend you choose. The auth backend only
-determines how users log in to the Buildbot interface.
+actions (restart, cancel, rebuild) a login is required. Every enabled forge with
+OAuth credentials configured offers a login, OIDC via
+`services.buildbot-nix.oidc.enable`; several providers can be active at once.
 
 We have the following two roles:
 

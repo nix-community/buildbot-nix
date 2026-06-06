@@ -8,9 +8,8 @@
     # Entries are provider-qualified: "github:<login>", "gitea:<login>",
     # "oidc:<issuer>:<username>".
     admins = [ "github:Mic92" ];
-    # Log in with GitHub.
-    authBackend = "github";
     github = {
+      enable = true;
       # GitHub App configuration.
       appId = 0; # FIXME: replace with the App ID obtained from GitHub
       appSecretKeyFile = pkgs.writeText "app-secret.key" "00000000000000000000"; # FIXME: replace with the App private key; use a secret manager
@@ -24,7 +23,6 @@
     };
 
     # Gitea example.
-    # authBackend = "gitea"; # login with Gitea
     # gitea = {
     #   enable = true;
     #   instanceUrl = "https://git.clan.lol";
@@ -47,8 +45,8 @@
     # };
 
     # Generic OIDC login example.
-    # authBackend = "oidc";
     # oidc = {
+    #   enable = true;
     #   name = "Provider Name";
     #   discoveryUrl = "https://id.thalheim.io/.well-known/openid-configuration";
     #   clientId = "aaaaaaaaaaaaaaaaaaaa";

@@ -97,7 +97,7 @@ let
             poll_spread = cfg.pullBased.pollSpread;
           };
       oidc =
-        if cfg.authBackend != "oidc" then
+        if !cfg.oidc.enable then
           null
         else
           {
@@ -169,7 +169,6 @@ let
         [ "domain" ]
         [ "webhookBaseUrl" ]
         [ "useHTTPS" ]
-        [ "authBackend" ]
         [ "admins" ]
         [ "buildSystems" ]
         [ "evalMaxMemorySize" ]
@@ -311,6 +310,19 @@ let
         "workers"
         "masterUrl"
       ]
+    ++ (
+      let
+        hint = ''
+          Enable forges explicitly (github.enable, gitea.enable); every
+          enabled forge with oauthId/oauthSecretFile set offers a login,
+          OIDC via oidc.enable.
+        '';
+      in
+      [
+        (mkRemovedOptionModule [ "services" "buildbot-nix" "authBackend" ] hint)
+        (mkRemovedOptionModule [ "services" "buildbot-nix" "master" "authBackend" ] hint)
+      ]
+    )
     ++ [
       (mkRemovedOptionModule [ "services" "buildbot-nix" "master" "dbUrl" ] ''
         A local PostgreSQL over the unix socket is provisioned by default.
@@ -378,22 +390,6 @@ in
       description = ''
         Force https:// URLs when running behind a reverse proxy other than the
         nginx virtual host managed by this module.
-      '';
-    };
-
-    authBackend = lib.mkOption {
-      type = lib.types.enum [
-        "github"
-        "gitea"
-        "oidc"
-        "none"
-      ];
-      default = "none";
-      description = ''
-        Which forge backs the web login by default; it also enables that
-        forge. Login providers are independent of this: every enabled
-        forge with oauthId/oauthSecretFile set (plus OIDC) is offered on
-        the login page, so several can be active at once.
       '';
     };
 
@@ -506,9 +502,7 @@ in
     };
 
     github = {
-      enable = lib.mkEnableOption "GitHub integration" // {
-        default = cfg.authBackend == "github";
-      };
+      enable = lib.mkEnableOption "GitHub integration";
 
       appId = lib.mkOption {
         type = lib.types.int;
@@ -566,9 +560,7 @@ in
     };
 
     gitea = {
-      enable = lib.mkEnableOption "Gitea integration" // {
-        default = cfg.authBackend == "gitea";
-      };
+      enable = lib.mkEnableOption "Gitea integration";
 
       instanceUrl = lib.mkOption {
         type = lib.types.str;
@@ -627,6 +619,8 @@ in
     };
 
     oidc = {
+      enable = lib.mkEnableOption "OIDC login";
+
       name = lib.mkOption {
         type = lib.types.str;
         default = "OIDC Provider";
@@ -862,34 +856,31 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    # Forges default to enabled only when they back the login
-    # (authBackend); a configured but disabled forge is more likely a
-    # migration accident than intent.
+    # A configured but disabled forge is more likely a migration
+    # accident than intent.
     warnings =
       lib.optional (!cfg.github.enable && options.services.buildbot-nix.github.appId.isDefined)
-        "buildbot-nix: github.* is configured but github.enable is false (authBackend is ${cfg.authBackend}); GitHub projects will not appear. Set services.buildbot-nix.github.enable = true."
+        "buildbot-nix: github.* is configured but github.enable is false; GitHub projects will not appear. Set services.buildbot-nix.github.enable = true."
       ++
         lib.optional (!cfg.gitea.enable && options.services.buildbot-nix.gitea.tokenFile.isDefined)
-          "buildbot-nix: gitea.* is configured but gitea.enable is false (authBackend is ${cfg.authBackend}); Gitea projects will not appear. Set services.buildbot-nix.gitea.enable = true.";
+          "buildbot-nix: gitea.* is configured but gitea.enable is false; Gitea projects will not appear. Set services.buildbot-nix.gitea.enable = true.";
 
     assertions = [
       {
-        assertion =
-          cfg.authBackend == "github" -> (cfg.github.oauthId != null && cfg.github.oauthSecretFile != null);
-        message = ''authBackend "github" requires github.oauthId and github.oauthSecretFile.'';
+        assertion = (cfg.github.oauthId != null) == (cfg.github.oauthSecretFile != null);
+        message = "github.oauthId and github.oauthSecretFile must be set together.";
+      }
+      {
+        assertion = (cfg.gitea.oauthId != null) == (cfg.gitea.oauthSecretFile != null);
+        message = "gitea.oauthId and gitea.oauthSecretFile must be set together.";
       }
       {
         assertion =
-          cfg.authBackend == "gitea" -> (cfg.gitea.oauthId != null && cfg.gitea.oauthSecretFile != null);
-        message = ''authBackend "gitea" requires gitea.oauthId and gitea.oauthSecretFile.'';
-      }
-      {
-        assertion =
-          cfg.authBackend == "oidc"
+          cfg.oidc.enable
           -> (
             cfg.oidc.discoveryUrl != null && cfg.oidc.clientId != null && cfg.oidc.clientSecretFile != null
           );
-        message = ''authBackend "oidc" requires oidc.discoveryUrl, oidc.clientId and oidc.clientSecretFile.'';
+        message = "oidc.enable requires oidc.discoveryUrl, oidc.clientId and oidc.clientSecretFile.";
       }
       {
         assertion = cfg.database.createLocally || cfg.database.url != null || cfg.database.urlFile != null;
@@ -978,7 +969,7 @@ in
           ++ lib.optional (
             cfg.gitea.enable && cfg.gitea.sshPrivateKeyFile != null
           ) "gitea-ssh-key:${cfg.gitea.sshPrivateKeyFile}"
-          ++ lib.optional (cfg.authBackend == "oidc") "oidc-client-secret:${cfg.oidc.clientSecretFile}"
+          ++ lib.optional cfg.oidc.enable "oidc-client-secret:${cfg.oidc.clientSecretFile}"
           ++ lib.optional (
             !cfg.database.createLocally && cfg.database.urlFile != null
           ) "db-url:${cfg.database.urlFile}"

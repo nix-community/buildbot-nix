@@ -9,7 +9,7 @@ etc.) for user login.
 ```nix
 {
   services.buildbot-nix = {
-    authBackend = "oidc";
+    oidc.enable = true;
 
     # Provider-qualified identities: "oidc:<issuer-host>:<preferred_username>"
     admins = [

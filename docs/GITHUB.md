@@ -39,12 +39,12 @@ Add the GitHub configuration to your NixOS module:
 services.buildbot-nix = {
   enable = true;
   domain = "buildbot.example.com";  # Your buildbot domain
-  authBackend = "github";
   github = {
+    enable = true;
     appId = <your-app-id>;  # The numeric App ID
     appSecretKeyFile = "/path/to/private-key.pem";  # Path to the downloaded private key
 
-    # Required for GitHub authBackend: Enable OAuth for user login
+    # OAuth credentials enable the GitHub login button
     oauthId = "<oauth-client-id>";
     oauthSecretFile = "/path/to/oauth-secret";
 
