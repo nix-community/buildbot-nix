@@ -216,7 +216,7 @@ async def _stream_events(
     else:
         queue = None
         history = ""
-        if path is not None and path.exists():
+        if path is not None and await asyncio.to_thread(path.exists):
             data = await asyncio.to_thread(read_log, path)
             history = data.decode(errors="replace")
     if history:

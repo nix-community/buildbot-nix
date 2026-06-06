@@ -222,7 +222,7 @@ def test_restart_eval_failed_build_reevaluates(
                 worktree_path: Path,
                 credentials: Any = None,
             ) -> None:
-                assert worktree_path.exists()
+                assert await asyncio.to_thread(worktree_path.exists)
                 reevals.append(build.id)
 
             service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
