@@ -159,20 +159,11 @@ def test_attribute_history(client: WebClient) -> None:
         assert f"/builds/{number}" in response.text
 
 
-def test_search(client: WebClient) -> None:
-    response = get(client, "/search?q=widg")
-    assert "acme/widget" in response.text
-    attrs = get(client, "/search?q=bad")
-    assert "x86_64-linux.bad" in attrs.text
-
-
-def test_search_escapes_like_wildcards(client: WebClient) -> None:
+def test_pipelines_filter_escapes_like_wildcards(client: WebClient) -> None:
     # `%` and `_` must match literally, not as ILIKE wildcards.
-    everything = get(client, "/search?q=%25")  # a literal "%"
-    assert "acme/widget" not in everything.text
-    assert "x86_64-linux" not in everything.text
-    underscore = get(client, "/search?q=widge_")  # "_" must not match "t"
-    assert "acme/widget" not in underscore.text
+    assert "acme/widget" in get(client, "/fragments/pipelines?q=widg").text
+    assert "acme/widget" not in get(client, "/fragments/pipelines?q=%25").text
+    assert "acme/widget" not in get(client, "/fragments/pipelines?q=widge_").text
 
 
 def test_page_out_of_range_does_not_error(client: WebClient) -> None:

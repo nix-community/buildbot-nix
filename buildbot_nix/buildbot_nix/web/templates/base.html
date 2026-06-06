@@ -129,24 +129,40 @@
         });
         io.observe(sentinel);
       }
-      /* Landing page: filter pipeline rows as you type; submitting
-         the form searches attributes server-side. */
-      const liveFilter = (input, attr) => {
+      /* Project filter: server-side, so it works regardless of what
+         is loaded. The filtered URL is stored in data-poll-url so SSE
+         refreshes keep the filter. */
+      const pfilter = document.querySelector("#pipeline-filter");
+      if (pfilter) {
+        const wrap = document.querySelector("#pipelines");
+        let timer = null;
+        pfilter.addEventListener("input", () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            const url = new URL("/fragments/pipelines", location.origin);
+            if (pfilter.value) url.searchParams.set("q", pfilter.value);
+            wrap.dataset.pollUrl = url.pathname + url.search;
+            fetch(url)
+              .then((res) => (res.ok ? res.text() : null))
+              .then((html) => { if (html !== null) wrap.innerHTML = html; })
+              .catch(() => { /* transient */ });
+          }, 200);
+        });
+      }
+      /* Attribute filter: client-side, the build page renders all
+         attributes. */
+      const afilter = document.querySelector("#attr-filter");
+      if (afilter) {
         const apply = () => {
-          const q = input.value.toLowerCase();
-          for (const row of document.querySelectorAll(`[data-${attr}]`)) {
-            row.style.display = row.dataset[attr].includes(q) ? "" : "none";
+          const q = afilter.value.toLowerCase();
+          for (const row of document.querySelectorAll("[data-attr]")) {
+            row.style.display = row.dataset.attr.includes(q) ? "" : "none";
           }
         };
-        input.addEventListener("input", apply);
+        afilter.addEventListener("input", apply);
         // Fragment swaps replace the filtered rows; re-apply.
         document.addEventListener("fragmentswap", apply);
-      };
-      const pfilter = document.querySelector("#pipeline-filter");
-      if (pfilter) liveFilter(pfilter, "pipeline");
-      /* Client-side attribute filter. */
-      const afilter = document.querySelector("#attr-filter");
-      if (afilter) liveFilter(afilter, "attr");
+      }
     </script>
   </body>
 </html>

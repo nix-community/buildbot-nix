@@ -5,8 +5,8 @@ mode. Live updates are pushed: Postgres triggers NOTIFY on status
 changes, /events fans them out over SSE, and a few lines of inline
 JS refetch fragments or patch rows. Per-project sequential build
 numbers in URLs; prev/next navigation between builds and
-per-attribute history; substring search; attributes grouped by
-system with failed-first ordering and inline error excerpts.
+per-attribute history; attributes grouped by system with
+failed-first ordering and inline error excerpts.
 
 Visibility filtering hooks (`visible_project_ids`) are wired by task
 5.3b; None means everything is visible.
@@ -223,16 +223,6 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             all_projects=all_projects,
         )
 
-    @router.get("/search", response_class=HTMLResponse)
-    async def search(request: Request, q: str = "") -> HTMLResponse:
-        visible = await ctx.visible_project_ids(request)
-        results = (
-            await ctx.queries.search(q, project_ids=visible)
-            if q
-            else {"projects": [], "attributes": []}
-        )
-        return ctx.render("search.html", request=request, q=q, results=results)
-
     @router.get("/builds", response_class=HTMLResponse)
     async def activity(request: Request) -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
@@ -276,12 +266,14 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         )
 
     @router.get("/fragments/pipelines", response_class=HTMLResponse)
-    async def pipelines_fragment(request: Request) -> HTMLResponse:
+    async def pipelines_fragment(
+        request: Request, q: str | None = None
+    ) -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
         return ctx.render(
             "_pipelines.html",
             request=request,
-            projects=await ctx.queries.project_overview(project_ids=visible),
+            projects=await ctx.queries.project_overview(project_ids=visible, q=q),
         )
 
     @router.get("/projects/{owner}/{name}", response_class=HTMLResponse)

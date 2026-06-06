@@ -70,12 +70,12 @@ def test_attribute_log_prev_next_navigation(page: Page) -> None:
     page.wait_for_url("**/builds/2/logs/x86_64-linux.bad")
 
 
-def test_header_search(page: Page) -> None:
+def test_project_filter(page: Page) -> None:
     page.goto("/")
-    page.fill("input[name=q]", "widget")
-    page.press("input[name=q]", "Enter")
-    page.wait_for_url("**/search?q=widget")
-    page.get_by_role("link", name="acme/widget").first.wait_for()
+    page.fill("#pipeline-filter", "nope-no-such-project")
+    page.get_by_text("no matching projects").wait_for(timeout=15_000)
+    page.fill("#pipeline-filter", "widget")
+    page.get_by_text("acme/widget").first.wait_for(timeout=15_000)
 
 
 def test_activity_shows_running_build(page: Page) -> None:

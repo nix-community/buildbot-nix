@@ -11,14 +11,13 @@
         {% endwith %}
       </div>
       <h2 class="section">Projects</h2>
-      <form action="/search" method="get" class="filters">
+      <p class="filters">
         <input type="search"
-               name="q"
                id="pipeline-filter"
-               aria-label="filter projects, search attributes on enter"
-               placeholder="filter projects — press enter to search attributes">
-      </form>
-      <div data-poll-url="/fragments/pipelines">{% include "_pipelines.html" %}</div>
+               aria-label="filter projects"
+               placeholder="filter projects">
+      </p>
+      <div id="pipelines" data-poll-url="/fragments/pipelines">{% include "_pipelines.html" %}</div>
       {% if all_projects %}
         <h2 class="section">Administration</h2>
         <ul class="admin-projects">

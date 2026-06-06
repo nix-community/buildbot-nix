@@ -73,7 +73,7 @@ class WebQueries:
         return dict(row) if row else None
 
     async def project_overview(
-        self, project_ids: list[int] | None = None
+        self, project_ids: list[int] | None = None, q: str | None = None
     ) -> list[dict[str, Any]]:
         """Homepage pipeline rows: each project with its latest build,
         the last ten builds (status + duration) for the bar chart, and
@@ -117,9 +117,11 @@ class WebQueries:
                 ) t
             ) m ON true
             WHERE p.enabled AND ($1::bigint[] IS NULL OR p.id = ANY($1))
+              AND ($2::text IS NULL OR p.owner || '/' || p.name ILIKE $2)
             ORDER BY p.owner, p.name
             """,
             project_ids,
+            f"%{_like_escape(q)}%" if q else None,
         )
         overview = _rows(rows)
         for row in overview:
@@ -302,39 +304,6 @@ class WebQueries:
             build_number,
         )
         return prev_number, next_number
-
-    async def search(
-        self, query: str, limit: int = 50, project_ids: list[int] | None = None
-    ) -> dict[str, list[dict[str, Any]]]:
-        """Substring search over projects and attributes."""
-        pattern = f"%{_like_escape(query)}%"
-        project_filter = "" if project_ids is None else "AND p.id = ANY($3::bigint[])"
-        args: list[Any] = [pattern, limit]
-        if project_ids is not None:
-            args.append(project_ids)
-        projects = await self.pool.fetch(
-            f"""
-            SELECT p.* FROM projects p
-            WHERE (p.owner || '/' || p.name) ILIKE $1 {project_filter}
-            ORDER BY p.owner, p.name LIMIT $2
-            """,  # noqa: S608
-            *args,
-        )
-        attributes = await self.pool.fetch(
-            f"""
-            SELECT DISTINCT ON (b.project_id, a.attr)
-                   a.attr, a.status, b.number AS build_number,
-                   p.owner, p.name AS project_name
-            FROM build_attributes a
-            JOIN builds b ON b.id = a.build_id
-            JOIN projects p ON p.id = b.project_id
-            WHERE a.attr ILIKE $1 {project_filter}
-            ORDER BY b.project_id, a.attr, b.number DESC
-            LIMIT $2
-            """,  # noqa: S608
-            *args,
-        )
-        return {"projects": _rows(projects), "attributes": _rows(attributes)}
 
     async def queue(self, project_ids: list[int] | None = None) -> list[dict[str, Any]]:
         """Pending (FIFO position by id) and running builds."""
