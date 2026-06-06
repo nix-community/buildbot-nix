@@ -82,6 +82,11 @@ class Orchestrator:
     failed_build_cache: FailedBuildCache | None = None
     # build id -> cancel event, set by the cancellation manager.
     cancel_events: dict[int, asyncio.Event] = field(default_factory=dict)
+    # (build id, attr) -> cancel event for a single queued/running
+    # attribute; registered for the lifetime of the executor job.
+    attr_cancel_events: dict[tuple[int, str], asyncio.Event] = field(
+        default_factory=dict
+    )
     # Injectable for tests; defaults to the real implementations.
     register_gcroot: GcrootRegistrar = gcroots.register_gcroot
     write_output_path: OutputWriter = outputs.write_output_path
@@ -684,13 +689,23 @@ class _OrchestratorExecutor:
         await self.o.db.mark_attribute_building(
             self.build_record.id, job.attr, job.system, job.drvPath
         )
+        # Per-attribute cancellation: the executor watches one event, so
+        # mirror the build-level cancel into the attribute's own event.
+        attr_cancel = asyncio.Event()
+        self.o.attr_cancel_events[(self.build_record.id, job.attr)] = attr_cancel
+
+        async def _mirror_build_cancel() -> None:
+            await self.cancel_event.wait()
+            attr_cancel.set()
+
+        mirror = asyncio.create_task(_mirror_build_cancel())
         try:
             outcome = await self.o.executor.build_attribute(
                 self.build_record.id,
                 job,
                 writer,
                 self.worktree_path,
-                self.cancel_event,
+                attr_cancel,
             )
             if outcome == BuildOutcome.success and self.o.config.post_build_steps:
                 props = {
@@ -713,6 +728,8 @@ class _OrchestratorExecutor:
                     # poisoning the failed-build cache.
                     outcome = BuildOutcome.post_build_failure
         finally:
+            mirror.cancel()
+            self.o.attr_cancel_events.pop((self.build_record.id, job.attr), None)
             await writer.close()
             self.o.log_registry.unregister(self.build_record.id, job.attr)
 

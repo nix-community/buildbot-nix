@@ -47,6 +47,7 @@ class FakeBackend:
     restarted: list[int] = field(default_factory=list)
     attr_restarts: list[tuple[int, str]] = field(default_factory=list)
     cancelled: list[int] = field(default_factory=list)
+    attr_cancels: list[tuple[int, str]] = field(default_factory=list)
 
     async def restart_build(self, build_id: int) -> None:
         self.restarted.append(build_id)
@@ -56,6 +57,9 @@ class FakeBackend:
 
     async def cancel_build(self, build_id: int) -> None:
         self.cancelled.append(build_id)
+
+    async def cancel_attribute(self, build_id: int, attr: str) -> None:
+        self.attr_cancels.append((build_id, attr))
 
 
 @pytest.fixture(scope="module")
@@ -184,6 +188,15 @@ def test_admin_can_restart_and_cancel(harness: tuple) -> None:
         post(harness, "/projects/acme/widget/builds/1/cancel", ROOT).status_code == 303
     )
     assert len(BACKEND.cancelled) == 1
+    assert (
+        post(
+            harness,
+            "/projects/acme/widget/builds/1/attrs/x86_64-linux.ok/cancel",
+            ROOT,
+        ).status_code
+        == 303
+    )
+    assert BACKEND.attr_cancels == [(1, "x86_64-linux.ok")]
 
 
 def test_pr_author_can_control_own_pr(harness: tuple) -> None:

@@ -5,25 +5,40 @@
 {% block body %}
   <main id="main">
     <section class="content">
-      <h2>
-        {% if attr_status %}
-          <span class="dot {{ attr_status }}" aria-hidden="true"></span>
-          <span class="visually-hidden">{{ attr_status.replace('_', ' ') }}</span>
-        {% endif %}
-        <code>{{ attr }}</code>
-        <small>
-          <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>
-          · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.txt">raw</a>
-          {% if prev_number %}
-            · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}/logs/{{ attr }}"
+      <div class="build-header">
+        <h2>
+          {% if attr_status %}
+            <span class="dot {{ attr_status }}" aria-hidden="true"></span>
+            <span class="visually-hidden">{{ attr_status.replace('_', ' ') }}</span>
+          {% endif %}
+          <code>{{ attr }}</code>
+          <small>
+            <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>
+            · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.txt">raw</a>
+            {% if prev_number %}
+              · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}/logs/{{ attr }}"
     rel="prev">‹ #{{ prev_number }}</a>
-          {% endif %}
-          {% if next_number %}
-            · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}/logs/{{ attr }}"
+            {% endif %}
+            {% if next_number %}
+              · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}/logs/{{ attr }}"
     rel="next">#{{ next_number }} ›</a>
+            {% endif %}
+          </small>
+        </h2>
+        <div class="controls">
+          {% if attr_status in ('pending', 'building') %}
+            <form method="post"
+                  action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attrs/{{ attr }}/cancel">
+              <button>cancel</button>
+            </form>
+          {% elif attr_status %}
+            <form method="post"
+                  action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attrs/{{ attr }}/restart">
+              <button>restart</button>
+            </form>
           {% endif %}
-        </small>
-      </h2>
+        </div>
+      </div>
       {% if live %}
         <label>
           <input type="checkbox" id="follow" checked>

@@ -1,5 +1,6 @@
 """Build control endpoints: restart build, restart a single
-attribute without re-eval, rebuild-all-failed, cancel — gated by authz
+attribute without re-eval, rebuild-all-failed, cancel build or a
+single attribute — gated by authz
 (admins, PR authors for their own PR, allowUnauthenticatedControl) and
 CSRF same-origin checks. Admin-only project enable/disable toggle.
 
@@ -28,6 +29,8 @@ class ControlBackend(Protocol):
     async def restart_attribute(self, build_id: int, attr: str) -> None: ...
 
     async def cancel_build(self, build_id: int) -> None: ...
+
+    async def cancel_attribute(self, build_id: int, attr: str) -> None: ...
 
 
 FAILED_STATUSES = ("failed", "failed_eval", "dependency_failed", "cached_failure")
@@ -58,6 +61,13 @@ def create_control_router(  # noqa: C901
             f"/projects/{owner}/{name}/builds/{number}", status_code=303
         )
 
+    def _back_to_attr(
+        owner: str, name: str, number: int, attr: str
+    ) -> RedirectResponse:
+        return RedirectResponse(
+            f"/projects/{owner}/{name}/builds/{number}/logs/{attr}", status_code=303
+        )
+
     @router.post("/projects/{owner}/{name}/builds/{number}/restart")
     async def restart(
         request: Request, owner: str, name: str, number: int
@@ -73,7 +83,7 @@ def create_control_router(  # noqa: C901
         build = await _authorize(request, owner, name, number)
         # Reuses the stored eval results (drv_path); no re-eval.
         await backend.restart_attribute(build["id"], attr)
-        return _back(owner, name, number)
+        return _back_to_attr(owner, name, number, attr)
 
     @router.post("/projects/{owner}/{name}/builds/{number}/rebuild-failed")
     async def rebuild_failed(
@@ -89,6 +99,14 @@ def create_control_router(  # noqa: C901
         for row in rows:
             await backend.restart_attribute(build["id"], row["attr"])
         return _back(owner, name, number)
+
+    @router.post("/projects/{owner}/{name}/builds/{number}/attrs/{attr}/cancel")
+    async def cancel_attribute(
+        request: Request, owner: str, name: str, number: int, attr: str
+    ) -> RedirectResponse:
+        build = await _authorize(request, owner, name, number)
+        await backend.cancel_attribute(build["id"], attr)
+        return _back_to_attr(owner, name, number, attr)
 
     @router.post("/projects/{owner}/{name}/builds/{number}/cancel")
     async def cancel(

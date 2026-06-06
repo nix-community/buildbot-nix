@@ -309,6 +309,22 @@ class EngineService:
             event, build, BuildStatus.FAILED, build.status_generation, []
         )
 
+    async def cancel_attribute(self, build_id: int, attr: str) -> None:
+        event = self.orchestrator.attr_cancel_events.get((build_id, attr))
+        if event is not None:
+            event.set()
+            return
+        # Not queued or running (e.g. leftover from an interrupted
+        # build): mark it cancelled directly.
+        await self.pool.execute(
+            "UPDATE build_attributes SET status = 'cancelled', "
+            "finished_at = now() "
+            "WHERE build_id = $1 AND attr = $2 "
+            "AND status IN ('pending', 'building')",
+            build_id,
+            attr,
+        )
+
     async def cancel_build(self, build_id: int) -> None:
         event = self.orchestrator.cancel_events.get(build_id)
         if event is not None:
