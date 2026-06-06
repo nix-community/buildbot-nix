@@ -117,7 +117,7 @@ let
             http_get = {
               host = "127.0.0.1";
               port = 8010;
-              path = "/";
+              path = "/health";
             };
             initial_delay_seconds = 2;
             period_seconds = 2;
