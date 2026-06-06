@@ -101,7 +101,11 @@
             <div class="pipeline-row disabled">
               <span class="pipeline">
                 <span class="dot" aria-hidden="true"></span>
-                <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
+                {% if p.url.startswith("http") %}
+                  <a class="pipeline-name" href="{{ p.url }}">{{ repo_name(p.owner, p.name) }}</a>
+                {% else %}
+                  <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
+                {% endif %}
               </span>
               <form method="post" action="/admin/projects/{{ p.id }}/toggle">
                 <input type="hidden" name="q" value="{{ q }}">
