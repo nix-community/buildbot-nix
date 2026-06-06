@@ -520,13 +520,14 @@ pre.log {
 	}
 }
 .pipeline-row {
-	display: flex;
-	align-items: stretch;
-	gap: 0.5rem;
+	position: relative;
 }
 .pipeline-row > .pipeline {
-	flex: 1;
 	min-width: 0;
+}
+/* Make room for the overlaid toggle button. */
+.pipeline-row:has(.toggle-btn) > .pipeline {
+	padding-right: 5.5rem;
 }
 .disabled-projects {
 	margin-bottom: 2rem;
@@ -540,15 +541,25 @@ pre.log {
 }
 .pipeline-row.disabled .pipeline {
 	opacity: 0.55;
-	padding: 0.35rem 1.2rem;
+	padding: 0.35rem 5.5rem 0.35rem 1.2rem;
 }
 .pipeline-row form {
-	display: flex;
-	align-items: center;
+	position: absolute;
+	top: 50%;
+	right: 1rem;
+	transform: translateY(-50%);
 }
 .toggle-btn {
+	padding: 0.25rem 0.7rem;
 	font-size: 0.8rem;
 	color: var(--muted);
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+.toggle-btn:hover {
+	color: var(--fg);
+	border-color: var(--muted);
 }
 
 /* Shared page furniture */
