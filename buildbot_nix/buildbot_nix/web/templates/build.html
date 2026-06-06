@@ -3,6 +3,9 @@
   {{ repo_name(project.owner,
     project.name) }} #{{ build.number }}
 {% endblock title %}
+{% block bodyattrs %}
+  data-events="/events?build={{ build.id }}"
+{% endblock bodyattrs %}
 {% block body %}
   <main id="main">
     <section class="content">
@@ -68,13 +71,20 @@
                placeholder="filter attributes"
                aria-label="filter attributes">
       </p>
-      {% if build.status in RUNNING_STATUSES %}
-        {% set poll_url = "/projects/" ~ project.owner ~ "/" ~ project.name ~ "/builds/" ~ build.number ~ "/attributes" %}
-      {% endif %}
       <div id="attributes"
-           {% if poll_url %}data-poll-url="{{ poll_url }}"{% endif %}>
+           data-poll-url="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attributes">
         {% include "_attributes.html" %}
       </div>
     </section>
   </main>
+  <script>
+    /* Build-level status only shows in the server-rendered header:
+       reload, unless the user is mid-interaction. */
+    document.addEventListener("buildevent", (ev) => {
+      if (ev.detail.attr) return;
+      if (document.activeElement !== document.body) return;
+      if (document.querySelector("details[open]")) return;
+      location.reload();
+    });
+  </script>
 {% endblock body %}

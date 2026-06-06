@@ -2,6 +2,9 @@
 {% block title %}
   {{ repo_name(project.owner, project.name) }}
 {% endblock title %}
+{% block bodyattrs %}
+  data-events="/events?project={{ project.id }}"
+{% endblock bodyattrs %}
 {% block body %}
   <main id="main">
     <section class="content">
@@ -31,7 +34,8 @@
                value="{{ branch }}">
         <button>filter</button>
       </form>
-      <table class="builds">
+      <table class="builds"
+             data-row-url="/projects/{{ project.owner }}/{{ project.name }}/rows?status={{ status or '' }}&amp;branch={{ branch or '' }}">
         <tr>
           <th scope="col">#</th>
           <th scope="col">branch</th>

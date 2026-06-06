@@ -19,6 +19,7 @@ import zstandard
 
 from buildbot_nix.executor import LogWriter
 from buildbot_nix.web.app import create_app, timeago
+from buildbot_nix.web.events import EventBroker
 from buildbot_nix.web.logs import ansi_to_html, render_log_lines
 
 from .e2e.support import ephemeral_postgres, seed
@@ -138,9 +139,10 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
 
 def test_build_page_live_poll_marker(client: WebClient) -> None:
     running = get(client, "/projects/acme/widget/builds/3")
+    # SSE-driven refresh markers: event stream scoped to the build,
+    # attributes fragment to refetch on events.
+    assert 'data-events="/events?build=' in running.text
     assert 'data-poll-url="' in running.text
-    finished = get(client, "/projects/acme/widget/builds/1")
-    assert 'data-poll-url="' not in finished.text
     # PR link on the PR build.
     assert "/pull/5" in running.text
 
@@ -463,3 +465,37 @@ def test_llms_txt(client: WebClient) -> None:
     assert response.status_code == 200
     assert "/api/openapi.json" in response.text
     assert "failures" in response.text
+
+
+def test_event_broker_pushes_status_changes(
+    client: WebClient, postgres_dsn: str
+) -> None:
+    """Trigger -> NOTIFY -> broker -> subscriber queue, end to end."""
+
+    async def run() -> tuple[dict, dict]:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        broker = EventBroker(pool)
+        await broker.start()
+        build_id = await pool.fetchval("SELECT id FROM builds WHERE number = 3")
+        ours = broker.subscribe(build_id=build_id)
+        other_build = broker.subscribe(build_id=build_id + 1000)
+        await pool.execute(
+            "UPDATE build_attributes SET status = 'failed' "
+            "WHERE build_id = $1 AND attr = 'x86_64-linux.ok'",
+            build_id,
+        )
+        attr_event = json.loads(await asyncio.wait_for(ours.queue.get(), 5))
+        await pool.execute(
+            "UPDATE builds SET status = 'failed' WHERE id = $1", build_id
+        )
+        build_event = json.loads(await asyncio.wait_for(ours.queue.get(), 5))
+        assert other_build.queue.empty()
+        await broker.stop()
+        await pool.close()
+        return attr_event, build_event
+
+    attr_event, build_event = client.loop.run_until_complete(run())
+    assert attr_event["attr"] == "x86_64-linux.ok"
+    assert attr_event["status"] == "failed"
+    assert "attr" not in build_event
+    assert build_event["status"] == "failed"

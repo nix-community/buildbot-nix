@@ -2,43 +2,15 @@
 {% block title %}
   builds
 {% endblock title %}
+{% block bodyattrs %}
+  data-events="/events"
+{% endblock bodyattrs %}
 {% block body %}
   <main id="main">
     <section class="content">
-      {% if queue %}
-        <h2 class="section">Queue</h2>
-        <table class="builds">
-          <caption class="visually-hidden">waiting and running builds</caption>
-          <tr>
-            <th scope="col">pos</th>
-            <th scope="col">project</th>
-            <th scope="col">#</th>
-            <th scope="col">branch</th>
-            <th scope="col">status</th>
-            <th scope="col">waiting</th>
-          </tr>
-          {% for b in queue %}
-            <tr>
-              <td>
-                <span class="queue-pos">{{ b.queue_position }}</span>
-              </td>
-              <td>{{ repo_name(b.owner, b.project_name) }}</td>
-              <td>
-                <a href="/projects/{{ b.owner }}/{{ b.project_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
-              </td>
-              <td>{{ b.branch }}</td>
-              <td>
-                <span class="status {{ b.status }}">{{ b.status }}</span>
-              </td>
-              <td>
-                <time datetime="{{ b.created_at.isoformat() }}" title="{{ b.created_at }}">{{ b.created_at | timeago }}</time>
-              </td>
-            </tr>
-          {% endfor %}
-        </table>
-      {% endif %}
+      <div data-poll-url="/builds/queue">{% include "_queue.html" %}</div>
       <h2 class="section">Recent activity</h2>
-      <table class="builds" id="activity">
+      <table class="builds" id="activity" data-row-url="/builds/rows">
         <tr>
           <th scope="col">#</th>
           <th scope="col">project</th>

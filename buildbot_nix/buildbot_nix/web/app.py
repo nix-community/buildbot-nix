@@ -1,13 +1,12 @@
 """FastAPI web frontend.
 
-Server-rendered Jinja2 with a small inline poller for live updates
-(fragment endpoints polled by a few lines of inline JS), classless CSS with system-preference
-dark mode. Per-project sequential build numbers in URLs; prev/next
-navigation between builds and per-attribute history; homepage
-recent-builds feed with project sidebar; substring search; attributes
-grouped by system with failed-first ordering and inline error
-excerpts; live updates while builds run (polled HTML fragments);
-global queue page with FIFO positions.
+Server-rendered Jinja2, classless CSS with system-preference dark
+mode. Live updates are pushed: Postgres triggers NOTIFY on status
+changes, /events fans them out over SSE, and a few lines of inline
+JS refetch fragments or patch rows. Per-project sequential build
+numbers in URLs; prev/next navigation between builds and
+per-attribute history; substring search; attributes grouped by
+system with failed-first ordering and inline error excerpts.
 
 Visibility filtering hooks (`visible_project_ids`) are wired by task
 5.3b; None means everything is visible.
@@ -16,11 +15,15 @@ Visibility filtering hooks (`visible_project_ids`) are wired by task
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -29,6 +32,7 @@ from ..auth import is_admin  # noqa: TID252
 from ..recovery import check_db_health  # noqa: TID252
 from .api_routes import create_api_router
 from .auth_routes import SESSION_COOKIE
+from .events import EventBroker, create_events_router
 from .logs import LogRegistry, create_log_router
 from .metrics import create_metrics_router
 from .queries import PAGE_SIZE, BuildFilters, WebQueries
@@ -241,11 +245,44 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         )
 
     @router.get("/builds/rows", response_class=HTMLResponse)
-    async def activity_rows(request: Request, before: int) -> HTMLResponse:
-        """Infinite-scroll fragment for the activity feed."""
+    async def activity_rows(
+        request: Request,
+        before: int | None = None,
+        build_id: Annotated[int | None, Query(alias="id")] = None,
+    ) -> HTMLResponse:
+        """Row fragments: infinite scroll (before=) or a single row
+        refreshed after a live status event (id=)."""
         visible = await ctx.visible_project_ids(request)
-        builds = await ctx.queries.recent_builds(project_ids=visible, before=before)
+        builds = await ctx.queries.recent_builds(
+            project_ids=visible, before=before, build_id=build_id
+        )
         return ctx.render("_build_rows.html", request=request, builds=builds)
+
+    @router.get("/builds/queue", response_class=HTMLResponse)
+    async def queue_fragment(request: Request) -> HTMLResponse:
+        visible = await ctx.visible_project_ids(request)
+        return ctx.render(
+            "_queue.html", request=request, queue=await ctx.queries.queue(visible)
+        )
+
+    @router.get("/fragments/summary", response_class=HTMLResponse)
+    async def summary_fragment(request: Request) -> HTMLResponse:
+        visible = await ctx.visible_project_ids(request)
+        return ctx.render(
+            "_summary.html",
+            request=request,
+            counts=await ctx.queries.status_counts(project_ids=visible),
+            project_count=await ctx.queries.project_count(project_ids=visible),
+        )
+
+    @router.get("/fragments/pipelines", response_class=HTMLResponse)
+    async def pipelines_fragment(request: Request) -> HTMLResponse:
+        visible = await ctx.visible_project_ids(request)
+        return ctx.render(
+            "_pipelines.html",
+            request=request,
+            projects=await ctx.queries.project_overview(project_ids=visible),
+        )
 
     @router.get("/projects/{owner}/{name}", response_class=HTMLResponse)
     async def project_page(  # noqa: PLR0913
@@ -274,16 +311,21 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         request: Request,
         owner: str,
         name: str,
-        before: int,
+        before: int | None = None,
+        build_id: Annotated[int | None, Query(alias="id")] = None,
         status: str | None = None,
         branch: str | None = None,
     ) -> HTMLResponse:
-        """Infinite-scroll fragment for the project build list."""
+        """Row fragments: infinite scroll (before=) or a single row
+        refreshed after a live status event (id=)."""
         project = await ctx.project_or_404(owner, name, request)
         builds = await ctx.queries.builds_for_project(
             project["id"],
             filters=BuildFilters(
-                status=status or None, branch=branch or None, before=before
+                status=status or None,
+                branch=branch or None,
+                before=before,
+                id=build_id,
             ),
         )
         return ctx.render(
@@ -390,9 +432,22 @@ def create_app(
     state_dir: Path | None = None,
     log_registry: LogRegistry | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="buildbot-nix", openapi_url="/api/openapi.json")
+    broker = EventBroker(pool)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        await broker.start()
+        try:
+            yield
+        finally:
+            await broker.stop()
+
+    app = FastAPI(
+        title="buildbot-nix", openapi_url="/api/openapi.json", lifespan=lifespan
+    )
     ctx = WebContext(pool, state_dir)
     app.state.web_context = ctx
+    app.include_router(create_events_router(ctx, broker))
     app.include_router(create_router(ctx))
     registry = log_registry or LogRegistry()
     app.state.log_registry = registry

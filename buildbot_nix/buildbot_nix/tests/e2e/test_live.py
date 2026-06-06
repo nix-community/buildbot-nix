@@ -1,4 +1,4 @@
-"""Live behavior: attribute auto-refresh polling and SSE log streaming.
+"""Live behavior: SSE-driven attribute refresh and log streaming.
 
 These exercise the JavaScript in base.html/log.html against a real
 browser; the httpx web tests can only assert the markers exist.
@@ -42,7 +42,7 @@ def test_attribute_table_refreshes_while_building(
         )
 
     server.run(fail_attribute())
-    # The 5s poll tick swaps in the updated attribute fragment.
+    # The status event pushes the updated attribute fragment.
     row.locator(".status.failed").wait_for(timeout=15_000)
     assert "flipped by e2e test" in page.content()
 

@@ -2,6 +2,9 @@
 {% block title %}
   {{ attr }} log
 {% endblock title %}
+{% block bodyattrs %}
+  data-events="/events?build={{ build.id }}"
+{% endblock bodyattrs %}
 {% block body %}
   <main id="main">
     <section class="content">
@@ -54,9 +57,23 @@
       {% endif %}
       {% if not live and attr_status in ('pending', 'building') %}
         {# Queued or just (re)started: the log shown is stale or empty.
-           Reload until the live stream is available. #}
+           Reload until the live stream is available; SSE alone could
+           miss an event sent before the connection opened. #}
         <script>setTimeout(() => location.reload(), 2000);</script>
       {% endif %}
+      <script>
+        /* Status changes for this attribute re-render the page:
+           header dot, controls, and (once finished) line anchors. */
+        document.addEventListener("buildevent", (ev) => {
+          const e = ev.detail;
+          if (e.attr !== {{ attr | tojson }}) return;
+          {% if live %}
+            if (!["pending", "building"].includes(e.status)) location.reload();
+          {% else %}
+            location.reload();
+          {% endif %}
+        });
+      </script>
     </section>
   </main>
   {% if not waiting %}
@@ -103,12 +120,9 @@ source.onmessage = (event) => {
   log.insertAdjacentHTML('beforeend', ansi.ansi_to_html(event.data));
   if (follow.checked) log.scrollTop = log.scrollHeight;
 };
-source.addEventListener('done', () => {
-  source.close();
-  /* Re-render server-side: final status in the header, line
-     anchors in the log. */
-  setTimeout(() => location.reload(), 1500);
-});
+/* The terminal status event reloads the page; just stop the dead
+   stream from reconnecting. */
+source.addEventListener('done', () => source.close());
     </script>
   {% endif %}
 {% endblock body %}

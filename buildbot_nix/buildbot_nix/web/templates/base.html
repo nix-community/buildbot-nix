@@ -13,7 +13,7 @@
     </title>
     <link rel="stylesheet" href="/static/style.css">
   </head>
-  <body>
+  <body {% block bodyattrs %}{% endblock bodyattrs %}>
     <a class="skip-link" href="#main">skip to content</a>
     <header>
       <h1>
@@ -36,19 +36,76 @@
     {% block body %}
     {% endblock body %}
     <script>
-      /* Live updates: elements with data-poll-url refresh while builds run. */
-      for (const el of document.querySelectorAll("[data-poll-url]")) {
-        const tick = async () => {
-          // Swapping would steal keyboard focus and collapse any
-          // expanded error; wait for the next tick instead.
-          if (el.contains(document.activeElement)) return;
-          if (el.querySelector("details[open]")) return;
-          try {
-            const res = await fetch(el.dataset.pollUrl);
-            if (res.ok) el.innerHTML = await res.text();
-          } catch (e) { /* transient */ }
+      /* Live updates: the server pushes status changes over SSE
+         (Postgres NOTIFY behind /events). Elements with
+         data-poll-url refetch their fragment; tables with
+         data-row-url patch or prepend single rows. */
+      const eventsUrl = document.body.dataset.events;
+      if (eventsUrl) {
+        const refreshFragments = () => {
+          for (const el of document.querySelectorAll("[data-poll-url]")) {
+            // Swapping would steal keyboard focus and collapse any
+            // expanded error; skip until the next event.
+            if (el.contains(document.activeElement)) continue;
+            if (el.querySelector("details[open]")) continue;
+            fetch(el.dataset.pollUrl)
+              .then((res) => (res.ok ? res.text() : null))
+              .then((html) => {
+                if (html === null) return;
+                el.innerHTML = html;
+                document.dispatchEvent(new Event("fragmentswap"));
+              })
+              .catch(() => { /* transient */ });
+          }
         };
-        setInterval(tick, 5000);
+        const patchRow = async (table, e) => {
+          const url = new URL(table.dataset.rowUrl, location.origin);
+          url.searchParams.set("id", e.build_id);
+          const res = await fetch(url);
+          if (!res.ok) return;
+          const html = (await res.text()).trim();
+          const row = table.querySelector(`tr[data-id="${e.build_id}"]`);
+          if (!html) {
+            // The build no longer matches the table's filters.
+            if (row) row.remove();
+          } else if (row) {
+            row.outerHTML = html;
+          } else {
+            const top = table.querySelector("tr[data-id]");
+            // Only prepend new builds; an absent older build lives
+            // on a page not yet scrolled to.
+            if (!top || e.build_id > Number(top.dataset.id)) {
+              const header = table.querySelector("tr:not([data-id])");
+              header.insertAdjacentHTML("afterend", html);
+            }
+          }
+        };
+        /* Coalesce bursts (an eval inserts many attributes at once):
+           one refetch per fragment and per dirty build id. */
+        const dirty = new Set();
+        let debounce = null;
+        const flush = () => {
+          for (const table of document.querySelectorAll("table[data-row-url]")) {
+            for (const id of dirty) patchRow(table, { build_id: id });
+          }
+          dirty.clear();
+          refreshFragments();
+        };
+        let connected = false;
+        const source = new EventSource(eventsUrl);
+        source.onopen = () => {
+          // Catch up after a reconnect; the first open needs nothing.
+          if (connected) refreshFragments();
+          connected = true;
+        };
+        source.onmessage = (ev) => {
+          let e;
+          try { e = JSON.parse(ev.data); } catch { return; }
+          document.dispatchEvent(new CustomEvent("buildevent", { detail: e }));
+          dirty.add(e.build_id);
+          clearTimeout(debounce);
+          debounce = setTimeout(flush, 300);
+        };
       }
       /* Infinite scroll: append row fragments when the sentinel under
          a table.builds becomes visible. Cursor is the last row id. */
@@ -74,25 +131,22 @@
       }
       /* Landing page: filter pipeline rows as you type; submitting
          the form searches attributes server-side. */
+      const liveFilter = (input, attr) => {
+        const apply = () => {
+          const q = input.value.toLowerCase();
+          for (const row of document.querySelectorAll(`[data-${attr}]`)) {
+            row.style.display = row.dataset[attr].includes(q) ? "" : "none";
+          }
+        };
+        input.addEventListener("input", apply);
+        // Fragment swaps replace the filtered rows; re-apply.
+        document.addEventListener("fragmentswap", apply);
+      };
       const pfilter = document.querySelector("#pipeline-filter");
-      if (pfilter) {
-        pfilter.addEventListener("input", () => {
-          const q = pfilter.value.toLowerCase();
-          for (const row of document.querySelectorAll("[data-pipeline]")) {
-            row.style.display = row.dataset.pipeline.includes(q) ? "" : "none";
-          }
-        });
-      }
+      if (pfilter) liveFilter(pfilter, "pipeline");
       /* Client-side attribute filter. */
-      const filter = document.querySelector("#attr-filter");
-      if (filter) {
-        filter.addEventListener("input", () => {
-          const q = filter.value.toLowerCase();
-          for (const row of document.querySelectorAll("[data-attr]")) {
-            row.style.display = row.dataset.attr.includes(q) ? "" : "none";
-          }
-        });
-      }
+      const afilter = document.querySelector("#attr-filter");
+      if (afilter) liveFilter(afilter, "attr");
     </script>
   </body>
 </html>

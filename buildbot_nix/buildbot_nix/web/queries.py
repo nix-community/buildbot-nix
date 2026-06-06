@@ -18,6 +18,7 @@ class BuildFilters:
     branch: str | None = None
     commit: str | None = None
     before: int | None = None  # cursor: only builds with a smaller id
+    id: int | None = None  # exactly one build, for live row refresh
 
 
 def _like_escape(query: str) -> str:
@@ -125,6 +126,15 @@ class WebQueries:
             row["history"] = json.loads(row["history"]) if row["history"] else []
         return overview
 
+    async def project_count(self, project_ids: list[int] | None = None) -> int:
+        return await self.pool.fetchval(
+            """
+            SELECT count(*) FROM projects
+            WHERE enabled AND ($1::bigint[] IS NULL OR id = ANY($1))
+            """,
+            project_ids,
+        )
+
     async def status_counts(
         self, project_ids: list[int] | None = None
     ) -> dict[str, int]:
@@ -145,8 +155,10 @@ class WebQueries:
         limit: int = 50,
         project_ids: list[int] | None = None,
         before: int | None = None,
+        build_id: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Activity feed; cursor on build id for infinite scroll."""
+        """Activity feed; cursor on build id for infinite scroll, or a
+        single build for live row refresh."""
         return _rows(
             await self.pool.fetch(
                 """
@@ -154,11 +166,13 @@ class WebQueries:
                 FROM builds b JOIN projects p ON p.id = b.project_id
                 WHERE ($2::bigint[] IS NULL OR b.project_id = ANY($2))
                   AND ($3::bigint IS NULL OR b.id < $3)
+                  AND ($4::bigint IS NULL OR b.id = $4)
                 ORDER BY b.id DESC LIMIT $1
                 """,
                 limit,
                 project_ids,
                 before,
+                build_id,
             )
         )
 
@@ -186,6 +200,9 @@ class WebQueries:
         if f.before is not None:
             args.append(f.before)
             conditions.append(f"id < ${len(args)}")
+        if f.id is not None:
+            args.append(f.id)
+            conditions.append(f"id = ${len(args)}")
         args.append(PAGE_SIZE + 1)
         args.append((page - 1) * PAGE_SIZE)
         rows = await self.pool.fetch(
