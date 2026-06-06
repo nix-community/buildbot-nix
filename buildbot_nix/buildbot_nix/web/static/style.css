@@ -274,6 +274,28 @@ button {
 button:hover {
 	border-color: var(--run);
 }
+.login-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	align-self: center;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 0.3rem 0.75rem;
+	font-size: 0.85rem;
+	color: var(--fg);
+	white-space: nowrap;
+}
+.login-btn:hover {
+	border-color: var(--run);
+	text-decoration: none;
+}
+.login-btn svg {
+	width: 16px;
+	height: 16px;
+	fill: currentcolor;
+}
 .pager {
 	display: flex;
 	gap: 1rem;

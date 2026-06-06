@@ -241,7 +241,12 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
         app.include_router(
             create_auth_router(providers, signer, config.url, ctx.forge_tokens)
         )
-        ctx.env.globals["login_providers"] = sorted(providers)
+        labels = {"github": "GitHub", "gitea": "Gitea"}
+        if config.oidc is not None:
+            labels["oidc"] = config.oidc.name
+        ctx.env.globals["login_providers"] = [
+            {"key": key, "label": labels.get(key, key)} for key in sorted(providers)
+        ]
     app.include_router(create_control_router(ctx, service, authz, config.url))
     app.include_router(create_token_router(ctx, ctx.token_store, config.url))
     app.include_router(
