@@ -35,7 +35,7 @@
           <tr>
             <td>{{ t.name }}</td>
             <td>
-              <time title="{{ t.created_at }}">{{ t.created_at | timeago }}</time>
+              <time datetime="{{ t.created_at.isoformat() }}" title="{{ t.created_at }}">{{ t.created_at | timeago }}</time>
             </td>
             <td>{{ t.expires_at or "never" }}</td>
             <td>

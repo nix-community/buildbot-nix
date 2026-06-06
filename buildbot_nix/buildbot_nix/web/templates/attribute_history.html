@@ -31,7 +31,8 @@ block body %}
             <code>{{ h.commit_sha[:10] }}</code>
           </td>
           <td>
-            <time title="{{ h.build_created_at }}">{{ h.build_created_at | timeago }}</time>
+            <time datetime="{{ h.build_created_at.isoformat() }}"
+                  title="{{ h.build_created_at }}">{{ h.build_created_at | timeago }}</time>
           </td>
         </tr>
       {% else %}

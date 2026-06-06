@@ -39,6 +39,10 @@
       /* Live updates: elements with data-poll-url refresh while builds run. */
       for (const el of document.querySelectorAll("[data-poll-url]")) {
         const tick = async () => {
+          // Swapping would steal keyboard focus and collapse any
+          // expanded error; wait for the next tick instead.
+          if (el.contains(document.activeElement)) return;
+          if (el.querySelector("details[open]")) return;
           try {
             const res = await fetch(el.dataset.pollUrl);
             if (res.ok) el.innerHTML = await res.text();

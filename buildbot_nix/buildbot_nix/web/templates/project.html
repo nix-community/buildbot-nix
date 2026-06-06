@@ -8,6 +8,7 @@
       <h2>
         {% if builds["items"] %}
           <span class="dot {{ builds['items'][0].status }}" aria-hidden="true"></span>
+          <span class="visually-hidden">latest build {{ builds['items'][0].status.replace('_', ' ') }}</span>
         {% endif %}
         {{ repo_name(project.owner, project.name) }}
         <small>

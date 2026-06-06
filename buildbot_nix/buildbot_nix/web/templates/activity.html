@@ -31,7 +31,7 @@
                 <span class="status {{ b.status }}">{{ b.status }}</span>
               </td>
               <td>
-                <time title="{{ b.created_at }}">{{ b.created_at | timeago }}</time>
+                <time datetime="{{ b.created_at.isoformat() }}" title="{{ b.created_at }}">{{ b.created_at | timeago }}</time>
               </td>
             </tr>
           {% endfor %}

@@ -31,7 +31,8 @@
               · <a href="{{ pr_url(project, build.pr_number) }}">PR #{{ build.pr_number }}</a>
             {% endif %}
             · commit <a href="{{ commit_url(project, build.commit_sha) }}"><code>{{ build.commit_sha[:10] }}</code></a>
-            · <time title="{{ build.created_at }}">{{ build.created_at | timeago }}</time>
+            · <time datetime="{{ build.created_at.isoformat() }}"
+       title="{{ build.created_at }}">{{ build.created_at | timeago }}</time>
             · took {{ build | duration }}
           </p>
         </div>

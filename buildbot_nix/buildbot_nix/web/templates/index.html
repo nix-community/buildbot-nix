@@ -28,6 +28,9 @@
              href="/projects/{{ p.owner }}/{{ p.name }}"
              data-pipeline="{{ repo_name(p.owner, p.name) | lower }}">
             <span class="dot {{ p.last_status or '' }}" aria-hidden="true"></span>
+            {% if p.last_status %}
+              <span class="visually-hidden">{{ p.last_status.replace('_', ' ') }}</span>
+            {% endif %}
             <div class="pipeline-info">
               <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
               {% if p.last_number %}
