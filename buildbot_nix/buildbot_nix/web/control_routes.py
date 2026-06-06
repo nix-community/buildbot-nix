@@ -117,17 +117,34 @@ def create_control_router(  # noqa: C901
         await backend.cancel_build(build["id"])
         return _back(owner, name, number)
 
-    @router.post("/admin/projects/{project_id}/toggle")
-    async def toggle_project(
-        request: Request, project_id: int, q: Annotated[str, Form()] = ""
-    ) -> RedirectResponse:
+    async def _require_project_admin(request: Request, project_id: int) -> None:
+        """Instance admins, or forge-side admins of this repo."""
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
-        # Instance admins, or forge-side admins of this repo.
         if not is_admin(await ctx.request_user(request), authz):
             toggleable = await ctx.toggleable_project_ids(request) or []
             if project_id not in toggleable:
                 raise HTTPException(status_code=403, detail="not a project admin")
+
+    @router.post("/api/projects/{owner}/{name}/enable")
+    @router.post("/api/projects/{owner}/{name}/disable")
+    async def api_set_enabled(request: Request, owner: str, name: str) -> dict:
+        """Idempotent enable/disable for scripts and agents."""
+        project = await ctx.project_or_404(owner, name, request)
+        await _require_project_admin(request, project["id"])
+        enabled = request.url.path.endswith("/enable")
+        await ctx.pool.execute(
+            "UPDATE projects SET enabled = $2, updated_at = now() WHERE id = $1",
+            project["id"],
+            enabled,
+        )
+        return {"owner": owner, "name": name, "enabled": enabled}
+
+    @router.post("/admin/projects/{project_id}/toggle")
+    async def toggle_project(
+        request: Request, project_id: int, q: Annotated[str, Form()] = ""
+    ) -> RedirectResponse:
+        await _require_project_admin(request, project_id)
         await ctx.pool.execute(
             "UPDATE projects SET enabled = NOT enabled, updated_at = now() "
             "WHERE id = $1",

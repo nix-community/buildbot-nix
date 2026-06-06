@@ -244,26 +244,40 @@ def test_rebuild_all_failed(harness: tuple) -> None:
     assert sorted(a for _, a in BACKEND.attr_restarts) == ["bad1", "bad2"]
 
 
-def test_admin_project_toggle(harness: tuple) -> None:
+def project_enabled(harness: tuple) -> bool:
     loop, client = harness
+    pool = client._transport.app.state.web_context.pool  # type: ignore[attr-defined]  # noqa: SLF001
+    return loop.run_until_complete(
+        pool.fetchval("SELECT enabled FROM projects WHERE forge_repo_id = 'ctl-1'")
+    )
+
+
+def test_admin_project_toggle(harness: tuple) -> None:
     # Non-admin rejected.
     assert post(harness, "/admin/projects/1/toggle", ALICE).status_code == 403
 
-    async def enabled_state() -> bool:
-        ctx_pool = client._transport.app.state.web_context.pool  # type: ignore[attr-defined]  # noqa: SLF001
-        return await ctx_pool.fetchval(
-            "SELECT enabled FROM projects WHERE forge_repo_id = 'ctl-1'"
-        )
-
-    before = loop.run_until_complete(enabled_state())
+    before = project_enabled(harness)
     assert post(harness, "/admin/projects/1/toggle", ROOT).status_code == 303
-    after = loop.run_until_complete(enabled_state())
-    assert after != before
+    assert project_enabled(harness) != before
 
     # The dashboard filter survives a toggle.
     response = post(harness, "/admin/projects/1/toggle", ROOT, data={"q": "wid get"})
     assert response.status_code == 303
     assert response.headers["location"] == "/?q=wid%20get"
+
+
+def test_api_enable_disable(harness: tuple) -> None:
+    assert post(harness, "/api/projects/acme/widget/disable", ALICE).status_code == 403
+
+    response = post(harness, "/api/projects/acme/widget/disable", ROOT)
+    assert response.status_code == 200
+    assert response.json() == {"owner": "acme", "name": "widget", "enabled": False}
+    assert project_enabled(harness) is False
+    # Idempotent: repeating is fine.
+    assert post(harness, "/api/projects/acme/widget/disable", ROOT).status_code == 200
+    assert post(harness, "/api/projects/acme/widget/enable", ROOT).status_code == 200
+    assert project_enabled(harness) is True
+    assert post(harness, "/api/projects/acme/nope/enable", ROOT).status_code == 404
 
 
 # --- personal API tokens ---------------------------------------------
