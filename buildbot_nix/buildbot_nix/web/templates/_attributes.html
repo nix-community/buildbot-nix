@@ -1,33 +1,33 @@
 {% for system, attrs in group_by_system(attributes).items() %}
-<h3>{{ system }}</h3>
-<table class="attrs">
-  {% for a in attrs %}
-  <tr data-attr="{{ a.attr | lower }}">
-    <td class="attr-name">
-      <span class="dot {{ a.status }}"></span>
-      {% if a.log_path or a.status in ('pending', 'building') %}
-      <a
-        href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ a.attr }}"
-      ><code>{{ a.attr }}</code></a>
-      {% else %}<code>{{ a.attr }}</code>{% endif %}
-    </td>
-    <td class="attr-status">
-      <span class="status {{ a.status }}"
-      >{{ a.status.replace("_", " ") }}</span>
-    </td>
-    <td class="attr-duration">{{ a | duration }}</td>
-  </tr>
-  {% if a.error %}
-  <tr data-attr="{{ a.attr | lower }}">
-    <td colspan="3">
-      <details class="error">
-        <summary>{{ a.error | excerpt(160) }}</summary>
-        <pre class="error">{{ a.error }}</pre>
-      </details>
-    </td>
-  </tr>
-  {% endif %} {% endfor %}
-</table>
+  <h3>{{ system }}</h3>
+  <table class="attrs">
+    {% for a in attrs %}
+      <tr data-attr="{{ a.attr | lower }}">
+        <td class="attr-name">
+          <span class="dot {{ a.status }}"></span>
+          {% if a.log_path or a.status in ('pending', 'building') %}
+            <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ a.attr }}"><code>{{ a.attr }}</code></a>
+          {% else %}
+            <code>{{ a.attr }}</code>
+          {% endif %}
+        </td>
+        <td class="attr-status">
+          <span class="status {{ a.status }}">{{ a.status.replace('_', ' ') }}</span>
+        </td>
+        <td class="attr-duration">{{ a | duration }}</td>
+      </tr>
+      {% if a.error %}
+        <tr data-attr="{{ a.attr | lower }}">
+          <td colspan="3">
+            <details class="error">
+              <summary>{{ a.error | excerpt(160) }}</summary>
+              <pre class="error">{{ a.error }}</pre>
+            </details>
+          </td>
+        </tr>
+      {% endif %}
+    {% endfor %}
+  </table>
 {% else %}
-<p class="muted">no attributes (yet)</p>
+  <p class="muted">no attributes (yet)</p>
 {% endfor %}

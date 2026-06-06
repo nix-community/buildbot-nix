@@ -1,364 +1,393 @@
 /* Minimal stylesheet with system-preference dark mode. The accent
    leans on the Nix logo blue. */
 :root {
-  --bg: #fcfcfb;
-  --fg: #24292e;
-  --muted: #6c757d;
-  --border: #dde2e8;
-  --ok: #2e7d32;
-  --bad: #c62828;
-  --warn: #e65100;
-  --run: #1565c0;
-  --accent: #5277c3;
-  --card: #f4f5f7;
-  --mono:
-    ui-monospace,
-    "SFMono-Regular",
-    "JetBrains Mono",
-    Menlo,
-    Consolas,
-    monospace;
+	--bg: #fcfcfb;
+	--fg: #24292e;
+	--muted: #6c757d;
+	--border: #dde2e8;
+	--ok: #2e7d32;
+	--bad: #c62828;
+	--warn: #e65100;
+	--run: #1565c0;
+	--accent: #5277c3;
+	--card: #f4f5f7;
+	--mono:
+		ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #131619;
-    --fg: #e8e6e3;
-    --muted: #9aa0a6;
-    --border: #2d3338;
-    --ok: #81c995;
-    --bad: #f28b82;
-    --warn: #fdd663;
-    --run: #8ab4f8;
-    --accent: #7ca4e0;
-    --card: #1b2025;
-  }
+	:root {
+		--bg: #131619;
+		--fg: #e8e6e3;
+		--muted: #9aa0a6;
+		--border: #2d3338;
+		--ok: #81c995;
+		--bad: #f28b82;
+		--warn: #fdd663;
+		--run: #8ab4f8;
+		--accent: #7ca4e0;
+		--card: #1b2025;
+	}
 }
 * {
-  box-sizing: border-box;
+	box-sizing: border-box;
 }
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font: 15px/1.5 system-ui, sans-serif;
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font:
+		15px / 1.5 system-ui,
+		sans-serif;
 }
 a {
-  color: var(--accent);
-  text-decoration: none;
+	color: var(--accent);
+	text-decoration: none;
 }
 a:hover {
-  text-decoration: underline;
+	text-decoration: underline;
 }
-code, pre, .lineno {
-  font-family: var(--mono);
+code,
+pre,
+.lineno {
+	font-family: var(--mono);
 }
 header {
-  display: flex;
-  gap: 1rem;
-  align-items: baseline;
-  padding: 0.55rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--card);
+	display: flex;
+	gap: 1rem;
+	align-items: baseline;
+	padding: 0.55rem 1.25rem;
+	border-bottom: 1px solid var(--border);
+	background: var(--card);
 }
 header h1 {
-  font-size: 1rem;
-  margin: 0;
-  font-family: var(--mono);
-  letter-spacing: -0.02em;
+	font-size: 1rem;
+	margin: 0;
+	font-family: var(--mono);
+	letter-spacing: -0.02em;
 }
 header h1 a::before {
-  content: "❅ ";
-  color: var(--accent);
+	content: "❅ ";
+	color: var(--accent);
 }
 header h1 a {
-  color: var(--fg);
+	color: var(--fg);
 }
 header > a {
-  color: var(--muted);
-  font-size: 0.9rem;
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+form.header-search {
+	margin-left: auto;
 }
 main {
-  display: flex;
-  gap: 2rem;
-  padding: 1.25rem;
-  max-width: 90rem;
-  margin: 0 auto;
+	display: flex;
+	gap: 2rem;
+	padding: 1.25rem;
+	max-width: 90rem;
+	margin: 0 auto;
 }
 nav.sidebar {
-  min-width: 16rem;
+	min-width: 16rem;
 }
 nav.sidebar ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+	list-style: none;
+	padding: 0;
+	margin: 0;
 }
 nav.sidebar li {
-  padding: 0.15rem 0;
+	padding: 0.15rem 0;
 }
 section.content {
-  flex: 1;
-  min-width: 0;
+	flex: 1;
+	min-width: 0;
 }
 table {
-  border-collapse: collapse;
-  width: 100%;
+	border-collapse: collapse;
+	width: 100%;
 }
-th, td {
-  text-align: left;
-  padding: 0.35rem 0.6rem;
-  border-bottom: 1px solid var(--border);
+th,
+td {
+	text-align: left;
+	padding: 0.35rem 0.6rem;
+	border-bottom: 1px solid var(--border);
 }
 th {
-  color: var(--muted);
-  font-weight: 600;
+	color: var(--muted);
+	font-weight: 600;
 }
 /* Buildkite-style lists: rounded card, one row per item, status
    dots and pill labels. Shared by attribute and build tables. */
-table.attrs, table.builds {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  border-collapse: separate;
-  border-spacing: 0;
-  overflow: hidden;
-  background: var(--card);
+table.attrs,
+table.builds {
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	border-collapse: separate;
+	border-spacing: 0;
+	overflow: hidden;
+	background: var(--card);
 }
-table.attrs td, table.builds td {
-  border-bottom: 1px solid var(--border);
-  padding: 0.5rem 0.75rem;
+table.attrs td,
+table.builds td {
+	border-bottom: 1px solid var(--border);
+	padding: 0.5rem 0.75rem;
 }
-table.attrs tr:last-child td, table.builds tr:last-child td {
-  border-bottom: none;
+table.attrs tr:last-child td,
+table.builds tr:last-child td {
+	border-bottom: none;
 }
-table.attrs tr:hover td, table.builds tr:hover td {
-  background: rgba(130, 170, 255, 0.06);
+table.attrs tr:hover td,
+table.builds tr:hover td {
+	background: rgba(130, 170, 255, 0.06);
 }
 table.builds th {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+	padding: 0.5rem 0.75rem;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
 }
 td.attr-name {
-  width: 100%;
+	width: 100%;
 }
 td.attr-name a {
-  color: var(--fg);
+	color: var(--fg);
 }
-td.attr-status, td.attr-duration {
-  white-space: nowrap;
-  text-align: right;
+td.attr-status,
+td.attr-duration {
+	white-space: nowrap;
+	text-align: right;
 }
 td.attr-duration {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
 }
 .dot {
-  display: inline-block;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  margin-right: 0.5rem;
-  background: var(--muted);
+	display: inline-block;
+	width: 0.6rem;
+	height: 0.6rem;
+	border-radius: 50%;
+	margin-right: 0.5rem;
+	background: var(--muted);
 }
-.dot.succeeded, .dot.success {
-  background: var(--ok);
+.dot.succeeded,
+.dot.success {
+	background: var(--ok);
 }
-.dot.failed, .dot.failed_eval, .dot.dependency_failed, .dot.cached_failure {
-  background: var(--bad);
+.dot.failed,
+.dot.failed_eval,
+.dot.dependency_failed,
+.dot.cached_failure {
+	background: var(--bad);
 }
-.dot.pending, .dot.evaluating, .dot.building {
-  background: var(--run);
+.dot.pending,
+.dot.evaluating,
+.dot.building {
+	background: var(--run);
 }
-.dot.building, .dot.evaluating {
-  animation: pulse 1.2s ease-in-out infinite;
+.dot.building,
+.dot.evaluating {
+	animation: pulse 1.2s ease-in-out infinite;
 }
 h2 .dot {
-  width: 0.8rem;
-  height: 0.8rem;
+	width: 0.8rem;
+	height: 0.8rem;
 }
 @keyframes pulse {
-  50% {
-    opacity: 0.3;
-  }
+	50% {
+		opacity: 0.3;
+	}
 }
 .status {
-  font-weight: 600;
+	font-weight: 600;
 }
 /* Pill chrome only inside the card lists; headings keep plain text.
    No color here: it would outweigh the .status.<state> variants
    below (higher specificity). currentColor keeps the border in
    sync with the state color. */
-table.attrs .status, table.builds .status {
-  font-size: 12px;
-  padding: 0.1rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid currentColor;
-  white-space: nowrap;
+table.attrs .status,
+table.builds .status {
+	font-size: 12px;
+	padding: 0.1rem 0.55rem;
+	border-radius: 999px;
+	border: 1px solid currentColor;
+	white-space: nowrap;
 }
-.status.succeeded, .status.success {
-  color: var(--ok);
+.status.succeeded,
+.status.success {
+	color: var(--ok);
 }
 .status.failed,
 .status.failed_eval,
 .status.dependency_failed,
 .status.cached_failure {
-  color: var(--bad);
+	color: var(--bad);
 }
-.status.cancelled, .status.skipped_local {
-  color: var(--muted);
+.status.cancelled,
+.status.skipped_local {
+	color: var(--muted);
 }
-.status.pending, .status.evaluating, .status.building {
-  color: var(--run);
+.status.pending,
+.status.evaluating,
+.status.building {
+	color: var(--run);
 }
 .muted {
-  color: var(--muted);
+	color: var(--muted);
 }
 time[title] {
-  cursor: help;
-  border-bottom: 1px dotted var(--muted);
+	cursor: help;
+	border-bottom: 1px dotted var(--muted);
 }
 pre.error {
-  background: var(--card);
-  border-left: 4px solid var(--bad);
-  padding: 0.5rem 0.8rem;
-  white-space: pre-wrap;
-  overflow-x: auto;
-  font-size: 13px;
+	background: var(--card);
+	border-left: 4px solid var(--bad);
+	padding: 0.5rem 0.8rem;
+	white-space: pre-wrap;
+	overflow-x: auto;
+	font-size: 13px;
 }
 pre.warning {
-  border-left-color: var(--warn);
+	border-left-color: var(--warn);
 }
 details.error summary {
-  color: var(--bad);
-  font-family: monospace;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+	color: var(--bad);
+	font-family: monospace;
+	font-size: 13px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 details.error[open] summary {
-  margin-bottom: 0.3rem;
+	margin-bottom: 0.3rem;
 }
 details.error pre.error {
-  margin: 0;
+	margin: 0;
 }
-input[type="search"], input[type="text"], select {
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.3rem 0.5rem;
+input[type="search"],
+input[type="text"],
+select {
+	background: var(--card);
+	color: var(--fg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0.3rem 0.5rem;
 }
 form.filters {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0.8rem 0;
+	display: flex;
+	gap: 0.5rem;
+	margin: 0.8rem 0;
 }
 button {
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.3rem 0.8rem;
-  cursor: pointer;
+	background: var(--card);
+	color: var(--fg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0.3rem 0.8rem;
+	cursor: pointer;
 }
 button:hover {
-  border-color: var(--run);
+	border-color: var(--run);
 }
 .pager {
-  display: flex;
-  gap: 1rem;
-  padding: 0.8rem 0;
+	display: flex;
+	gap: 1rem;
+	padding: 0.8rem 0;
 }
 .build-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  flex-wrap: wrap;
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 1rem;
+	flex-wrap: wrap;
 }
 .build-header .controls {
-  display: flex;
-  gap: 0.5rem;
-  /* Align with the heading text, not the section top. */
-  margin-top: 0.5rem;
+	display: flex;
+	gap: 0.5rem;
+	/* Align with the heading text, not the section top. */
+	margin-top: 0.5rem;
 }
 .build-header .pager {
-  display: inline-flex;
-  padding: 0;
-  margin-left: 0.5rem;
-  font-size: 0.85rem;
-  font-weight: normal;
+	display: inline-flex;
+	padding: 0;
+	margin-left: 0.5rem;
+	font-size: 0.85rem;
+	font-weight: normal;
 }
 p.build-meta {
-  margin-top: 0;
-  color: var(--muted);
+	margin-top: 0;
+	color: var(--muted);
 }
 h2 {
-  font-size: 1.25rem;
-  letter-spacing: -0.01em;
+	font-size: 1.25rem;
+	letter-spacing: -0.01em;
 }
 h2 code {
-  font-size: 1.1rem;
+	font-size: 1.1rem;
 }
 h2 small {
-  color: var(--muted);
-  font-weight: normal;
-  font-size: 0.85rem;
+	color: var(--muted);
+	font-weight: normal;
+	font-size: 0.85rem;
 }
 h3 {
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 1.5rem 0 0.5rem;
+	color: var(--muted);
+	font-size: 0.8rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	margin: 1.5rem 0 0.5rem;
 }
 details summary {
-  cursor: pointer;
+	cursor: pointer;
 }
 
 /* Log viewer */
 pre.log {
-  background: var(--card);
-  padding: 0.8rem;
-  overflow: auto;
-  /* Own scroll pane: tail-following must not scroll the page and
+	background: var(--card);
+	padding: 0.8rem;
+	overflow: auto;
+	/* Own scroll pane: tail-following must not scroll the page and
      hide the header. */
-  max-height: calc(100vh - 11rem);
-  font-size: 13px;
-  line-height: 1.4;
+	max-height: calc(100vh - 11rem);
+	font-size: 13px;
+	line-height: 1.4;
 }
 .logline {
-  display: block;
+	display: block;
 }
 .logline:target {
-  background: rgba(130, 170, 255, 0.15);
+	background: rgba(130, 170, 255, 0.15);
 }
 .lineno {
-  display: inline-block;
-  width: 4ch;
-  margin-right: 1ch;
-  text-align: right;
-  color: var(--muted);
-  user-select: none;
+	display: inline-block;
+	width: 4ch;
+	margin-right: 1ch;
+	text-align: right;
+	color: var(--muted);
+	user-select: none;
 }
-.ansi-red, .ansi-bright-red {
-  color: var(--bad);
+.ansi-red,
+.ansi-bright-red {
+	color: var(--bad);
 }
-.ansi-green, .ansi-bright-green {
-  color: var(--ok);
+.ansi-green,
+.ansi-bright-green {
+	color: var(--ok);
 }
-.ansi-yellow, .ansi-bright-yellow {
-  color: var(--warn);
+.ansi-yellow,
+.ansi-bright-yellow {
+	color: var(--warn);
 }
-.ansi-blue, .ansi-bright-blue, .ansi-cyan, .ansi-bright-cyan {
-  color: var(--run);
+.ansi-blue,
+.ansi-bright-blue,
+.ansi-cyan,
+.ansi-bright-cyan {
+	color: var(--run);
 }
-.ansi-magenta, .ansi-bright-magenta {
-  color: #ab47bc;
+.ansi-magenta,
+.ansi-bright-magenta {
+	color: #ab47bc;
 }
 .ansi-bold {
-  font-weight: bold;
+	font-weight: bold;
 }

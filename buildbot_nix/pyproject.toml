@@ -35,6 +35,14 @@ dependencies = [
 buildbot-nix = "buildbot_nix.main:main"
 
 
+[tool.djlint]
+profile = "jinja"
+indent = 2
+max_line_length = 100
+# H030/H031: meta description/keywords are pointless for a CI UI.
+# J004/J018: url_for() is Flask; routes here are plain FastAPI paths.
+ignore = "H030,H031,J004,J018"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 88

@@ -5,10 +5,38 @@
   programs.nixfmt.package = pkgs.nixfmt;
   programs.shellcheck.enable = true;
   programs.deno.enable = true;
-  # deno fmt cannot parse Jinja syntax in the engine's HTML templates.
+  # deno fmt cannot parse Jinja syntax in the engine's HTML templates
+  # (djlint handles those) and biome owns the stylesheet.
   settings.formatter.deno.excludes = [
     "buildbot_nix/buildbot_nix/web/templates/*"
+    "buildbot_nix/buildbot_nix/web/static/*.css"
   ];
+
+  # Jinja-aware HTML formatter + linter; config in buildbot_nix/pyproject.toml.
+  settings.formatter.djlint = {
+    command = lib.getExe (
+      pkgs.writeShellScriptBin "djlint-fmt" ''
+        ${lib.getExe pkgs.djlint} "$@" --reformat \
+          --configuration buildbot_nix/pyproject.toml --quiet
+        status=$?
+        # 1 means files were reformatted, which is fine for a formatter.
+        [ "$status" -le 1 ] || exit "$status"
+        exec ${lib.getExe pkgs.djlint} "$@" --lint \
+          --configuration buildbot_nix/pyproject.toml
+      ''
+    );
+    includes = [ "buildbot_nix/buildbot_nix/web/templates/*.html" ];
+  };
+
+  settings.formatter.biome-css = {
+    command = lib.getExe pkgs.biome;
+    options = [
+      "format"
+      "--write"
+      "--no-errors-on-unmatched"
+    ];
+    includes = [ "*.css" ];
+  };
   programs.ruff.check = true;
   programs.ruff.format = true;
   settings.formatter.shellcheck.options = [

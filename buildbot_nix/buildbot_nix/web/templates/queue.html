@@ -1,35 +1,41 @@
-{% extends "base.html" %} {% block title %}queue{% endblock %} {% block body %}
-<main>
-  <section class="content">
-    <h2>Queue</h2>
-    <table>
-      <tr>
-        <th>pos</th>
-        <th>project</th>
-        <th>#</th>
-        <th>branch</th>
-        <th>status</th>
-        <th>waiting</th>
-      </tr>
-      {% for b in queue %}
-      <tr>
-        <td>{{ b.queue_position }}</td>
-        <td>{{ repo_name(b.owner, b.project_name) }}</td>
-        <td>
-          <a
-            href="/projects/{{ b.owner }}/{{ b.project_name }}/builds/{{ b.number }}"
-          >#{{ b.number }}</a>
-        </td>
-        <td>{{ b.branch }}</td>
-        <td><span class="status {{ b.status }}">{{ b.status }}</span></td>
-        <td>
-          <time title="{{ b.created_at }}">{{ b.created_at | timeago }}</time>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">queue is empty</td></tr>
-      {% endfor %}
-    </table>
-  </section>
-</main>
-{% endblock %}
+{% extends "base.html" %}
+{% block title %}
+  queue
+{% endblock title %}
+{% block body %}
+  <main>
+    <section class="content">
+      <h2>Queue</h2>
+      <table>
+        <tr>
+          <th>pos</th>
+          <th>project</th>
+          <th>#</th>
+          <th>branch</th>
+          <th>status</th>
+          <th>waiting</th>
+        </tr>
+        {% for b in queue %}
+          <tr>
+            <td>{{ b.queue_position }}</td>
+            <td>{{ repo_name(b.owner, b.project_name) }}</td>
+            <td>
+              <a href="/projects/{{ b.owner }}/{{ b.project_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
+            </td>
+            <td>{{ b.branch }}</td>
+            <td>
+              <span class="status {{ b.status }}">{{ b.status }}</span>
+            </td>
+            <td>
+              <time title="{{ b.created_at }}">{{ b.created_at | timeago }}</time>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6" class="muted">queue is empty</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </section>
+  </main>
+{% endblock body %}

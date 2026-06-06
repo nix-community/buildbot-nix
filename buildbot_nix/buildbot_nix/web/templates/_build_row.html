@@ -1,18 +1,23 @@
-{% set row_owner = b["owner"] if "owner" in b else project.owner %} {% set
+{% set row_owner = b["owner"] if "owner" in b else project.owner %}
+{% set
 row_name = b["project_name"] if "project_name" in b else project.name %}
 <tr>
   <td>
-    <span class="dot {{ b.status }}"></span><a
-      href="/projects/{{ row_owner }}/{{ row_name }}/builds/{{ b.number }}"
-    >#{{ b.number }}</a>
+    <span class="dot {{ b.status }}"></span><a href="/projects/{{ row_owner }}/{{ row_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
   </td>
   {% if "project_name" in b %}<td>{{ repo_name(row_owner, row_name) }}</td>{% endif %}
   <td>
-    {{ b.branch }}{% if b.pr_number %} <span class="muted"
-    >PR #{{ b.pr_number }}</span>{% endif %}
+    {{ b.branch }}
+    {% if b.pr_number %}<span class="muted">PR #{{ b.pr_number }}</span>{% endif %}
   </td>
-  <td><span class="status {{ b.status }}">{{ b.status }}</span></td>
-  <td><code>{{ b.commit_sha[:10] }}</code></td>
-  <td><time title="{{ b.created_at }}">{{ b.created_at | timeago }}</time></td>
+  <td>
+    <span class="status {{ b.status }}">{{ b.status }}</span>
+  </td>
+  <td>
+    <code>{{ b.commit_sha[:10] }}</code>
+  </td>
+  <td>
+    <time title="{{ b.created_at }}">{{ b.created_at | timeago }}</time>
+  </td>
   <td>{{ b | duration }}</td>
 </tr>

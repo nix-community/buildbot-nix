@@ -1,41 +1,49 @@
 {% extends "base.html" %}
-{% block title %}{{ attr }} log{% endblock %}
+{% block title %}
+  {{ attr }} log
+{% endblock title %}
 {% block body %}
-<main>
-  <section class="content">
-    <h2>
-      {% if attr_status %}<span class="dot {{ attr_status }}"></span>{% endif %}<code>{{ attr }}</code>
-      <small>
-        <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>
-        · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.txt">raw</a>
-        {% if prev_number %}
-        · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}/logs/{{ attr }}" rel="prev">‹ #{{ prev_number }}</a>
-        {% endif %}
-        {% if next_number %}
-        · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}/logs/{{ attr }}" rel="next">#{{ next_number }} ›</a>
-        {% endif %}
-      </small>
-    </h2>
-    {% if live %}
-    <label><input type="checkbox" id="follow" checked> follow tail</label>
-    {% endif %}
-    {% if waiting %}
-    <p class="muted">waiting for the build to start…</p>
-    <script>setTimeout(() => location.reload(), 3000);</script>
-    {% else %}
-    <pre class="log" id="log">{{ content | safe }}</pre>
-    {% endif %}
-  </section>
-</main>
-{% if not waiting %}
-<script>
+  <main>
+    <section class="content">
+      <h2>
+        {% if attr_status %}<span class="dot {{ attr_status }}"></span>{% endif %}
+        <code>{{ attr }}</code>
+        <small>
+          <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>
+          · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.txt">raw</a>
+          {% if prev_number %}
+            · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}/logs/{{ attr }}"
+    rel="prev">‹ #{{ prev_number }}</a>
+          {% endif %}
+          {% if next_number %}
+            · <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}/logs/{{ attr }}"
+    rel="next">#{{ next_number }} ›</a>
+          {% endif %}
+        </small>
+      </h2>
+      {% if live %}
+        <label>
+          <input type="checkbox" id="follow" checked>
+          follow tail
+        </label>
+      {% endif %}
+      {% if waiting %}
+        <p class="muted">waiting for the build to start…</p>
+        <script>setTimeout(() => location.reload(), 3000);</script>
+      {% else %}
+        <pre class="log" id="log">{{ content | safe }}</pre>
+      {% endif %}
+    </section>
+  </main>
+  {% if not waiting %}
+    <script>
 const log = document.getElementById('log');
 /* Failures sit at the end; start there unless a line is linked. */
 if (!location.hash) log.scrollTop = log.scrollHeight;
-</script>
-{% endif %}
-{% if live %}
-<script>
+    </script>
+  {% endif %}
+  {% if live %}
+    <script>
 const follow = document.getElementById('follow');
 /* Scroll only the log pane so the header stays usable; scrolling
    up pauses following, scrolling back to the bottom resumes it. */
@@ -51,6 +59,6 @@ source.onmessage = (event) => {
   if (follow.checked) log.scrollTop = log.scrollHeight;
 };
 source.addEventListener('done', () => source.close());
-</script>
-{% endif %}
-{% endblock %}
+    </script>
+  {% endif %}
+{% endblock body %}

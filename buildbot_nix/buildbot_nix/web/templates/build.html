@@ -1,82 +1,76 @@
-{% extends "base.html" %} {% block title %}{{ repo_name(project.owner,
-project.name) }} #{{ build.number }}{% endblock %} {% block body %}
-<main>
-  <section class="content">
-    <div class="build-header">
-      <div>
-        <h2>
-          <span class="dot {{ build.status }}"></span><a
-            href="/projects/{{ project.owner }}/{{ project.name }}"
-          >{{ repo_name(project.owner, project.name) }}</a>
-          build #{{ build.number }}
-          <span class="status {{ build.status }}">{{ build.status }}</span>
-          <span class="pager">
-            {% if prev_number %}<a
-              href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}"
-              title="previous build" rel="prev"
-            >← #{{ prev_number }}</a>{% endif %} {% if next_number %}<a
-              href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}"
-              title="next build" rel="next"
-            >#{{ next_number }} →</a>{% endif %}
-          </span>
-        </h2>
-        <p class="build-meta">
-          branch {{ build.branch }} {% if build.pr_number %} · <a
-            href="{{ pr_url(project, build.pr_number) }}"
-          >PR #{{ build.pr_number }}</a>
-          {% endif %} · commit <a
-            href="{{ commit_url(project, build.commit_sha) }}"
-          ><code>{{ build.commit_sha[:10] }}</code></a>
-          · <time title="{{ build.created_at }}"
-          >{{ build.created_at | timeago }}</time>
-          · took {{ build | duration }}
-        </p>
+{% extends "base.html" %}
+{% block title %}
+  {{ repo_name(project.owner,
+    project.name) }} #{{ build.number }}
+{% endblock title %}
+{% block body %}
+  <main>
+    <section class="content">
+      <div class="build-header">
+        <div>
+          <h2>
+            <span class="dot {{ build.status }}"></span><a href="/projects/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a>
+            build #{{ build.number }}
+            <span class="status {{ build.status }}">{{ build.status }}</span>
+            <span class="pager">
+              {% if prev_number %}
+                <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}"
+                   title="previous build"
+                   rel="prev">← #{{ prev_number }}</a>
+              {% endif %}
+              {% if next_number %}
+                <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}"
+                   title="next build"
+                   rel="next">#{{ next_number }} →</a>
+              {% endif %}
+            </span>
+          </h2>
+          <p class="build-meta">
+            branch {{ build.branch }}
+            {% if build.pr_number %}
+              · <a href="{{ pr_url(project, build.pr_number) }}">PR #{{ build.pr_number }}</a>
+            {% endif %}
+            · commit <a href="{{ commit_url(project, build.commit_sha) }}"><code>{{ build.commit_sha[:10] }}</code></a>
+            · <time title="{{ build.created_at }}">{{ build.created_at | timeago }}</time>
+            · took {{ build | duration }}
+          </p>
+        </div>
+        <div class="controls">
+          {# Authorization is enforced server-side (admins, PR authors). #}
+          {% if build.status in RUNNING_STATUSES %}
+            <form method="post"
+                  action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/cancel">
+              <button>cancel</button>
+            </form>
+          {% else %}
+            <form method="post"
+                  action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/restart">
+              <button>restart</button>
+            </form>
+            <form method="post"
+                  action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/rebuild-failed">
+              <button>rebuild failed</button>
+            </form>
+          {% endif %}
+        </div>
       </div>
-      <div class="controls">
-        {# Authorization is enforced server-side (admins, PR authors). #}
-        {% if build.status in RUNNING_STATUSES %}
-        <form
-          method="post"
-          action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/cancel"
-        ><button>cancel</button></form>
-        {% else %}
-        <form
-          method="post"
-          action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/restart"
-        ><button>restart</button></form>
-        <form
-          method="post"
-          action="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/rebuild-failed"
-        ><button>rebuild failed</button></form>
-        {% endif %}
+      {% if build.error %}<pre class="error">{{ build.error | excerpt(2000) }}</pre>{% endif %}
+      {% if build.eval_warnings %}
+        <details>
+          <summary>evaluation warnings</summary>
+          <pre class="error warning">{{ build.eval_warnings }}</pre>
+        </details>
+      {% endif %}
+      <p>
+        <input type="search" id="attr-filter" placeholder="filter attributes">
+      </p>
+      {% if build.status in RUNNING_STATUSES %}
+        {% set poll_url = "/projects/" ~ project.owner ~ "/" ~ project.name ~ "/builds/" ~ build.number ~ "/attributes" %}
+      {% endif %}
+      <div id="attributes"
+           {% if poll_url %}data-poll-url="{{ poll_url }}"{% endif %}>
+        {% include "_attributes.html" %}
       </div>
-    </div>
-    {% if build.error %}
-    <pre class="error">{{ build.error | excerpt(2000) }}</pre>
-    {% endif %} {% if build.eval_warnings %}
-    <details>
-      <summary>evaluation warnings</summary>
-      <pre class="error warning">{{ build.eval_warnings }}</pre>
-    </details>
-    {% endif %}
-    <p>
-      <input type="search" id="attr-filter" placeholder="filter attributes">
-    </p>
-    <div
-      id="attributes"
-      {%
-      if
-      build.status
-      in
-      RUNNING_STATUSES
-      %}
-      data-poll-url="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attributes"
-      {%
-      endif
-      %}
-    >
-      {% include "_attributes.html" %}
-    </div>
-  </section>
-</main>
-{% endblock %}
+    </section>
+  </main>
+{% endblock body %}
