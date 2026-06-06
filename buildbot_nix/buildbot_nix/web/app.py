@@ -242,9 +242,14 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request, q: str = "") -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
-        # Discovery inserts repos disabled; instance admins and
-        # forge-side repo admins enable them here.
+        # Discovery inserts repos disabled; admins enable them via
+        # search, which is the only place disabled projects appear.
         toggleable = await ctx.toggleable_project_ids(request)
+        disabled = [
+            p
+            for p in (await ctx.queries.projects(enabled=False, q=q) if q else [])
+            if toggleable is None or p["id"] in toggleable
+        ]
         return ctx.render(
             "index.html",
             request=request,
@@ -255,11 +260,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             ),
             counts=await ctx.queries.status_counts(project_ids=visible),
             project_count=await ctx.queries.project_count(project_ids=visible),
-            disabled_projects=[
-                p
-                for p in await ctx.queries.projects(enabled=False, q=q or None)
-                if toggleable is None or p["id"] in toggleable
-            ],
+            disabled_projects=disabled,
         )
 
     @router.get("/builds", response_class=HTMLResponse)

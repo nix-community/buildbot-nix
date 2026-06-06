@@ -91,12 +91,18 @@
             {% endif %}
           </div>
         {% else %}
-          <p class="muted">no matching projects</p>
+          {% if q %}
+            <p class="muted">no matching projects</p>
+          {% elif toggleable is none or toggleable %}
+            <p class="muted">no projects enabled yet &mdash; search above to find your repositories</p>
+          {% else %}
+            <p class="muted">no projects enabled yet</p>
+          {% endif %}
         {% endfor %}
       </div>
       {% if disabled_projects %}
-        <details class="disabled-projects" {% if q %}open{% endif %}>
-          <summary class="muted">{{ disabled_projects | length }} disabled projects</summary>
+        <h2 class="section muted">Disabled</h2>
+        <div class="pipelines">
           {% for p in disabled_projects %}
             <div class="pipeline-row disabled">
               <span class="pipeline">
@@ -113,7 +119,7 @@
               </form>
             </div>
           {% endfor %}
-        </details>
+        </div>
       {% endif %}
     </section>
   </main>

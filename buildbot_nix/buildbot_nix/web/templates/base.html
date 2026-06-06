@@ -67,16 +67,6 @@
         afilter.addEventListener("input", apply);
         document.body.addEventListener("htmx:afterSwap", apply);
       }
-      /* Morphs render the server state, which drops the open attribute
-         of the disabled-projects list; keep the user's choice. */
-      let disabledOpen = false;
-      document.body.addEventListener("toggle", (e) => {
-        if (e.target.matches("details.disabled-projects")) disabledOpen = e.target.open;
-      }, true);
-      document.body.addEventListener("htmx:afterSwap", () => {
-        const d = document.querySelector("details.disabled-projects");
-        if (d && disabledOpen) d.open = true;
-      });
     </script>
   </body>
 </html>
