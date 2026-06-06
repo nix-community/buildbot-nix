@@ -170,7 +170,7 @@ class WebQueries:
         return _rows(
             await self.pool.fetch(
                 """
-                SELECT b.*, p.owner, p.name AS project_name
+                SELECT b.*, p.owner, p.name AS project_name, p.forge, p.url
                 FROM builds b JOIN projects p ON p.id = b.project_id
                 WHERE ($2::bigint[] IS NULL OR b.project_id = ANY($2))
                   AND ($3::bigint IS NULL OR b.id < $3)

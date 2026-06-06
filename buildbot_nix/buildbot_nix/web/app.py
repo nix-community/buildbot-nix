@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -97,6 +98,13 @@ def pr_url(project: dict[str, Any], pr_number: int) -> str:
     return f"{base}/pulls/{pr_number}"
 
 
+def branch_url(project: dict[str, Any], branch: str) -> str:
+    base = project["url"].removesuffix(".git")
+    if project["forge"] == "github":
+        return f"{base}/tree/{quote(branch)}"
+    return f"{base}/src/branch/{quote(branch)}"
+
+
 def excerpt(text: str | None, limit: int = 600) -> str:
     if not text:
         return ""
@@ -129,6 +137,7 @@ def make_env() -> Environment:
     env.globals["commit_url"] = commit_url
     env.globals["repo_name"] = repo_name
     env.globals["pr_url"] = pr_url
+    env.globals["branch_url"] = branch_url
     env.globals["group_by_system"] = group_by_system
     env.globals["RUNNING_STATUSES"] = RUNNING_STATUSES
     # Header login links; the service composition fills this in.

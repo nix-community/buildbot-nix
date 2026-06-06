@@ -452,6 +452,16 @@ def test_api_projects_and_builds(client: WebClient) -> None:
     assert [b["number"] for b in queue] == [3]
 
 
+def test_build_rows_link_refs(client: WebClient) -> None:
+    # Branch builds link to the branch, PR builds to the pull request.
+    page = get(client, "/projects/acme/widget").text
+    assert "https://github.com/acme/widget/tree/main" in page
+    assert "https://github.com/acme/widget/pull/5" in page
+    # Cross-project rows on the activity feed carry their own forge URL.
+    activity = get(client, "/builds").text
+    assert "https://github.com/acme/widget/pull/5" in activity
+
+
 def test_attributes_sort_building_before_pending(client: WebClient) -> None:
     seeded = ("a-pending", "b-building", "c-failed")
 
