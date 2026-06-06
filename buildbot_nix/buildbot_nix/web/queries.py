@@ -102,7 +102,7 @@ class WebQueries:
                    lb.number AS last_number, lb.status AS last_status,
                    lb.branch AS last_branch, lb.created_at AS last_created_at,
                    lb.started_at, lb.finished_at,
-                   h.history, m.avg_secs, m.pass_rate
+                   h.history, m.median_secs, m.pass_rate
             FROM projects p
             LEFT JOIN LATERAL (
                 SELECT * FROM builds b WHERE b.project_id = p.id
@@ -123,8 +123,11 @@ class WebQueries:
                 ) t
             ) h ON true
             LEFT JOIN LATERAL (
-                SELECT avg(EXTRACT(EPOCH FROM (t.finished_at - t.started_at)))
-                           FILTER (WHERE t.status = 'succeeded') AS avg_secs,
+                -- Median, not mean: one build stuck behind a busy nix
+                -- daemon must not dominate the typical duration.
+                SELECT percentile_cont(0.5) WITHIN GROUP (
+                           ORDER BY EXTRACT(EPOCH FROM (t.finished_at - t.started_at))
+                       ) FILTER (WHERE t.status = 'succeeded') AS median_secs,
                        count(*) FILTER (WHERE t.status = 'succeeded')::float
                            / NULLIF(count(*), 0) AS pass_rate
                 FROM (

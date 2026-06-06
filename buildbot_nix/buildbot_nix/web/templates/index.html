@@ -69,7 +69,7 @@
                 {% endfor %}
               </div>
               <div class="pipeline-metric">
-                <b>{{ p.avg_secs | duration_secs }}</b>
+                <b>{{ p.median_secs | duration_secs }}</b>
                 <span class="muted">speed</span>
               </div>
               <div class="pipeline-metric">
