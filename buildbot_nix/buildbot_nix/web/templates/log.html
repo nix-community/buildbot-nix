@@ -61,7 +61,22 @@ ansi.use_classes = true;
 const source = new EventSource(
   '/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}/stream');
 /* The stream replays full history on every (re)connect. */
-source.onopen = () => { log.textContent = ''; ansi = new AnsiUp(); ansi.use_classes = true; };
+source.onopen = () => {
+  errors = 0;
+  log.textContent = '';
+  ansi = new AnsiUp();
+  ansi.use_classes = true;
+};
+/* EventSource reconnects every ~1s forever; if the server stays
+   gone (engine restart), give up and let a reload render the
+   finished log server-side. */
+let errors = 0;
+source.onerror = () => {
+  if (++errors >= 5) {
+    source.close();
+    setTimeout(() => location.reload(), 3000);
+  }
+};
 source.onmessage = (event) => {
   // chunks carry their own newlines
   log.insertAdjacentHTML('beforeend', ansi.ansi_to_html(event.data));
