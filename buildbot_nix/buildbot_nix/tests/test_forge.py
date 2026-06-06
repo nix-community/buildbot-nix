@@ -518,6 +518,20 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
             submitted = await reconcile_project(pool, project, heads, Sink())
             assert submitted == 1
             assert events[0].commit_sha == "head-main"  # type: ignore[attr-defined]
+
+            # Cancelled-only history is still fresh: an operator who
+            # cancels the initial build must not get the PR backlog on
+            # the next restart.
+            await pool.execute(
+                """
+                INSERT INTO builds (project_id, number, commit_sha, branch, status)
+                VALUES ($1, 2, 'head-main', 'main', 'cancelled')
+                """,
+                project_id,
+            )
+            events.clear()
+            submitted = await reconcile_project(pool, project, heads, Sink())
+            assert submitted == 0  # main head cancelled, PRs skipped
         finally:
             await pool.close()
 

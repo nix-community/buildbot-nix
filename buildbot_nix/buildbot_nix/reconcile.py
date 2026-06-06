@@ -104,9 +104,13 @@ async def gitea_heads(client: GiteaClient, project: ProjectRecord) -> list[Remot
 
 
 async def _has_builds(pool: asyncpg.Pool, project_id: int) -> bool:
+    """Cancelled builds don't count: an operator cancelling the storm
+    after enabling must not turn the project non-fresh."""
     return (
         await pool.fetchval(
-            "SELECT 1 FROM builds WHERE project_id = $1 LIMIT 1", project_id
+            "SELECT 1 FROM builds WHERE project_id = $1 "
+            "AND status != 'cancelled' LIMIT 1",
+            project_id,
         )
         is not None
     )
@@ -131,9 +135,10 @@ async def reconcile_project(
 ) -> int:
     """Submit change events for unbuilt heads. Returns submit count.
 
-    A project without any build record is fresh, not recovering from
-    downtime: build the default branch only, the open-PR backlog would
-    be stale work. PRs build on their next push."""
+    A project without any non-cancelled build record is fresh, not
+    recovering from downtime: build the default branch only, the
+    open-PR backlog would be stale work. PRs build on their next
+    push."""
     first_contact = not await _has_builds(pool, project.id)
     submitted = 0
     for head in heads:
