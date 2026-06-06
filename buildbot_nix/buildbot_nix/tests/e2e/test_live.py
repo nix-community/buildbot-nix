@@ -28,7 +28,7 @@ def test_attribute_table_refreshes_while_building(
 ) -> None:
     page.goto("/projects/acme/widget/builds/3")
     row = page.locator('tr[data-attr="aarch64-linux.other"]')
-    assert "succeeded" in row.inner_text()
+    row.locator(".status-icon.succeeded").wait_for()
 
     async def fail_attribute() -> None:
         build_id = await _build_id(server, 3)
@@ -43,7 +43,7 @@ def test_attribute_table_refreshes_while_building(
 
     server.run(fail_attribute())
     # The status event pushes the updated attribute fragment.
-    row.locator(".status.failed").wait_for(timeout=15_000)
+    row.locator(".status-icon.failed").wait_for(timeout=15_000)
     assert "flipped by e2e test" in page.content()
 
 

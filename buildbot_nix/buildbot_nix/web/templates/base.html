@@ -67,6 +67,12 @@
         afilter.addEventListener("input", apply);
         document.body.addEventListener("htmx:afterSwap", apply);
       }
+      document.body.addEventListener("click", (e) => {
+        if (!e.target.closest("[data-toggle-skipped]")) return;
+        for (const row of document.querySelectorAll("tr.skipped-row")) {
+          row.hidden = !row.hidden;
+        }
+      });
     </script>
   </body>
 </html>

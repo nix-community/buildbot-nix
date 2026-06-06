@@ -1,10 +1,16 @@
 {% if attributes %}
+  {% set skipped_count = attributes | selectattr("status", "equalto", "skipped_local") | list | length %}
   <table class="attrs">
     <caption class="visually-hidden">attributes</caption>
     {% for a in attributes %}
-      <tr data-attr="{{ a.attr | lower }}">
+      {% set hide = a.status == "skipped_local" %}
+      <tr data-attr="{{ a.attr | lower }}"
+          {% if hide %}class="skipped-row" hidden{% endif %}>
         <td class="attr-status">
-          <span class="status {{ a.status }}">{{ a.status.replace('_', ' ') }}</span>
+          <span class="status-icon {{ a.status }}"
+                title="{{ a.status.replace('_', ' ') }}">
+            <span class="visually-hidden">{{ a.status.replace('_', ' ') }}</span>
+          </span>
         </td>
         <td class="attr-name">
           {% if a.log_path or a.status in RUNNING_STATUSES %}
@@ -16,7 +22,8 @@
         <td class="attr-duration">{{ a | duration }}</td>
       </tr>
       {% if a.error %}
-        <tr data-attr="{{ a.attr | lower }}">
+        <tr data-attr="{{ a.attr | lower }}"
+            {% if hide %}class="skipped-row" hidden{% endif %}>
           <td colspan="3">
             <details class="error">
               <summary>{{ a.error | excerpt(160) }}</summary>
@@ -27,6 +34,13 @@
       {% endif %}
     {% endfor %}
   </table>
+  {% if skipped_count %}
+    <p class="muted">
+      <button type="button" class="link-btn" data-toggle-skipped>
+        {{ skipped_count }} skipped (built locally)
+      </button>
+    </p>
+  {% endif %}
 {% else %}
   <p class="muted">no attributes (yet)</p>
 {% endif %}

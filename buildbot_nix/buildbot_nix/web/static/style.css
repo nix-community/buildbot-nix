@@ -206,11 +206,60 @@ h2 .dot {
 	font-weight: 600;
 	color: var(--status-color, inherit);
 }
-/* Pill chrome only inside the card lists; headings keep plain text.
-   No color here: it would outweigh the .status.<state> variants
-   below (higher specificity). currentColor keeps the border in
-   sync with the state color. */
-table.attrs .status,
+/* Buildkite-style status icons on the attribute list: shape + color
+   carry the state, text stays for screen readers and tooltips. */
+.status-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.15rem;
+	height: 1.15rem;
+	border: 1.5px solid var(--status-color, var(--muted));
+	border-radius: 50%;
+	color: var(--status-color, var(--muted));
+	font-size: 0.7rem;
+	line-height: 1;
+}
+.status-icon.succeeded::before {
+	content: "\2713";
+}
+.status-icon.failed::before,
+.status-icon.failed_eval::before,
+.status-icon.dependency_failed::before,
+.status-icon.cached_failure::before,
+.status-icon.cancelled::before {
+	content: "\2715";
+}
+.status-icon.building::before,
+.status-icon.evaluating::before {
+	content: "\25cf";
+}
+.status-icon.building,
+.status-icon.evaluating {
+	animation: pulse 1.2s ease-in-out infinite;
+}
+.status-icon.cancelled,
+.status-icon.skipped_local {
+	border-style: dashed;
+	opacity: 0.6;
+}
+.link-btn {
+	padding: 0;
+	color: var(--muted);
+	background: none;
+	border: none;
+	font-size: 0.85rem;
+	text-decoration: underline;
+	cursor: pointer;
+}
+.link-btn:hover {
+	color: var(--fg);
+}
+
+/* Pill chrome on the build lists; headings keep plain text. No color
+   here: it would outweigh the .status.<state> variants below (higher
+   specificity). currentColor keeps the border in sync with the state
+   color. */
 table.builds .status {
 	font-size: 0.75rem;
 	padding: 0.1rem 0.55rem;
