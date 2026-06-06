@@ -46,10 +46,12 @@ class LogRegistry:
         return self._writers.get((build_id, attr))
 
 
-_ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
-_ANSI_OTHER_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-ln-z]")
+# Colons: ITU T.416 syntax for extended colors (38:5:185), used by
+# systemd among others.
+_ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;:]*)m")
+_ANSI_OTHER_RE = re.compile(r"\x1b\[[0-9;:?]*[A-Za-ln-z]")
 # An escape sequence cut off at the end of a chunk.
-_ANSI_PARTIAL_RE = re.compile(r"\x1b(\[[0-9;?]*)?\Z")
+_ANSI_PARTIAL_RE = re.compile(r"\x1b(\[[0-9;:?]*)?\Z")
 
 
 def strip_ansi(text: str) -> str:
@@ -80,8 +82,10 @@ _RESET: _Style = (None, False)
 
 def _apply_sgr(params: str, style: _Style) -> _Style:
     """SGR is stateful: codes modify the current style, they don't
-    replace it. Unknown codes are ignored; 256/truecolor sequences
-    consume their arguments so e.g. 38;5;31 is not read as red."""
+    replace it. Unknown codes are ignored, which also covers colon
+    syntax (38:5:185 stays one unknown code); semicolon-separated
+    extended colors consume their arguments so e.g. 38;5;31 is not
+    read as red."""
     fg, bold = style
     codes = (params or "0").split(";")
     i = 0

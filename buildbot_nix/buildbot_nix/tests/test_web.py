@@ -20,7 +20,12 @@ import zstandard
 from buildbot_nix.executor import LogWriter
 from buildbot_nix.web.app import create_app, timeago
 from buildbot_nix.web.events import EventBroker
-from buildbot_nix.web.logs import AnsiHtmlStream, ansi_to_html, render_log_lines
+from buildbot_nix.web.logs import (
+    AnsiHtmlStream,
+    ansi_to_html,
+    render_log_lines,
+    strip_ansi,
+)
 
 from .e2e.support import ephemeral_postgres, seed
 
@@ -269,6 +274,11 @@ def test_ansi_sgr_is_stateful() -> None:
     # a basic red.
     assert ansi_to_html("\x1b[38;5;31mx") == "x"
     assert ansi_to_html("\x1b[38;2;1;2;3mx") == "x"
+    # systemd uses ITU colon syntax: arguments ride along inside one
+    # parameter; the sequence must not leak into the output.
+    out = ansi_to_html("\x1b[0;1;38:5:185meth1")
+    assert out == '<span class="ansi-bold">eth1</span>'
+    assert strip_ansi("\x1b[0;1;38:5:185meth1") == "eth1"
 
 
 def test_render_log_lines_carries_color_across_lines() -> None:
