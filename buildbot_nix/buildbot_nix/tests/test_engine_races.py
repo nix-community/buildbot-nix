@@ -9,14 +9,14 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from buildbot_nix.engine.executor import (
+from buildbot_nix.executor import (
     BuildSettings,
     FairScheduler,
     LogWriter,
     NixBuildExecutor,
 )
-from buildbot_nix.engine.models import CacheStatus, NixEvalJobSuccess
-from buildbot_nix.engine.scheduler import BuildOutcome
+from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
+from buildbot_nix.scheduler import BuildOutcome
 
 if TYPE_CHECKING:
     from pathlib import Path

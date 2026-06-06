@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_nix.engine.executor import (
+from buildbot_nix.executor import (
     SUBSCRIBER_QUEUE_MAXSIZE,
     BuildSettings,
     FairScheduler,
@@ -23,8 +23,8 @@ from buildbot_nix.engine.executor import (
     is_transient_error,
     read_log,
 )
-from buildbot_nix.engine.models import CacheStatus, NixEvalJobSuccess
-from buildbot_nix.engine.scheduler import BuildOutcome
+from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
+from buildbot_nix.scheduler import BuildOutcome
 
 if TYPE_CHECKING:
     from pathlib import Path

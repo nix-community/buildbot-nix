@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_nix.engine import nix_eval
-from buildbot_nix.engine.memory import (
+from buildbot_nix import nix_eval
+from buildbot_nix.memory import (
     EvalWorkerConfig,
     MemoryInfo,
     calculate_eval_workers,
     get_memory_info,
 )
-from buildbot_nix.engine.nix_eval import (
+from buildbot_nix.nix_eval import (
     EvalRunner,
     EvalSettings,
     build_eval_command,
@@ -28,7 +28,7 @@ from buildbot_nix.engine.nix_eval import (
     build_sandbox_command,
     extract_eval_warnings,
 )
-from buildbot_nix.engine.repo_config import BranchConfig
+from buildbot_nix.repo_config import BranchConfig
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING
 import asyncpg
 import pytest
 
-from buildbot_nix.engine.db import BuildDB
-from buildbot_nix.engine.failed_builds import PostgresFailedBuildCache
-from buildbot_nix.engine.migrations import apply_migrations, load_migrations
-from buildbot_nix.engine.models import CacheStatus, NixEvalJobSuccess
-from buildbot_nix.engine.scheduler import AttributeResult, AttributeStatus
+from buildbot_nix.db import BuildDB
+from buildbot_nix.failed_builds import PostgresFailedBuildCache
+from buildbot_nix.migrations import apply_migrations, load_migrations
+from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
+from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

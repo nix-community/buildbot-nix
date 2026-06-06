@@ -6,12 +6,12 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from buildbot_nix.engine.models import (
+from buildbot_nix.models import (
     CacheStatus,
     NixEvalJobError,
     NixEvalJobSuccess,
 )
-from buildbot_nix.engine.scheduler import (
+from buildbot_nix.scheduler import (
     AttributeStatus,
     BuildOutcome,
     CachedFailure,

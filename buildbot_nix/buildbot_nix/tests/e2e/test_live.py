@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from buildbot_nix.engine.executor import LogWriter
+from buildbot_nix.executor import LogWriter
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page

@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from buildbot_nix.engine.gitrepo import FetchCredentials
-from buildbot_nix.engine.polling import (
+from buildbot_nix.gitrepo import FetchCredentials
+from buildbot_nix.polling import (
     PolledRepository,
     PollingService,
     poll_head,

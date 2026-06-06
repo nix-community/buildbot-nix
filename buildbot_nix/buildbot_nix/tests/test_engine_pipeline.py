@@ -10,16 +10,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_nix.engine.executor import (
+from buildbot_nix.executor import (
     BuildSettings,
     FairScheduler,
     LogWriter,
     NixBuildExecutor,
     read_log,
 )
-from buildbot_nix.engine.nix_eval import EvalRunner, EvalSettings
-from buildbot_nix.engine.repo_config import BranchConfig
-from buildbot_nix.engine.scheduler import (
+from buildbot_nix.nix_eval import EvalRunner, EvalSettings
+from buildbot_nix.repo_config import BranchConfig
+from buildbot_nix.scheduler import (
     AttributeStatus,
     BuildOutcome,
     JobScheduler,
@@ -29,7 +29,7 @@ from buildbot_nix.engine.scheduler import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from buildbot_nix.engine.models import NixEvalJobSuccess
+    from buildbot_nix.models import NixEvalJobSuccess
 
 pytestmark = pytest.mark.skipif(
     shutil.which("nix-eval-jobs") is None or shutil.which("nix") is None,

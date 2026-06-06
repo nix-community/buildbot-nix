@@ -19,9 +19,9 @@ import asyncpg
 import uvicorn
 import zstandard
 
-from buildbot_nix.engine.migrations import apply_migrations
-from buildbot_nix.engine.web.app import create_app
-from buildbot_nix.engine.web.logs import LogRegistry
+from buildbot_nix.migrations import apply_migrations
+from buildbot_nix.web.app import create_app
+from buildbot_nix.web.logs import LogRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Iterator

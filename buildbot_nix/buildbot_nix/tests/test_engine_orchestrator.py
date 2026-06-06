@@ -17,20 +17,20 @@ from typing import TYPE_CHECKING
 import asyncpg
 import pytest
 
-from buildbot_nix.engine import orchestrator as orch_mod
-from buildbot_nix.engine.config import EngineConfig
-from buildbot_nix.engine.db import BuildDB, BuildStatus
-from buildbot_nix.engine.gitrepo import FetchCredentials, RepoManager
-from buildbot_nix.engine.memory import calculate_eval_workers
-from buildbot_nix.engine.migrations import apply_migrations
-from buildbot_nix.engine.models import CacheStatus, NixEvalJobSuccess
-from buildbot_nix.engine.nix_eval import EvalError, EvalResult
-from buildbot_nix.engine.orchestrator import (
+from buildbot_nix import orchestrator as orch_mod
+from buildbot_nix.config import EngineConfig
+from buildbot_nix.db import BuildDB, BuildStatus
+from buildbot_nix.gitrepo import FetchCredentials, RepoManager
+from buildbot_nix.memory import calculate_eval_workers
+from buildbot_nix.migrations import apply_migrations
+from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
+from buildbot_nix.nix_eval import EvalError, EvalResult
+from buildbot_nix.orchestrator import (
     ChangeEvent,
     Orchestrator,
     ProjectInfo,
 )
-from buildbot_nix.engine.scheduler import (
+from buildbot_nix.scheduler import (
     AttributeResult,
     AttributeStatus,
     BuildOutcome,
@@ -39,7 +39,7 @@ from buildbot_nix.engine.scheduler import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from buildbot_nix.engine.db import BuildRecord
+    from buildbot_nix.db import BuildRecord
 
 pytestmark = pytest.mark.skipif(
     shutil.which("initdb") is None or shutil.which("git") is None,

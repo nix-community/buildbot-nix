@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.scripts]
-buildbot-nix = "buildbot_nix.engine.main:main"
+buildbot-nix = "buildbot_nix.main:main"
 
 
 [tool.ruff]

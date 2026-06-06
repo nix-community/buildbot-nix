@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from buildbot_nix.engine.canceller import (
+from buildbot_nix.canceller import (
     CancellationManager,
     RegisterOutcome,
     branch_key,

@@ -41,7 +41,7 @@ cat > /tmp/engine.json <<EOF
 }
 EOF
 
-python -m buildbot_nix.engine.main --config /tmp/engine.json --log-format text
+python -m buildbot_nix.main --config /tmp/engine.json --log-format text
 ```
 
 Access the web UI at http://localhost:8010. Pull-based repositories need no

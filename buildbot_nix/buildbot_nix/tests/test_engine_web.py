@@ -16,9 +16,9 @@ import httpx
 import pytest
 import zstandard
 
-from buildbot_nix.engine.executor import LogWriter
-from buildbot_nix.engine.web.app import create_app, timeago
-from buildbot_nix.engine.web.logs import ansi_to_html, render_log_lines
+from buildbot_nix.executor import LogWriter
+from buildbot_nix.web.app import create_app, timeago
+from buildbot_nix.web.logs import ansi_to_html, render_log_lines
 
 from .e2e.support import ephemeral_postgres, seed
 

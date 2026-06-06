@@ -16,8 +16,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from buildbot_nix.engine.config import BranchConfig, BranchConfigDict
-from buildbot_nix.engine.webhooks import (
+from buildbot_nix.config import BranchConfig, BranchConfigDict
+from buildbot_nix.webhooks import (
     ChangeRequest,
     DeliveryDeduper,
     PrClosed,

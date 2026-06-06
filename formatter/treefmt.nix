@@ -7,7 +7,7 @@
   programs.deno.enable = true;
   # deno fmt cannot parse Jinja syntax in the engine's HTML templates.
   settings.formatter.deno.excludes = [
-    "buildbot_nix/buildbot_nix/engine/web/templates/*"
+    "buildbot_nix/buildbot_nix/web/templates/*"
   ];
   programs.ruff.check = true;
   programs.ruff.format = true;

@@ -16,20 +16,20 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from buildbot_nix.engine.config import (
+from buildbot_nix.config import (
     EngineConfig,
     PullBasedConfig,
     PullBasedRepository,
 )
-from buildbot_nix.engine.forge import DiscoveredRepo
-from buildbot_nix.engine.migrations import apply_migrations
-from buildbot_nix.engine.scheduled import DueEffect, ScheduleWhen
-from buildbot_nix.engine.service import (
+from buildbot_nix.forge import DiscoveredRepo
+from buildbot_nix.migrations import apply_migrations
+from buildbot_nix.scheduled import DueEffect, ScheduleWhen
+from buildbot_nix.service import (
     build_service,
     resolve_credential_path,
     scheduled_worktree_id,
 )
-from buildbot_nix.engine.webhooks import ChangeRequest
+from buildbot_nix.webhooks import ChangeRequest
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

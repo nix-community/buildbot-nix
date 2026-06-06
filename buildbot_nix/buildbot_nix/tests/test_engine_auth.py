@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import httpx
 from fastapi import FastAPI
 
-from buildbot_nix.engine.auth import (
+from buildbot_nix.auth import (
     AuthzConfig,
     SessionSigner,
     User,
@@ -22,7 +22,7 @@ from buildbot_nix.engine.auth import (
     oidc_provider,
     rotate_signing_key,
 )
-from buildbot_nix.engine.web.auth_routes import (
+from buildbot_nix.web.auth_routes import (
     SESSION_COOKIE,
     create_auth_router,
 )
@@ -100,11 +100,11 @@ def test_signing_key_file_permissions(tmp_path: Path) -> None:
 
 
 def test_unqualified_admin_entry_warns(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level("WARNING", logger="buildbot_nix.engine.auth"):
+    with caplog.at_level("WARNING", logger="buildbot_nix.auth"):
         AuthzConfig(admins=["alice"])
     assert "not provider-qualified" in caplog.text
     caplog.clear()
-    with caplog.at_level("WARNING", logger="buildbot_nix.engine.auth"):
+    with caplog.at_level("WARNING", logger="buildbot_nix.auth"):
         AuthzConfig(admins=["github:alice"])
     assert caplog.text == ""
 

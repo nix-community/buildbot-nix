@@ -107,7 +107,7 @@ let
             fi
             # -P keeps the cwd off sys.path: the checkout's outer
             # buildbot_nix/ project dir would shadow the package.
-            exec $run python -P -m buildbot_nix.engine.main --config "$dev/engine.json" --log-format text
+            exec $run python -P -m buildbot_nix.main --config "$dev/engine.json" --log-format text
           '';
           depends_on = {
             postgres.condition = "process_healthy";

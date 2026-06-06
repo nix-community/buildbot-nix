@@ -18,22 +18,22 @@ import asyncpg
 import httpx
 import pytest
 
-from buildbot_nix.engine.config import RepoFilters
-from buildbot_nix.engine.forge import (
+from buildbot_nix.config import RepoFilters
+from buildbot_nix.forge import (
     DiscoveredRepo,
     GiteaClient,
     GitHubAppClient,
     GitHubFetchCredentialsProvider,
     filter_repos,
 )
-from buildbot_nix.engine.gitea_hooks import (
+from buildbot_nix.gitea_hooks import (
     GiteaWebhookSecrets,
     register_repo_hook,
 )
-from buildbot_nix.engine.migrations import apply_migrations
-from buildbot_nix.engine.projects import ProjectStore
-from buildbot_nix.engine.reconcile import gitea_heads, reconcile_project
-from buildbot_nix.engine.status import (
+from buildbot_nix.migrations import apply_migrations
+from buildbot_nix.projects import ProjectStore
+from buildbot_nix.reconcile import gitea_heads, reconcile_project
+from buildbot_nix.status import (
     GiteaStatusPoster,
     GitHubStatusPoster,
     StatusState,

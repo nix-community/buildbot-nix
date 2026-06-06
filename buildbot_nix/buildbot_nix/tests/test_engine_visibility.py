@@ -17,12 +17,12 @@ import asyncpg
 import httpx
 import pytest
 
-from buildbot_nix.engine.api_tokens import ApiTokenStore
-from buildbot_nix.engine.auth import AuthzConfig, SessionSigner, User
-from buildbot_nix.engine.forge_tokens import ForgeTokenStore
-from buildbot_nix.engine.migrations import apply_migrations
-from buildbot_nix.engine.visibility import AccessCache, VisibilityService
-from buildbot_nix.engine.web.app import create_app
+from buildbot_nix.api_tokens import ApiTokenStore
+from buildbot_nix.auth import AuthzConfig, SessionSigner, User
+from buildbot_nix.forge_tokens import ForgeTokenStore
+from buildbot_nix.migrations import apply_migrations
+from buildbot_nix.visibility import AccessCache, VisibilityService
+from buildbot_nix.web.app import create_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING
 import asyncpg
 import pytest
 
-from buildbot_nix.engine.config import ScheduleWhen
-from buildbot_nix.engine.effects import EffectsContext
-from buildbot_nix.engine.migrations import apply_migrations
-from buildbot_nix.engine.scheduled import (
+from buildbot_nix.config import ScheduleWhen
+from buildbot_nix.effects import EffectsContext
+from buildbot_nix.migrations import apply_migrations
+from buildbot_nix.scheduled import (
     ScheduledEffectsStore,
     due_occurrence,
     is_due,

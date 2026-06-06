@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_nix.engine.effects import (
+from buildbot_nix.effects import (
     EffectsContext,
     EffectsError,
     list_effects,
@@ -20,7 +20,7 @@ from buildbot_nix.engine.effects import (
     run_effect,
     should_run_effects,
 )
-from buildbot_nix.engine.repo_config import BranchConfig
+from buildbot_nix.repo_config import BranchConfig
 
 if TYPE_CHECKING:
     from pathlib import Path

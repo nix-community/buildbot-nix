@@ -9,15 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from buildbot_nix.engine import gcroots as gcroots_mod
-from buildbot_nix.engine.config import BranchConfig, BranchConfigDict
-from buildbot_nix.engine.gcroots import (
+from buildbot_nix import gcroots as gcroots_mod
+from buildbot_nix.config import BranchConfig, BranchConfigDict
+from buildbot_nix.gcroots import (
     gcroot_already_points_to,
     gcroot_path,
     register_gcroot,
     safe_attr_filename,
 )
-from buildbot_nix.engine.outputs import (
+from buildbot_nix.outputs import (
     OutputsPathError,
     join_all_traversalsafe,
     write_output_path,

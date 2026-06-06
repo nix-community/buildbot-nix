@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_nix.engine.config import Interpolate, PostBuildStep
-from buildbot_nix.engine.post_build import (
+from buildbot_nix.config import Interpolate, PostBuildStep
+from buildbot_nix.post_build import (
     InterpolationError,
     interpolate,
     run_post_build_steps,

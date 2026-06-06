@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING
 import asyncpg
 import pytest
 
-from buildbot_nix.engine.db import BuildDB
-from buildbot_nix.engine.migrations import apply_migrations
-from buildbot_nix.engine.recovery import (
+from buildbot_nix.db import BuildDB
+from buildbot_nix.migrations import apply_migrations
+from buildbot_nix.recovery import (
     DatabaseUnavailableError,
     cleanup_old_builds,
     cleanup_orphan_log_dirs,

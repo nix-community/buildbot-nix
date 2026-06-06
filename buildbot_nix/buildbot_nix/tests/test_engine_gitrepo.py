@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_nix.engine.gitrepo import (
+from buildbot_nix.gitrepo import (
     GitError,
     MergeConflictError,
     RepoManager,
