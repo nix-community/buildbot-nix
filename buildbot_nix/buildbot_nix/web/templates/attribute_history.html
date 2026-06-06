@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import commit_link, ago %}
 {% block title %}
   {{ attr }} history
 {% endblock title %}
@@ -27,13 +28,8 @@ block body %}
           <td>
             <span class="status {{ h.status }}">{{ h.status.replace('_', ' ') }}</span>
           </td>
-          <td>
-            <a href="{{ commit_url(project, h.commit_sha) }}" rel="nofollow"><code>{{ h.commit_sha[:10] }}</code></a>
-          </td>
-          <td>
-            <time datetime="{{ h.build_created_at.isoformat() }}"
-                  title="{{ h.build_created_at }}">{{ h.build_created_at | timeago }}</time>
-          </td>
+          <td>{{ commit_link(project, h.commit_sha) }}</td>
+          <td>{{ ago(h.build_created_at) }}</td>
         </tr>
       {% else %}
         <tr>

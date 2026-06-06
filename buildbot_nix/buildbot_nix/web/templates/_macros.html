@@ -1,0 +1,22 @@
+{# Shared fragments for the build tables. #}
+{% macro status_icon(status, labelled=true) -%}
+  {%- set label = status.replace('_', ' ') -%}
+  {%- if labelled -%}
+    <span class="status-icon {{ status }}" title="{{ label }}"><span class="visually-hidden">{{ label }}</span></span>
+  {%- else -%}
+    <span class="status-icon {{ status }}" aria-hidden="true"></span>
+  {%- endif -%}
+{%- endmacro %}
+{% macro ref_link(project, build) -%}
+  {%- if build.pr_number -%}
+    <a href="{{ pr_url(project, build.pr_number) }}" rel="nofollow">PR #{{ build.pr_number }}</a>
+  {%- else -%}
+    <a href="{{ branch_url(project, build.branch) }}" rel="nofollow">{{ build.branch }}</a>
+  {%- endif -%}
+{%- endmacro %}
+{% macro commit_link(project, sha) -%}
+  <a href="{{ commit_url(project, sha) }}" rel="nofollow"><code>{{ sha[:10] }}</code></a>
+{%- endmacro %}
+{% macro ago(ts) -%}
+  <time datetime="{{ ts.isoformat() }}" title="{{ ts }}">{{ ts | timeago }}</time>
+{%- endmacro %}

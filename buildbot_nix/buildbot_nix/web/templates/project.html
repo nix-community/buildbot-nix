@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status_icon %}
 {% block title %}
   {{ repo_name(project.owner, project.name) }}
 {% endblock title %}
@@ -10,8 +11,7 @@
     <section class="content">
       <h2>
         {% if builds["items"] %}
-          <span class="status-icon {{ builds['items'][0].status }}"
-                aria-hidden="true"></span>
+          {{ status_icon(builds['items'][0].status, labelled=false) }}
           <span class="visually-hidden">latest build {{ builds['items'][0].status.replace('_', ' ') }}</span>
         {% endif %}
         {# Pull-based projects carry a local path, not a web URL. #}

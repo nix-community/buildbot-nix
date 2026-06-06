@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status_icon %}
 {% block bodyattrs %}
   hx-ext="sse, morph" sse-connect="/events"
 {% endblock bodyattrs %}
@@ -13,11 +14,11 @@
     <section class="content dashboard">
       <div class="summary-strip">
         <span class="summary-item">
-          <span class="status-icon building" aria-hidden="true"></span>
+          {{ status_icon("building", labelled=false) }}
           {{ (counts.building | default(0) ) + (counts.evaluating | default(0)) }} running
         </span>
         <span class="summary-item">
-          <span class="status-icon pending" aria-hidden="true"></span>
+          {{ status_icon("pending", labelled=false) }}
           {{ counts.pending | default(0) }} queued
         </span>
         <span class="summary-item muted">{{ project_count }} projects</span>
@@ -42,7 +43,7 @@
           <div class="pipeline-row">
             <a class="pipeline{% if p.last_status %} {{ p.last_status }}{% endif %}"
                href="/projects/{{ p.owner }}/{{ p.name }}">
-              <span class="status-icon {{ p.last_status or '' }}" aria-hidden="true"></span>
+              {{ status_icon(p.last_status or "", labelled=false) }}
               {% if p.last_status %}
                 <span class="visually-hidden">{{ p.last_status.replace('_', ' ') }}</span>
               {% endif %}

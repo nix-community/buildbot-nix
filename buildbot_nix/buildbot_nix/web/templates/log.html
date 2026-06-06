@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status_icon %}
 {% block title %}
   {{ attr }} log
 {% endblock title %}
@@ -8,7 +9,7 @@
       <div class="build-header">
         <h2>
           {% if attr_status %}
-            <span class="status-icon {{ attr_status }}" aria-hidden="true"></span>
+            {{ status_icon(attr_status, labelled=false) }}
             <span class="visually-hidden">{{ attr_status.replace('_', ' ') }}</span>
           {% endif %}
           <code>{{ attr }}</code>

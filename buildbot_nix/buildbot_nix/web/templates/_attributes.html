@@ -1,3 +1,4 @@
+{% from "_macros.html" import status_icon %}
 {% if attributes %}
   {% set skipped_count = attributes | selectattr("status", "equalto", "skipped_local") | list | length %}
   <table class="attrs">
@@ -6,12 +7,7 @@
       {% set hide = a.status == "skipped_local" %}
       <tr data-attr="{{ a.attr | lower }}"
           {% if hide %}class="skipped-row" hidden{% endif %}>
-        <td class="attr-status">
-          <span class="status-icon {{ a.status }}"
-                title="{{ a.status.replace('_', ' ') }}">
-            <span class="visually-hidden">{{ a.status.replace('_', ' ') }}</span>
-          </span>
-        </td>
+        <td class="attr-status">{{ status_icon(a.status) }}</td>
         <td class="attr-name">
           {% if a.log_path or a.status in RUNNING_STATUSES %}
             <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ a.attr }}"><code>{{ a.attr }}</code></a>

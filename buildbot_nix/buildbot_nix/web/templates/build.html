@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status_icon %}
 {% block title %}
   {{ repo_name(project.owner,
     project.name) }} #{{ build.number }}
@@ -23,7 +24,7 @@
       <div class="build-header">
         <div>
           <h2>
-            <span class="status-icon {{ build.status }}" aria-hidden="true"></span><a href="/projects/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a>
+            {{ status_icon(build.status, labelled=false) }}<a href="/projects/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a>
             build #{{ build.number }}
             <span class="status {{ build.status }}">{{ build.status }}</span>
             <span class="pager">
