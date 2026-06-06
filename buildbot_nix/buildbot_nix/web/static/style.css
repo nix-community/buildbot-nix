@@ -274,7 +274,10 @@ details summary {
 pre.log {
   background: var(--card);
   padding: 0.8rem;
-  overflow-x: auto;
+  overflow: auto;
+  /* Own scroll pane: tail-following must not scroll the page and
+     hide the header. */
+  max-height: calc(100vh - 11rem);
   font-size: 13px;
   line-height: 1.4;
 }
