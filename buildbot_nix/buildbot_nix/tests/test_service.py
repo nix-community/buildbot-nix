@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from buildbot_nix.bootstrap import build_service
 from buildbot_nix.config import (
     EngineConfig,
     PullBasedConfig,
@@ -24,11 +25,7 @@ from buildbot_nix.config import (
 from buildbot_nix.forge import DiscoveredRepo
 from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.scheduled import DueEffect, ScheduleWhen
-from buildbot_nix.service import (
-    build_service,
-    resolve_credential_path,
-    scheduled_worktree_id,
-)
+from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
 from buildbot_nix.webhooks import ChangeRequest
 
 if TYPE_CHECKING:

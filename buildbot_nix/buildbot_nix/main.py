@@ -13,9 +13,9 @@ import logging
 import signal
 from pathlib import Path
 
+from .bootstrap import run_service
 from .config import EngineConfig
 from .log import setup_logging
-from .service import run_service
 
 logger = logging.getLogger(__name__)
 
