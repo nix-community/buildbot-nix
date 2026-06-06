@@ -6,7 +6,7 @@
     <h2>{{ project.owner }}/{{ project.name }}
       <small><a href="{{ project.url }}">repo</a> · default branch {{ project.default_branch }}</small>
     </h2>
-    <form method="get">
+    <form method="get" class="filters">
       <select name="status">
         <option value="">all statuses</option>
         {% for s in ["succeeded", "failed", "cancelled", "building", "pending"] %}
@@ -16,7 +16,7 @@
       <input type="text" name="branch" placeholder="branch" value="{{ branch }}">
       <button>filter</button>
     </form>
-    <table>
+    <table class="builds">
       <tr><th>#</th><th>branch</th><th>status</th><th>commit</th><th>when</th><th>took</th></tr>
       {% for b in builds["items"] %}{% include "_build_row.html" %}{% endfor %}
     </table>
