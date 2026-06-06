@@ -3,17 +3,17 @@
   queue
 {% endblock title %}
 {% block body %}
-  <main>
+  <main id="main">
     <section class="content">
       <h2>Queue</h2>
       <table>
         <tr>
-          <th>pos</th>
-          <th>project</th>
-          <th>#</th>
-          <th>branch</th>
-          <th>status</th>
-          <th>waiting</th>
+          <th scope="col">pos</th>
+          <th scope="col">project</th>
+          <th scope="col">#</th>
+          <th scope="col">branch</th>
+          <th scope="col">status</th>
+          <th scope="col">waiting</th>
         </tr>
         {% for b in queue %}
           <tr>

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
-  <main>
+  <main id="main">
     <nav class="sidebar">
       <h2>Projects</h2>
       <ul>
@@ -30,13 +30,13 @@
       <h2>Recent builds</h2>
       <table class="builds">
         <tr>
-          <th>#</th>
-          <th>project</th>
-          <th>branch</th>
-          <th>status</th>
-          <th>commit</th>
-          <th>when</th>
-          <th>took</th>
+          <th scope="col">#</th>
+          <th scope="col">project</th>
+          <th scope="col">branch</th>
+          <th scope="col">status</th>
+          <th scope="col">commit</th>
+          <th scope="col">when</th>
+          <th scope="col">took</th>
         </tr>
         {% for b in builds %}
           {% include "_build_row.html" %}

@@ -3,7 +3,7 @@
   {{ repo_name(project.owner, project.name) }}
 {% endblock title %}
 {% block body %}
-  <main>
+  <main id="main">
     <section class="content">
       <h2>
         {{ repo_name(project.owner, project.name) }}
@@ -14,23 +14,27 @@
         </small>
       </h2>
       <form method="get" class="filters">
-        <select name="status">
+        <select name="status" aria-label="status">
           <option value="">all statuses</option>
           {% for s in ["succeeded", "failed", "cancelled", "building", "pending"] %}
             <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
           {% endfor %}
         </select>
-        <input type="text" name="branch" placeholder="branch" value="{{ branch }}">
+        <input type="text"
+               name="branch"
+               placeholder="branch"
+               aria-label="branch"
+               value="{{ branch }}">
         <button>filter</button>
       </form>
       <table class="builds">
         <tr>
-          <th>#</th>
-          <th>branch</th>
-          <th>status</th>
-          <th>commit</th>
-          <th>when</th>
-          <th>took</th>
+          <th scope="col">#</th>
+          <th scope="col">branch</th>
+          <th scope="col">status</th>
+          <th scope="col">commit</th>
+          <th scope="col">when</th>
+          <th scope="col">took</th>
         </tr>
         {% for b in builds["items"] %}
           {% include "_build_row.html" %}

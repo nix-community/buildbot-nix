@@ -4,7 +4,7 @@
 {% endblock title %}
 {%
 block body %}
-<main>
+<main id="main">
   <section class="content">
     <h2>
       <code>{{ attr }}</code>
@@ -12,11 +12,11 @@ block body %}
     </h2>
     <table>
       <tr>
-        <th>build</th>
-        <th>branch</th>
-        <th>status</th>
-        <th>commit</th>
-        <th>when</th>
+        <th scope="col">build</th>
+        <th scope="col">branch</th>
+        <th scope="col">status</th>
+        <th scope="col">commit</th>
+        <th scope="col">when</th>
       </tr>
       {% for h in history %}
         <tr>

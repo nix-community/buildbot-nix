@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/static/style.css">
   </head>
   <body>
+    <a class="skip-link" href="#main">skip to content</a>
     <header>
       <h1>
         <a href="/">buildbot-nix</a>
@@ -22,6 +23,7 @@
       <form action="/search" method="get" class="header-search">
         <input type="search"
                name="q"
+               aria-label="search projects and attributes"
                placeholder="search projects &amp; attributes"
                value="{{ q | default('') }}">
       </form>

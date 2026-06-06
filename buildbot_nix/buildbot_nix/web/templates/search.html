@@ -3,7 +3,7 @@
   search
 {% endblock title %}
 {% block body %}
-  <main>
+  <main id="main">
     <section class="content">
       <h2>Search results for “{{ q }}”</h2>
       <h3>Projects</h3>
@@ -19,10 +19,10 @@
       <h3>Attributes</h3>
       <table>
         <tr>
-          <th>attribute</th>
-          <th>project</th>
-          <th>status</th>
-          <th>latest build</th>
+          <th scope="col">attribute</th>
+          <th scope="col">project</th>
+          <th scope="col">status</th>
+          <th scope="col">latest build</th>
         </tr>
         {% for a in results.attributes %}
           <tr>

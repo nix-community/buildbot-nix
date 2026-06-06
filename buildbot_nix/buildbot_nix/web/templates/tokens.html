@@ -3,7 +3,7 @@
   API tokens
 {% endblock title %}
 {% block body %}
-  <main>
+  <main id="main">
     <section class="content">
       <h2>
         API tokens <small>for {{ user.qualified }}</small>
@@ -13,19 +13,23 @@
 {{ new_token }}</pre>
       {% endif %}
       <form method="post" action="/tokens">
-        <input type="text" name="name" placeholder="token name">
+        <input type="text"
+               name="name"
+               placeholder="token name"
+               aria-label="token name">
         <input type="number"
                name="expires_days"
                min="1"
-               placeholder="expires in days (optional)">
+               placeholder="expires in days (optional)"
+               aria-label="expires in days (optional)">
         <button>generate token</button>
       </form>
       <table>
         <tr>
-          <th>name</th>
-          <th>created</th>
-          <th>expires</th>
-          <th></th>
+          <th scope="col">name</th>
+          <th scope="col">created</th>
+          <th scope="col">expires</th>
+          <th scope="col"></th>
         </tr>
         {% for t in tokens %}
           <tr>

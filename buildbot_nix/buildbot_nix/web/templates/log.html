@@ -3,10 +3,13 @@
   {{ attr }} log
 {% endblock title %}
 {% block body %}
-  <main>
+  <main id="main">
     <section class="content">
       <h2>
-        {% if attr_status %}<span class="dot {{ attr_status }}"></span>{% endif %}
+        {% if attr_status %}
+          <span class="dot {{ attr_status }}" aria-hidden="true"></span>
+          <span class="visually-hidden">{{ attr_status.replace('_', ' ') }}</span>
+        {% endif %}
         <code>{{ attr }}</code>
         <small>
           <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>

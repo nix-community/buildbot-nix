@@ -1,10 +1,11 @@
 {% for system, attrs in group_by_system(attributes).items() %}
   <h3>{{ system }}</h3>
   <table class="attrs">
+    <caption class="visually-hidden">{{ system }} attributes</caption>
     {% for a in attrs %}
       <tr data-attr="{{ a.attr | lower }}">
         <td class="attr-name">
-          <span class="dot {{ a.status }}"></span>
+          <span class="dot {{ a.status }}" aria-hidden="true"></span>
           {% if a.log_path or a.status in ('pending', 'building') %}
             <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ a.attr }}"><code>{{ a.attr }}</code></a>
           {% else %}
