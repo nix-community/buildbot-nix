@@ -241,23 +241,24 @@ class BuildDB:
         """Persist eval results as pending rows (with statically-known
         outputs) so crash recovery can resume without a re-eval; eval
         failures are settled by the scheduler."""
-        async with self.pool.acquire() as conn, conn.transaction():
-            for job in jobs:
-                if not isinstance(job, NixEvalJobSuccess):
-                    continue
-                await conn.execute(
-                    """
-                    INSERT INTO build_attributes
-                        (build_id, attr, system, drv_path, outputs, status)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, 'pending')
-                    ON CONFLICT (build_id, attr) DO NOTHING
-                    """,
-                    build_id,
-                    job.attr,
-                    job.system,
-                    job.drvPath,
-                    json.dumps(job.outputs),
-                )
+        params = [
+            (build_id, job.attr, job.system, job.drvPath, json.dumps(job.outputs))
+            for job in jobs
+            if isinstance(job, NixEvalJobSuccess)
+        ]
+        if not params:
+            return
+        # executemany pipelines the inserts in one implicit transaction;
+        # large evals produce thousands of attributes.
+        await self.pool.executemany(
+            """
+            INSERT INTO build_attributes
+                (build_id, attr, system, drv_path, outputs, status)
+            VALUES ($1, $2, $3, $4, $5::jsonb, 'pending')
+            ON CONFLICT (build_id, attr) DO NOTHING
+            """,
+            params,
+        )
 
     async def mark_attribute_building(
         self, build_id: int, attr: str, system: str | None, drv_path: str | None

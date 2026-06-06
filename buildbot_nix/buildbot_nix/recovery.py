@@ -100,18 +100,29 @@ class ResumableBuild:
     pending_jobs: list[NixEvalJobSuccess]
 
 
-async def find_unfinished_builds(pool: asyncpg.Pool) -> list[ResumableBuild]:
+async def find_unfinished_builds(
+    pool: asyncpg.Pool, build_id: int | None = None
+) -> list[ResumableBuild]:
     rows = await pool.fetch(
-        "SELECT * FROM builds WHERE status = ANY($1::text[]) ORDER BY id",
+        "SELECT * FROM builds WHERE status = ANY($1::text[]) "
+        "AND ($2::bigint IS NULL OR id = $2) ORDER BY id",
         list(UNFINISHED_STATUSES),
+        build_id,
     )
+    if not rows:
+        return []
+    # One round-trip for all attribute rows, not one per build.
+    attr_rows = await pool.fetch(
+        "SELECT build_id, attr, system, drv_path, outputs, status "
+        "FROM build_attributes WHERE build_id = ANY($1::bigint[])",
+        [row["id"] for row in rows],
+    )
+    attrs_by_build: dict[int, list[asyncpg.Record]] = {}
+    for attr in attr_rows:
+        attrs_by_build.setdefault(attr["build_id"], []).append(attr)
     builds = []
     for row in rows:
-        attrs = await pool.fetch(
-            "SELECT attr, system, drv_path, outputs, status "
-            "FROM build_attributes WHERE build_id = $1",
-            row["id"],
-        )
+        attrs = attrs_by_build.get(row["id"], [])
         pending_jobs = []
         for attr in attrs:
             # 'building' rows are attributes that were running when the

@@ -230,14 +230,8 @@ class EngineService:
             credentials = await self._credentials_provider(info.forge).get(
                 info.clone_url
             )
-            resumable = next(
-                (
-                    r
-                    for r in await find_unfinished_builds(self.pool)
-                    if r.build_id == build_id
-                ),
-                None,
-            )
+            results = await find_unfinished_builds(self.pool, build_id=build_id)
+            resumable = results[0] if results else None
             if resumable is None:
                 return
             pending_count = await self.pool.fetchval(
