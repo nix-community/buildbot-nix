@@ -44,13 +44,24 @@
     {
       lib = import ./nix/lib.nix;
 
-      nixosModules = {
-        buildbot-nix = ./nixosModules/buildbot-nix.nix;
-        # Old entry points alias the engine module; its
-        # mkRemovedOptionModule stubs explain the migration.
-        buildbot-master = ./nixosModules/buildbot-nix.nix;
-        buildbot-worker = ./nixosModules/buildbot-nix.nix;
-      };
+      nixosModules =
+        let
+          # Old entry points import the engine module (its rename and
+          # removed-option stubs handle the options) but warn about the
+          # import itself.
+          alias = name: {
+            key = "buildbot-nix#nixosModules.${name}";
+            imports = [ ./nixosModules/buildbot-nix.nix ];
+            config.warnings = [
+              "buildbot-nix: nixosModules.${name} is deprecated; import nixosModules.buildbot-nix instead"
+            ];
+          };
+        in
+        {
+          buildbot-nix = ./nixosModules/buildbot-nix.nix;
+          buildbot-master = alias "buildbot-master";
+          buildbot-worker = alias "buildbot-worker";
+        };
 
       nixosConfigurations =
         let
