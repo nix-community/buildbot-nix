@@ -5,8 +5,11 @@
 {% block body %}
   <main id="main">
     <section class="content">
-      <h2>Queue</h2>
-      <table>
+      <h2>
+        Queue
+        <small>{{ queue | length }} build{{ '' if queue | length == 1 else 's' }} waiting</small>
+      </h2>
+      <table class="builds">
         <tr>
           <th scope="col">pos</th>
           <th scope="col">project</th>
@@ -17,7 +20,9 @@
         </tr>
         {% for b in queue %}
           <tr>
-            <td>{{ b.queue_position }}</td>
+            <td>
+              <span class="queue-pos">{{ b.queue_position }}</span>
+            </td>
             <td>{{ repo_name(b.owner, b.project_name) }}</td>
             <td>
               <a href="/projects/{{ b.owner }}/{{ b.project_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
@@ -32,7 +37,7 @@
           </tr>
         {% else %}
           <tr>
-            <td colspan="6" class="muted">queue is empty</td>
+            <td colspan="6" class="empty-state">queue is empty</td>
           </tr>
         {% endfor %}
       </table>

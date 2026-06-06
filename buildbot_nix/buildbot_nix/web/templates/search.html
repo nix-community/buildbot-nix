@@ -7,17 +7,15 @@
     <section class="content">
       <h2>Search results for “{{ q }}”</h2>
       <h3>Projects</h3>
-      <ul>
+      <div class="chip-row">
         {% for p in results.projects %}
-          <li>
-            <a href="/projects/{{ p.owner }}/{{ p.name }}">{{ repo_name(p.owner, p.name) }}</a>
-          </li>
+          <a class="chip" href="/projects/{{ p.owner }}/{{ p.name }}">{{ repo_name(p.owner, p.name) }}</a>
         {% else %}
-          <li class="muted">none</li>
+          <span class="muted">none</span>
         {% endfor %}
-      </ul>
+      </div>
       <h3>Attributes</h3>
-      <table>
+      <table class="builds">
         <tr>
           <th scope="col">attribute</th>
           <th scope="col">project</th>
@@ -39,7 +37,7 @@
           </tr>
         {% else %}
           <tr>
-            <td colspan="4" class="muted">none</td>
+            <td colspan="4" class="empty-state">no matching attributes</td>
           </tr>
         {% endfor %}
       </table>

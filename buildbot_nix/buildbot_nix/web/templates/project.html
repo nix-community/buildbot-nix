@@ -6,6 +6,9 @@
   <main id="main">
     <section class="content">
       <h2>
+        {% if builds["items"] %}
+          <span class="dot {{ builds['items'][0].status }}" aria-hidden="true"></span>
+        {% endif %}
         {{ repo_name(project.owner, project.name) }}
         <small>
           {# Pull-based projects carry a local path, not a web URL. #}

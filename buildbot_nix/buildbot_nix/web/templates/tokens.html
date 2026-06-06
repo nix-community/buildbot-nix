@@ -12,7 +12,7 @@
         <pre class="error warning">Your new token (shown only once):
 {{ new_token }}</pre>
       {% endif %}
-      <form method="post" action="/tokens">
+      <form method="post" action="/tokens" class="filters">
         <input type="text"
                name="name"
                placeholder="token name"
@@ -24,7 +24,7 @@
                aria-label="expires in days (optional)">
         <button>generate token</button>
       </form>
-      <table>
+      <table class="builds">
         <tr>
           <th scope="col">name</th>
           <th scope="col">created</th>
@@ -46,7 +46,7 @@
           </tr>
         {% else %}
           <tr>
-            <td colspan="4" class="muted">no tokens</td>
+            <td colspan="4" class="empty-state">no tokens</td>
           </tr>
         {% endfor %}
       </table>

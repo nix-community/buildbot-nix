@@ -13,7 +13,7 @@
         </span>
         <span class="summary-item muted">{{ projects | length }} projects</span>
       </div>
-      <h3>Projects</h3>
+      <h2 class="section">Projects</h2>
       <div class="project-grid">
         {% for p in projects %}
           <a class="project-card"
@@ -42,7 +42,7 @@
           <p class="muted">no enabled projects</p>
         {% endfor %}
       </div>
-      <h3>Recent activity</h3>
+      <h2 class="section">Recent activity</h2>
       <table class="builds">
         <tr>
           <th scope="col">#</th>
@@ -58,7 +58,7 @@
         {% endfor %}
       </table>
       {% if all_projects %}
-        <h3>Administration</h3>
+        <h2 class="section">Administration</h2>
         <ul class="admin-projects">
           {% for p in all_projects %}
             <li>

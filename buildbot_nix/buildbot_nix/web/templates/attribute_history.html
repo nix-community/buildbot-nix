@@ -10,7 +10,7 @@ block body %}
       <code>{{ attr }}</code>
       <small>in <a href="/projects/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a></small>
     </h2>
-    <table>
+    <table class="builds">
       <tr>
         <th scope="col">build</th>
         <th scope="col">branch</th>
@@ -36,7 +36,7 @@ block body %}
         </tr>
       {% else %}
         <tr>
-          <td colspan="5" class="muted">no history</td>
+          <td colspan="5" class="empty-state">no history</td>
         </tr>
       {% endfor %}
     </table>
