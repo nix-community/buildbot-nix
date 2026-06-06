@@ -83,8 +83,77 @@ th {
   color: var(--muted);
   font-weight: 600;
 }
+/* Buildkite-style attribute list: card with one row per attribute,
+   status dot + name left, status pill and duration right. */
+table.attrs {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  background: var(--card);
+}
+table.attrs td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+}
+table.attrs tr:last-child td {
+  border-bottom: none;
+}
+table.attrs tr:hover td {
+  background: rgba(130, 170, 255, 0.06);
+}
+td.attr-name {
+  width: 100%;
+}
+td.attr-name a {
+  color: var(--fg);
+}
+td.attr-status, td.attr-duration {
+  white-space: nowrap;
+  text-align: right;
+}
+td.attr-duration {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  margin-right: 0.5rem;
+  background: var(--muted);
+}
+.dot.succeeded, .dot.success {
+  background: var(--ok);
+}
+.dot.failed, .dot.failed_eval, .dot.dependency_failed, .dot.cached_failure {
+  background: var(--bad);
+}
+.dot.pending, .dot.evaluating, .dot.building {
+  background: var(--run);
+}
+.dot.building {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
 .status {
   font-weight: 600;
+}
+/* Pill chrome only in the attribute list; headings keep plain text. */
+/* No color here: it would outweigh the .status.<state> variants
+   below (higher specificity). currentColor keeps the border in
+   sync with the state color. */
+table.attrs .status {
+  font-size: 12px;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
 }
 .status.succeeded, .status.success {
   color: var(--ok);
