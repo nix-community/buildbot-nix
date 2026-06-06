@@ -183,6 +183,7 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         writer = registry.get(build["id"], attr)
         live = writer is not None
         content = ""
+        waiting = False
         if writer is not None:
             data = await writer.snapshot()
             content = await asyncio.to_thread(
@@ -194,7 +195,16 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
                 render_log_lines, data.decode(errors="replace")
             )
         else:
-            raise HTTPException(status_code=404)
+            # The build page links queued attributes before any log
+            # exists; show a waiting page instead of a 404.
+            status = await ctx.pool.fetchval(
+                "SELECT status FROM build_attributes WHERE build_id = $1 AND attr = $2",
+                build["id"],
+                attr,
+            )
+            if status not in ("pending", "building"):
+                raise HTTPException(status_code=404)
+            waiting = True
         prev_number, next_number = await ctx.queries.attribute_neighbors(
             project["id"], attr, number
         )
@@ -206,6 +216,7 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             attr=attr,
             content=content,
             live=live,
+            waiting=waiting,
             prev_number=prev_number,
             next_number=next_number,
         )

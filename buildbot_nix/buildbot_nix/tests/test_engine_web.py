@@ -280,6 +280,39 @@ def test_log_viewer_and_raw(client: WebClient, tmp_path: Path) -> None:
     assert missing.status_code == 404
 
 
+def test_log_viewer_waits_for_queued_attribute(client: WebClient) -> None:
+    # The build page links queued attributes before any log exists.
+    async def make_pending() -> None:
+        ctx = client.app.state.web_context
+        await ctx.pool.execute(
+            """
+            UPDATE build_attributes a SET status = 'pending'
+            FROM builds b
+            WHERE b.id = a.build_id AND b.number = 3
+              AND a.attr = 'x86_64-linux.ok'
+            """
+        )
+
+    async def restore() -> None:
+        ctx = client.app.state.web_context
+        await ctx.pool.execute(
+            """
+            UPDATE build_attributes a SET status = 'succeeded'
+            FROM builds b
+            WHERE b.id = a.build_id AND b.number = 3
+              AND a.attr = 'x86_64-linux.ok'
+            """
+        )
+
+    client.loop.run_until_complete(make_pending())
+    try:
+        response = get(client, "/projects/acme/widget/builds/3/logs/x86_64-linux.ok")
+        assert response.status_code == 200
+        assert "waiting for the build to start" in response.text
+    finally:
+        client.loop.run_until_complete(restore())
+
+
 def test_log_sse_stream_finished(client: WebClient, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
     response = get(

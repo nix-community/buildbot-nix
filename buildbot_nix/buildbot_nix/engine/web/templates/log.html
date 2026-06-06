@@ -19,7 +19,12 @@
     {% if live %}
     <label><input type="checkbox" id="follow" checked> follow tail</label>
     {% endif %}
+    {% if waiting %}
+    <p class="muted">waiting for the build to start…</p>
+    <script>setTimeout(() => location.reload(), 3000);</script>
+    {% else %}
     <pre class="log" id="log">{{ content | safe }}</pre>
+    {% endif %}
   </section>
 </main>
 {% if live %}
