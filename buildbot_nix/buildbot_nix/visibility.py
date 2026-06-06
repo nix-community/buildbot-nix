@@ -140,7 +140,7 @@ class VisibilityService:
         self.fetcher = fetcher
         self.cache = cache or AccessCache()
 
-    async def visible_project_ids(
+    async def visible_repo_ids(
         self, user: User | None, token: str | None = None
     ) -> list[int] | None:
         """None = everything visible (admins). Otherwise the project ids
@@ -162,7 +162,7 @@ class VisibilityService:
         )
         return visible
 
-    async def toggleable_project_ids(
+    async def toggleable_repo_ids(
         self, user: User | None, token: str | None = None
     ) -> list[int] | None:
         """Projects the requester may enable/disable. None = all

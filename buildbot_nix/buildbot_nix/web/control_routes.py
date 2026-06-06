@@ -48,7 +48,7 @@ def create_control_router(  # noqa: C901
     async def _authorize(request: Request, owner: str, name: str, number: int) -> dict:
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
-        project = await ctx.project_or_404(owner, name, request)
+        project = await ctx.repo_or_404(owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
@@ -59,17 +59,17 @@ def create_control_router(  # noqa: C901
 
     def _back(owner: str, name: str, number: int) -> RedirectResponse:
         return RedirectResponse(
-            f"/projects/{owner}/{name}/builds/{number}", status_code=303
+            f"/repos/{owner}/{name}/builds/{number}", status_code=303
         )
 
     def _back_to_attr(
         owner: str, name: str, number: int, attr: str
     ) -> RedirectResponse:
         return RedirectResponse(
-            f"/projects/{owner}/{name}/builds/{number}/logs/{attr}", status_code=303
+            f"/repos/{owner}/{name}/builds/{number}/logs/{attr}", status_code=303
         )
 
-    @router.post("/projects/{owner}/{name}/builds/{number}/restart")
+    @router.post("/repos/{owner}/{name}/builds/{number}/restart")
     async def restart(
         request: Request, owner: str, name: str, number: int
     ) -> RedirectResponse:
@@ -77,7 +77,7 @@ def create_control_router(  # noqa: C901
         await backend.restart_build(build["id"])
         return _back(owner, name, number)
 
-    @router.post("/projects/{owner}/{name}/builds/{number}/attrs/{attr}/restart")
+    @router.post("/repos/{owner}/{name}/builds/{number}/attrs/{attr}/restart")
     async def restart_attribute(
         request: Request, owner: str, name: str, number: int, attr: str
     ) -> RedirectResponse:
@@ -86,7 +86,7 @@ def create_control_router(  # noqa: C901
         await backend.restart_attribute(build["id"], attr)
         return _back_to_attr(owner, name, number, attr)
 
-    @router.post("/projects/{owner}/{name}/builds/{number}/rebuild-failed")
+    @router.post("/repos/{owner}/{name}/builds/{number}/rebuild-failed")
     async def rebuild_failed(
         request: Request, owner: str, name: str, number: int
     ) -> RedirectResponse:
@@ -101,7 +101,7 @@ def create_control_router(  # noqa: C901
             await backend.restart_attribute(build["id"], row["attr"])
         return _back(owner, name, number)
 
-    @router.post("/projects/{owner}/{name}/builds/{number}/attrs/{attr}/cancel")
+    @router.post("/repos/{owner}/{name}/builds/{number}/attrs/{attr}/cancel")
     async def cancel_attribute(
         request: Request, owner: str, name: str, number: int, attr: str
     ) -> RedirectResponse:
@@ -109,7 +109,7 @@ def create_control_router(  # noqa: C901
         await backend.cancel_attribute(build["id"], attr)
         return _back_to_attr(owner, name, number, attr)
 
-    @router.post("/projects/{owner}/{name}/builds/{number}/cancel")
+    @router.post("/repos/{owner}/{name}/builds/{number}/cancel")
     async def cancel(
         request: Request, owner: str, name: str, number: int
     ) -> RedirectResponse:
@@ -117,21 +117,21 @@ def create_control_router(  # noqa: C901
         await backend.cancel_build(build["id"])
         return _back(owner, name, number)
 
-    async def _require_project_admin(request: Request, project_id: int) -> None:
+    async def _require_repo_admin(request: Request, project_id: int) -> None:
         """Instance admins, or forge-side admins of this repo."""
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
         if not is_admin(await ctx.request_user(request), authz):
-            toggleable = await ctx.toggleable_project_ids(request) or []
+            toggleable = await ctx.toggleable_repo_ids(request) or []
             if project_id not in toggleable:
                 raise HTTPException(status_code=403, detail="not a project admin")
 
-    @router.post("/api/projects/{owner}/{name}/enable")
-    @router.post("/api/projects/{owner}/{name}/disable")
+    @router.post("/api/repos/{owner}/{name}/enable")
+    @router.post("/api/repos/{owner}/{name}/disable")
     async def api_set_enabled(request: Request, owner: str, name: str) -> dict:
         """Idempotent enable/disable for scripts and agents."""
-        project = await ctx.project_or_404(owner, name, request)
-        await _require_project_admin(request, project["id"])
+        project = await ctx.repo_or_404(owner, name, request)
+        await _require_repo_admin(request, project["id"])
         enabled = request.url.path.endswith("/enable")
         await ctx.pool.execute(
             "UPDATE projects SET enabled = $2, updated_at = now() WHERE id = $1",
@@ -140,11 +140,11 @@ def create_control_router(  # noqa: C901
         )
         return {"owner": owner, "name": name, "enabled": enabled}
 
-    @router.post("/admin/projects/{project_id}/toggle")
-    async def toggle_project(
+    @router.post("/admin/repos/{project_id}/toggle")
+    async def toggle_repo(
         request: Request, project_id: int, q: Annotated[str, Form()] = ""
     ) -> RedirectResponse:
-        await _require_project_admin(request, project_id)
+        await _require_repo_admin(request, project_id)
         await ctx.pool.execute(
             "UPDATE projects SET enabled = NOT enabled, updated_at = now() "
             "WHERE id = $1",

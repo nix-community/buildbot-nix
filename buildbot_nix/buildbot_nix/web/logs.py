@@ -275,13 +275,13 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
     async def _resolve(
         request: Request, owner: str, name: str, number: int, attr: str
     ) -> tuple[dict, dict, Path | None]:
-        project = await ctx.project_or_404(owner, name, request)
+        project = await ctx.repo_or_404(owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
         return project, build, await _log_path(ctx, registry, build, attr)
 
-    @router.get("/projects/{owner}/{name}/builds/{number}/logs/{attr}.txt")
+    @router.get("/repos/{owner}/{name}/builds/{number}/logs/{attr}.txt")
     async def log_raw_text(  # noqa: PLR0913
         request: Request,
         owner: str,
@@ -299,7 +299,7 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             text = "\n".join(text.splitlines()[-tail:]) + "\n"
         return PlainTextResponse(strip_ansi(text))
 
-    @router.get("/api/projects/{owner}/{name}/builds/{number}/failures")
+    @router.get("/api/repos/{owner}/{name}/builds/{number}/failures")
     async def build_failures(
         request: Request, owner: str, name: str, number: int, tail: int = 50
     ) -> dict:
@@ -308,13 +308,13 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         Saves API consumers (CI scripts, LLM agents) a request per
         attribute when answering "why did this build fail?".
         """
-        project = await ctx.project_or_404(owner, name, request)
+        project = await ctx.repo_or_404(owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
         return await _failure_summary(ctx, registry, build, tail)
 
-    @router.get("/projects/{owner}/{name}/builds/{number}/logs/{attr}/stream")
+    @router.get("/repos/{owner}/{name}/builds/{number}/logs/{attr}/stream")
     async def log_stream(
         request: Request, owner: str, name: str, number: int, attr: str
     ) -> StreamingResponse:
@@ -326,7 +326,7 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         )
 
     @router.get(
-        "/projects/{owner}/{name}/builds/{number}/logs/{attr}",
+        "/repos/{owner}/{name}/builds/{number}/logs/{attr}",
         response_class=HTMLResponse,
     )
     async def log_viewer(

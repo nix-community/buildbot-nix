@@ -31,8 +31,8 @@ from buildbot_nix.gitea_hooks import (
     register_repo_hook,
 )
 from buildbot_nix.migrations import apply_migrations
-from buildbot_nix.projects import ProjectStore
-from buildbot_nix.reconcile import gitea_heads, reconcile_project
+from buildbot_nix.reconcile import gitea_heads, reconcile_repo
+from buildbot_nix.repos import RepoStore
 from buildbot_nix.status import (
     GiteaStatusPoster,
     GitHubStatusPoster,
@@ -296,7 +296,7 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            store = ProjectStore(pool)
+            store = RepoStore(pool)
             repos = [
                 repo("acme", "tagged", topics=("build-with-buildbot",)),
                 repo("acme", "untagged"),
@@ -305,7 +305,7 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
             await store.sync_discovered(
                 repos, legacy_import_topic="build-with-buildbot"
             )
-            enabled = await store.enabled_projects()
+            enabled = await store.enabled_repos()
             assert [p.name for p in enabled] == ["tagged"]
 
             # Rename keeps identity and enablement (stable forge id).
@@ -315,7 +315,7 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
             await store.sync_discovered(
                 [renamed], legacy_import_topic="build-with-buildbot"
             )
-            enabled = await store.enabled_projects()
+            enabled = await store.enabled_repos()
             assert [p.name for p in enabled] == ["renamed"]
 
             # Non-empty table: topic import never runs again.
@@ -323,13 +323,13 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
             await store.sync_discovered(
                 [newly_tagged], legacy_import_topic="build-with-buildbot"
             )
-            assert {p.name for p in await store.enabled_projects()} == {"renamed"}
+            assert {p.name for p in await store.enabled_repos()} == {"renamed"}
 
             # Admin toggle.
             later = await store.by_forge_id("github", "acme-later")
             assert later is not None
             await store.set_enabled(later.id, enabled=True)
-            assert {p.name for p in await store.enabled_projects()} == {
+            assert {p.name for p in await store.enabled_repos()} == {
                 "renamed",
                 "later",
             }
@@ -488,7 +488,7 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
                 """,
                 project_id,
             )
-            project = await ProjectStore(pool).by_forge_id("gitea", "recon-1")
+            project = await RepoStore(pool).by_forge_id("gitea", "recon-1")
             assert project is not None
 
             client = GiteaClient(
@@ -505,7 +505,7 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
                 async def submit(self, event: object) -> None:
                     events.append(event)
 
-            submitted = await reconcile_project(pool, project, heads, Sink())
+            submitted = await reconcile_repo(pool, project, heads, Sink())
             # main head + PR 5; PR 6 already built.
             assert submitted == 2
             shas = {e.commit_sha for e in events}  # type: ignore[attr-defined]
@@ -515,7 +515,7 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
             # open-PR backlog is not built.
             await pool.execute("DELETE FROM builds WHERE project_id = $1", project_id)
             events.clear()
-            submitted = await reconcile_project(pool, project, heads, Sink())
+            submitted = await reconcile_repo(pool, project, heads, Sink())
             assert submitted == 1
             assert events[0].commit_sha == "head-main"  # type: ignore[attr-defined]
 
@@ -530,7 +530,7 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
                 project_id,
             )
             events.clear()
-            submitted = await reconcile_project(pool, project, heads, Sink())
+            submitted = await reconcile_repo(pool, project, heads, Sink())
             assert submitted == 0  # main head cancelled, PRs skipped
         finally:
             await pool.close()
@@ -566,7 +566,7 @@ def test_github_status_post(github_client: GitHubAppClient) -> None:
             "buildbot/nix-eval",
             StatusState.success,
             "evaluation succeeded",
-            "https://ci.test/projects/acme/repo11/builds/1",
+            "https://ci.test/repos/acme/repo11/builds/1",
         )
 
     asyncio.run(run())
@@ -575,7 +575,7 @@ def test_github_status_post(github_client: GitHubAppClient) -> None:
             "state": "success",
             "context": "buildbot/nix-eval",
             "description": "evaluation succeeded",
-            "target_url": "https://ci.test/projects/acme/repo11/builds/1",
+            "target_url": "https://ci.test/repos/acme/repo11/builds/1",
         }
     ]
 
@@ -603,7 +603,7 @@ def test_gitea_status_post() -> None:
             "buildbot/nix-build",
             StatusState.failure,
             "2 of 3 attributes failed",
-            "https://ci.test/projects/acme/widget/builds/7",
+            "https://ci.test/repos/acme/widget/builds/7",
         )
     )
     assert posted[0]["state"] == "failure"

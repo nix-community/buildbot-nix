@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from .db import BuildStatus
 from .effects import EffectsContext, resolve_effects_secret
-from .events import ChangeEvent, ProjectInfo
+from .events import ChangeEvent, RepoInfo
 from .forge import (
     GiteaClient,
     GitHubAppClient,
@@ -28,7 +28,7 @@ from .gitrepo import (
     FetchCredentials,
     StaticCredentialsProvider,
 )
-from .reconcile import gitea_heads, github_heads, reconcile_project
+from .reconcile import gitea_heads, github_heads, reconcile_repo
 from .recovery import (
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
@@ -51,8 +51,8 @@ if TYPE_CHECKING:
     from .db import BuildRecord
     from .orchestrator import Orchestrator
     from .polling import PolledRepository
-    from .projects import ProjectRecord, ProjectStore
     from .recovery import ResumableBuild
+    from .repos import RepoRecord, RepoStore
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +97,8 @@ class PullBasedCredentialsProvider:
         )
 
 
-def project_info(record: ProjectRecord) -> ProjectInfo:
-    return ProjectInfo(
+def repo_info(record: RepoRecord) -> RepoInfo:
+    return RepoInfo(
         id=record.id,
         key=f"{record.forge}/{record.owner}/{record.name}",
         name=f"{record.owner}/{record.name}",
@@ -115,7 +115,7 @@ class EngineService:
     config: EngineConfig
     pool: asyncpg.Pool
     orchestrator: Orchestrator
-    project_store: ProjectStore
+    repo_store: RepoStore
     github: GitHubAppClient | None = None
     gitea: GiteaClient | None = None
     credentials_providers: dict[str, CredentialsProvider] = field(default_factory=dict)
@@ -145,7 +145,7 @@ class EngineService:
 
     async def submit(self, event: WebhookEvent) -> None:
         if isinstance(event, PrClosed):
-            project = await self.project_store.by_forge_id(
+            project = await self.repo_store.by_forge_id(
                 event.forge, event.forge_repo_id
             )
             if project is not None:
@@ -154,19 +154,17 @@ class EngineService:
         await self._submit_change(event)
 
     async def _submit_change(self, change: ChangeRequest) -> None:
-        project = await self.project_store.by_forge_id(
-            change.forge, change.forge_repo_id
-        )
+        project = await self.repo_store.by_forge_id(change.forge, change.forge_repo_id)
         if project is None or not project.enabled:
             return
         if change.pr_number is None and not should_build_branch(
             self.config.branches, project.default_branch, change.branch
         ):
             return
-        info = project_info(project)
+        info = repo_info(project)
         credentials = await self._credentials_provider(info.forge).get(info.clone_url)
         event = ChangeEvent(
-            project=info,
+            repo=info,
             branch=change.branch,
             commit_sha=change.commit_sha,
             pr_number=change.pr_number,
@@ -225,10 +223,10 @@ class EngineService:
             build = await self.orchestrator.db.get_build(build_id)
             if build is None:
                 return
-            project = await self.project_store.by_id(build.project_id)
+            project = await self.repo_store.by_id(build.project_id)
             if project is None:
                 return
-            info = project_info(project)
+            info = repo_info(project)
             credentials = await self._credentials_provider(info.forge).get(
                 info.clone_url
             )
@@ -256,12 +254,12 @@ class EngineService:
 
     async def _reeval(
         self,
-        info: ProjectInfo,
+        info: RepoInfo,
         build: BuildRecord,
         credentials: FetchCredentials | None,
     ) -> None:
         event = ChangeEvent(
-            project=info,
+            repo=info,
             branch=build.branch,
             commit_sha=build.commit_sha,
             pr_number=build.pr_number,
@@ -287,11 +285,11 @@ class EngineService:
             self.orchestrator.cancel_events.pop(build.id, None)
 
     async def _change_event_for(self, resumable: ResumableBuild) -> ChangeEvent | None:
-        project = await self.project_store.by_id(resumable.project_id)
+        project = await self.repo_store.by_id(resumable.project_id)
         if project is None:
             return None
         return ChangeEvent(
-            project=project_info(project),
+            repo=repo_info(project),
             branch=resumable.branch,
             commit_sha=resumable.commit_sha,
             pr_number=resumable.pr_number,
@@ -346,11 +344,11 @@ class EngineService:
         build = await self.orchestrator.db.get_build(build_id)
         if build is None:
             return
-        project = await self.project_store.by_id(build.project_id)
+        project = await self.repo_store.by_id(build.project_id)
         if project is None:
             return
         change = ChangeEvent(
-            project=project_info(project),
+            repo=repo_info(project),
             branch=build.branch,
             commit_sha=build.commit_sha,
             pr_number=build.pr_number,
@@ -380,7 +378,7 @@ class EngineService:
     async def reconcile_once(self) -> None:
         """Build default-branch and open-PR heads that got no build
         record while the service was down (missed webhooks)."""
-        for project in await self.project_store.enabled_projects():
+        for project in await self.repo_store.enabled_repos():
             try:
                 if project.forge == "github" and self.github is not None:
                     heads = await github_heads(self.github, project)
@@ -388,7 +386,7 @@ class EngineService:
                     heads = await gitea_heads(self.gitea, project)
                 else:
                     continue
-                await reconcile_project(self.pool, project, heads, self)
+                await reconcile_repo(self.pool, project, heads, self)
             except Exception:
                 logger.exception(
                     "reconciliation failed",
@@ -397,7 +395,7 @@ class EngineService:
 
     async def discover_once(self) -> None:
         if self.config.pull_based is not None:
-            await self.project_store.sync_pull_based(
+            await self.repo_store.sync_pull_based(
                 [
                     (repo.name, repo.url, repo.default_branch)
                     for repo in self.config.pull_based.repositories.values()
@@ -422,12 +420,12 @@ class EngineService:
             topic = self.config.github.filters.topic
         if topic is None and self.config.gitea is not None:
             topic = self.config.gitea.filters.topic
-        await self.project_store.sync_discovered(repos, legacy_import_topic=topic)
+        await self.repo_store.sync_discovered(repos, legacy_import_topic=topic)
         # Auto-register Gitea webhooks for enabled projects.
         if self.gitea is not None:
             secrets_store = GiteaWebhookSecrets(self.pool)
             base = self.config.webhook_base_url or self.config.url
-            for project in await self.project_store.enabled_projects():
+            for project in await self.repo_store.enabled_repos():
                 if project.forge == "gitea":
                     try:
                         await register_repo_hook(
@@ -484,10 +482,10 @@ class EngineService:
             await asyncio.sleep(60 - (time.time() % 60))
 
     async def _run_scheduled(self, due: DueEffect) -> None:
-        project = await self.project_store.by_id(due.project_id)
+        project = await self.repo_store.by_id(due.project_id)
         if project is None or not project.enabled:
             return
-        info = project_info(project)
+        info = repo_info(project)
         credentials = await self._credentials_provider(info.forge).get(info.clone_url)
         await self.orchestrator.repos.fetch(
             info.key, info.clone_url, ["+refs/heads/*:refs/heads/*"], credentials

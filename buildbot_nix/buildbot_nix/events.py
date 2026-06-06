@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class ProjectInfo:
+class RepoInfo:
     """The engine-side view of an enabled project."""
 
     id: int  # database id
@@ -33,7 +33,7 @@ class ProjectInfo:
 class ChangeEvent:
     """A push or pull-request event from a forge or poller."""
 
-    project: ProjectInfo
+    repo: RepoInfo
     branch: str
     commit_sha: str
     # PR-only fields; base_sha is the base branch head to merge into.

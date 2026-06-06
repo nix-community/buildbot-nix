@@ -36,7 +36,7 @@ from .effects import (
     run_effect,
     should_run_effects,
 )
-from .events import ChangeEvent, NullStatusReporter, ProjectInfo, StatusReporter
+from .events import ChangeEvent, NullStatusReporter, RepoInfo, StatusReporter
 from .executor import LogWriter
 from .gitrepo import GitError, MergeConflictError, run_git
 from .memory import calculate_eval_workers
@@ -107,12 +107,12 @@ class Orchestrator:
     ) -> BuildRecord | None:
         """Full lifecycle for one change event. Returns the build record
         (None when the checkout failed before a build existed)."""
-        project = event.project
+        repo = event.repo
 
         if has_skip_ci_marker(event.commit_message):
             logger.info(
                 "skipping build due to [skip ci] marker",
-                extra={"project": project.name, "commit": event.commit_sha},
+                extra={"repo": repo.name, "commit": event.commit_sha},
             )
             return None
 
@@ -124,13 +124,13 @@ class Orchestrator:
             refspecs.append(
                 f"+refs/pull/{event.pr_number}/*:refs/pull/{event.pr_number}/*"
             )
-        await self.repos.fetch(project.key, project.clone_url, refspecs, credentials)
+        await self.repos.fetch(repo.key, repo.clone_url, refspecs, credentials)
         try:
             # Unique token: concurrent events for the same commit must
             # not share (and destroy) one checkout.
             worktree = await self.repos.checkout_for_build(
-                project.key,
-                f"{project.id}-{event.commit_sha[:12]}-{uuid.uuid4().hex[:8]}",
+                repo.key,
+                f"{repo.id}-{event.commit_sha[:12]}-{uuid.uuid4().hex[:8]}",
                 base_commit=event.base_sha or event.commit_sha,
                 head_commit=event.commit_sha if event.base_sha else None,
                 credentials=credentials,
@@ -138,7 +138,7 @@ class Orchestrator:
         except MergeConflictError as e:
             # Merge conflict: failed build, status on the head SHA.
             build = await self.db.create_failed_build(
-                project.id,
+                repo.id,
                 event.commit_sha,
                 event.branch,
                 str(e),
@@ -152,7 +152,7 @@ class Orchestrator:
         try:
             tree_hash = await worktree.tree_hash()
             build, created = await self.db.get_or_create_build(
-                project.id,
+                repo.id,
                 tree_hash,
                 event.commit_sha,
                 event.branch,
@@ -184,7 +184,7 @@ class Orchestrator:
         """Decide what this event means for the (possibly shared) build:
         reuse a terminal result, drop a stale event, attach to an
         in-flight build, or run it."""
-        project = event.project
+        repo = event.repo
         key = branch_key(event.branch, event.pr_number)
         if not created and build.status in (
             BuildStatus.SUCCEEDED,
@@ -196,10 +196,10 @@ class Orchestrator:
         # Out-of-order delivery check: an event whose commit is an
         # ancestor of the context's running build is stale.
         incoming_stale = False
-        running_commit = self.canceller.running_commit_for(project.id, key)
+        running_commit = self.canceller.running_commit_for(repo.id, key)
         if running_commit is not None and running_commit != event.commit_sha:
             incoming_stale = await self._is_ancestor(
-                project.key, event.commit_sha, running_commit
+                repo.key, event.commit_sha, running_commit
             )
 
         in_flight = build.id in self.cancel_events
@@ -211,7 +211,7 @@ class Orchestrator:
             # a stored entry would block its rerun.
             cancel_event = asyncio.Event()
         outcome = self.canceller.register(
-            project.id,
+            repo.id,
             key,
             build.id,
             tree_hash,
@@ -277,7 +277,7 @@ class Orchestrator:
             netrc_file=credentials.netrc_file if credentials is not None else None,
             # The worktree's .git points into the central clone; the
             # sandboxed evaluator needs to read it.
-            extra_ro_paths=[self.repos.clone_path(event.project.key)],
+            extra_ro_paths=[self.repos.clone_path(event.repo.key)],
         )
         # Race the evaluation against the cancel event: a superseded
         # build must not hold the eval slot to completion.
@@ -371,7 +371,7 @@ class Orchestrator:
             failed_build_cache=(
                 self.failed_build_cache if self.config.cache_failed_builds else None
             ),
-            build_url=f"{self.config.url}/projects/{event.project.name}/builds/{build.number}",
+            build_url=f"{self.config.url}/repos/{event.repo.name}/builds/{build.number}",
         )
         schedule_result = await scheduler.run(list(jobs))
 
@@ -403,7 +403,7 @@ class Orchestrator:
         if (
             status == BuildStatus.SUCCEEDED
             and event.pr_number is None
-            and event.branch == event.project.default_branch
+            and event.branch == event.repo.default_branch
         ):
             await self._refresh_schedules(event, worktree_path)
         return status
@@ -417,22 +417,22 @@ class Orchestrator:
                 worktree_path=worktree_path,
                 rev=event.commit_sha,
                 branch=event.branch,
-                repo=event.project.name,
+                repo=event.repo.name,
                 extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
             )
             schedules = await discover_schedules(ctx)
             await ScheduledEffectsStore(self.db.pool).replace_schedules(
-                event.project.id, schedules
+                event.repo.id, schedules
             )
         except Exception:
             logger.exception(
                 "schedule discovery failed",
-                extra={"project": event.project.name},
+                extra={"project": event.repo.name},
             )
 
     async def rerun_pending_attributes(
         self,
-        info: ProjectInfo,
+        info: RepoInfo,
         build: BuildRecord,
         pending_jobs: list[NixEvalJobSuccess],
         credentials: FetchCredentials | None = None,
@@ -455,7 +455,7 @@ class Orchestrator:
             # No re-eval happens on this path; go straight to building.
             await self.db.set_build_status(build.id, BuildStatus.BUILDING)
             event = ChangeEvent(
-                project=info,
+                repo=info,
                 branch=build.branch,
                 commit_sha=build.commit_sha,
                 pr_number=build.pr_number,
@@ -498,10 +498,10 @@ class Orchestrator:
         worktree_path: Path,
         branch_config: BranchConfig,
     ) -> None:
-        project = event.project
+        repo = event.repo
         if not should_run_effects(
             branch_config,
-            project.default_branch,
+            repo.default_branch,
             event.branch,
             is_pull_request=event.pr_number is not None,
         ):
@@ -514,12 +514,12 @@ class Orchestrator:
             worktree_path=worktree_path,
             rev=event.commit_sha,
             branch=event.branch,
-            repo=project.name,
+            repo=repo.name,
             secret_name=resolve_effects_secret(
                 self.config.effects_per_repo_secrets,
-                project.forge,
-                project.owner,
-                project.repo,
+                repo.forge,
+                repo.owner,
+                repo.repo,
             ),
             extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
         )
@@ -580,7 +580,7 @@ class Orchestrator:
             extra={"build_id": build.id, "tree_hash": tree_hash},
         )
         self.canceller.register(
-            event.project.id,
+            event.repo.id,
             key,
             build.id,
             tree_hash,
@@ -619,23 +619,23 @@ class Orchestrator:
         self, event: ChangeEvent, skipped: list[tuple[str, str]]
     ) -> None:
         branches = self.config.branches
-        project = event.project
+        repo = event.repo
         if event.pr_number is not None:
             return  # push events only, matching current behavior
         for attr, out_path in skipped:
             if not out_path:
                 continue
-            if branches.do_register_gcroot(project.default_branch, event.branch):
+            if branches.do_register_gcroot(repo.default_branch, event.branch):
                 await self.register_gcroot(
-                    self.config.gcroots_dir, project.name, attr, out_path
+                    self.config.gcroots_dir, repo.name, attr, out_path
                 )
             if self.config.outputs_path is not None and branches.do_update_outputs(
-                project.default_branch, event.branch
+                repo.default_branch, event.branch
             ):
                 self.write_output_path(
                     self.config.outputs_path,
-                    project.owner,
-                    project.repo,
+                    repo.owner,
+                    repo.repo,
                     event.branch,
                     attr,
                     out_path,

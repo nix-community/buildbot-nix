@@ -20,7 +20,7 @@ import pytest
 from buildbot_nix import orchestrator as orch_mod
 from buildbot_nix.config import EngineConfig
 from buildbot_nix.db import BuildDB, BuildStatus
-from buildbot_nix.events import ChangeEvent, ProjectInfo
+from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
 from buildbot_nix.memory import calculate_eval_workers
 from buildbot_nix.migrations import apply_migrations
@@ -205,7 +205,7 @@ class RecordingReporter:
 # --- helpers --------------------------------------------------------------------
 
 
-async def make_project(pool: asyncpg.Pool, name: str = "widget") -> ProjectInfo:
+async def make_project(pool: asyncpg.Pool, name: str = "widget") -> RepoInfo:
     project_id = await pool.fetchval(
         """
         INSERT INTO projects (forge, forge_repo_id, owner, name, default_branch,
@@ -217,7 +217,7 @@ async def make_project(pool: asyncpg.Pool, name: str = "widget") -> ProjectInfo:
         name,
         f"id-{name}",
     )
-    return ProjectInfo(
+    return RepoInfo(
         id=project_id,
         key=f"github/acme/{name}",
         name=f"acme/{name}",
@@ -273,9 +273,9 @@ async def run_event(
     pool = await asyncpg.create_pool(dsn)
     orchestrator, reporter = make_orchestrator(pool, tmp_path, eval_runner, executor)
     project = await make_project(pool)
-    project = ProjectInfo(**{**project.__dict__, "clone_url": str(upstream)})
+    project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
     event = ChangeEvent(
-        project=project,
+        repo=project,
         branch="main",
         commit_sha=git(upstream, "rev-parse", "HEAD"),
         **event_kwargs,  # type: ignore[arg-type]
@@ -298,7 +298,7 @@ async def make_env(  # noqa: PLR0913
     eval_runner: object,
     executor: object,
     name: str,
-) -> tuple[asyncpg.Pool, Orchestrator, RecordingReporter, ProjectInfo]:
+) -> tuple[asyncpg.Pool, Orchestrator, RecordingReporter, RepoInfo]:
     pool = await asyncpg.create_pool(dsn)
     orchestrator, reporter = make_orchestrator(
         pool,
@@ -307,7 +307,7 @@ async def make_env(  # noqa: PLR0913
         executor,  # type: ignore[arg-type]
     )
     project = await make_project(pool, name=name)
-    project = ProjectInfo(**{**project.__dict__, "clone_url": str(upstream)})
+    project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
     return pool, orchestrator, reporter, project
 
 
@@ -421,11 +421,11 @@ def test_merge_conflict_fails_build(
             pool, tmp_path, eval_runner, executor
         )
         project = await make_project(pool, name="conflict")
-        project = ProjectInfo(**{**project.__dict__, "clone_url": str(upstream)})
+        project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
         try:
             build = await orchestrator.handle_change_event(
                 ChangeEvent(
-                    project=project,
+                    repo=project,
                     branch="main",
                     commit_sha=head,
                     pr_number=5,
@@ -593,7 +593,7 @@ def test_internal_error_not_recorded_in_failed_build_cache(
         )
         try:
             build = await orchestrator.handle_change_event(
-                ChangeEvent(project=project, branch="main", commit_sha=sha)
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
             )
             assert build is not None
             assert await build_status(pool, build.id) == BuildStatus.FAILED
@@ -650,7 +650,7 @@ def test_cancel_interrupts_evaluation(
         try:
             task = asyncio.create_task(
                 orchestrator.handle_change_event(
-                    ChangeEvent(project=project, branch="main", commit_sha=sha)
+                    ChangeEvent(repo=project, branch="main", commit_sha=sha)
                 )
             )
             await asyncio.wait_for(eval_runner.started.wait(), timeout=10)
@@ -685,7 +685,7 @@ def test_pending_attribute_rows_recorded_for_crash_recovery(
         try:
             task = asyncio.create_task(
                 orchestrator.handle_change_event(
-                    ChangeEvent(project=project, branch="main", commit_sha=sha)
+                    ChangeEvent(repo=project, branch="main", commit_sha=sha)
                 )
             )
             await asyncio.wait_for(executor.started.wait(), timeout=10)
@@ -814,12 +814,12 @@ def test_inflight_share_fans_out_final_status(
         try:
             task = asyncio.create_task(
                 orchestrator.handle_change_event(
-                    ChangeEvent(project=project, branch="main", commit_sha=sha)
+                    ChangeEvent(repo=project, branch="main", commit_sha=sha)
                 )
             )
             await asyncio.wait_for(executor.started.wait(), timeout=10)
             build2 = await orchestrator.handle_change_event(
-                ChangeEvent(project=project, branch="copy", commit_sha=sha)
+                ChangeEvent(repo=project, branch="copy", commit_sha=sha)
             )
             assert executor.gate is not None
             executor.gate.set()
@@ -853,12 +853,12 @@ def test_stale_event_does_not_supersede_newer_build(
         try:
             task = asyncio.create_task(
                 orchestrator.handle_change_event(
-                    ChangeEvent(project=project, branch="main", commit_sha=new_sha)
+                    ChangeEvent(repo=project, branch="main", commit_sha=new_sha)
                 )
             )
             await asyncio.wait_for(executor.started.wait(), timeout=10)
             stale_build = await orchestrator.handle_change_event(
-                ChangeEvent(project=project, branch="main", commit_sha=old_sha)
+                ChangeEvent(repo=project, branch="main", commit_sha=old_sha)
             )
             assert stale_build is not None
             assert await build_status(pool, stale_build.id) == BuildStatus.CANCELLED
@@ -891,7 +891,7 @@ def test_eval_failure_cleans_cancel_events(
         )
         try:
             build = await orchestrator.handle_change_event(
-                ChangeEvent(project=project, branch="main", commit_sha=sha)
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
             )
             assert build is not None
             assert orchestrator.cancel_events == {}
@@ -912,7 +912,7 @@ def test_eval_settings_wired(postgres_dsn: str, tmp_path: Path, upstream: Path) 
         netrc.write_text("")
         try:
             await orchestrator.handle_change_event(
-                ChangeEvent(project=project, branch="main", commit_sha=sha),
+                ChangeEvent(repo=project, branch="main", commit_sha=sha),
                 FetchCredentials(netrc_file=netrc),
             )
             settings = eval_runner.last_settings
@@ -1034,12 +1034,12 @@ def test_linked_context_reported_on_eval_failure(
         try:
             task = asyncio.create_task(
                 orchestrator.handle_change_event(
-                    ChangeEvent(project=project, branch="main", commit_sha=sha)
+                    ChangeEvent(repo=project, branch="main", commit_sha=sha)
                 )
             )
             await asyncio.wait_for(eval_runner.started.wait(), timeout=10)
             build2 = await orchestrator.handle_change_event(
-                ChangeEvent(project=project, branch="lef-copy", commit_sha=sha)
+                ChangeEvent(repo=project, branch="lef-copy", commit_sha=sha)
             )
             eval_runner.block.set()
             build1 = await task

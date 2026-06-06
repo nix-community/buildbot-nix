@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     import asyncpg
 
     from .forge import GiteaClient, GitHubAppClient
-    from .projects import ProjectRecord
+    from .repos import RepoRecord
     from .webhooks import ChangeSink
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class RemoteHead:
 
 
 async def github_heads(
-    client: GitHubAppClient, project: ProjectRecord
+    client: GitHubAppClient, project: RepoRecord
 ) -> list[RemoteHead]:
     installation_id = client.repo_installations.get(
         f"{project.owner}/{project.name}".lower()
@@ -75,7 +75,7 @@ async def github_heads(
     return heads
 
 
-async def gitea_heads(client: GiteaClient, project: ProjectRecord) -> list[RemoteHead]:
+async def gitea_heads(client: GiteaClient, project: RepoRecord) -> list[RemoteHead]:
     repo_url = f"{client.instance_url}/api/v1/repos/{project.owner}/{project.name}"
     heads = []
     response = await client.http.get(
@@ -127,9 +127,9 @@ async def is_built(pool: asyncpg.Pool, project_id: int, commit_sha: str) -> bool
     )
 
 
-async def reconcile_project(
+async def reconcile_repo(
     pool: asyncpg.Pool,
-    project: ProjectRecord,
+    project: RepoRecord,
     heads: list[RemoteHead],
     sink: ChangeSink,
 ) -> int:

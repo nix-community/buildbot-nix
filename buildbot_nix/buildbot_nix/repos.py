@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class ProjectRecord:
+class RepoRecord:
     id: int
     forge: str
     forge_repo_id: str
@@ -34,8 +34,8 @@ class ProjectRecord:
     enabled: bool
 
 
-def _record(row: asyncpg.Record) -> ProjectRecord:
-    return ProjectRecord(
+def _record(row: asyncpg.Record) -> RepoRecord:
+    return RepoRecord(
         id=row["id"],
         forge=row["forge"],
         forge_repo_id=row["forge_repo_id"],
@@ -48,7 +48,7 @@ def _record(row: asyncpg.Record) -> ProjectRecord:
     )
 
 
-class ProjectStore:
+class RepoStore:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
 
@@ -138,23 +138,23 @@ class ProjectStore:
             enabled,
         )
 
-    async def enabled_projects(self) -> list[ProjectRecord]:
+    async def enabled_repos(self) -> list[RepoRecord]:
         rows = await self.pool.fetch(
             "SELECT * FROM projects WHERE enabled ORDER BY owner, name"
         )
         return [_record(row) for row in rows]
 
-    async def all_projects(self) -> list[ProjectRecord]:
+    async def all_repos(self) -> list[RepoRecord]:
         rows = await self.pool.fetch("SELECT * FROM projects ORDER BY owner, name")
         return [_record(row) for row in rows]
 
-    async def by_id(self, project_id: int) -> ProjectRecord | None:
+    async def by_id(self, project_id: int) -> RepoRecord | None:
         row = await self.pool.fetchrow(
             "SELECT * FROM projects WHERE id = $1", project_id
         )
         return _record(row) if row else None
 
-    async def by_forge_id(self, forge: str, forge_repo_id: str) -> ProjectRecord | None:
+    async def by_forge_id(self, forge: str, forge_repo_id: str) -> RepoRecord | None:
         row = await self.pool.fetchrow(
             "SELECT * FROM projects WHERE forge = $1 AND forge_repo_id = $2",
             forge,

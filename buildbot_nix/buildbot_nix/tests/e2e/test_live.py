@@ -26,7 +26,7 @@ async def _build_id(server: EngineServer, number: int) -> int:
 def test_attribute_table_refreshes_while_building(
     page: Page, server: EngineServer
 ) -> None:
-    page.goto("/projects/acme/widget/builds/3")
+    page.goto("/repos/acme/widget/builds/3")
     row = page.locator('tr[data-attr="aarch64-linux.other"]')
     row.locator(".status-icon.succeeded").wait_for()
 
@@ -52,7 +52,7 @@ def test_log_page_streams_live_output(page: Page, server: EngineServer) -> None:
     writer = LogWriter(path=server.state_dir / "live" / f"{ATTR}.zst")
     server.registry.register(build_id, ATTR, writer)
     try:
-        page.goto(f"/projects/acme/widget/builds/3/logs/{ATTR}")
+        page.goto(f"/repos/acme/widget/builds/3/logs/{ATTR}")
         log = page.locator("#log")
 
         # Live-only logs have no history replay: lines sent before the

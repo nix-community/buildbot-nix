@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from buildbot_nix.config import Interpolate, PostBuildStep
-from buildbot_nix.events import ChangeEvent, ProjectInfo
+from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.post_build import (
     InterpolationError,
@@ -26,7 +26,7 @@ PROPS = {"attr": "x86_64-linux.foo", "out_path": "/nix/store/abc-foo"}
 
 def test_build_props_exposes_change_context() -> None:
     event = ChangeEvent(
-        project=ProjectInfo(
+        repo=RepoInfo(
             id=1,
             key="github/acme/proj",
             name="acme/proj",
@@ -58,9 +58,9 @@ def test_build_props_exposes_change_context() -> None:
     assert props["pr_number"] == "42"
     assert props["default_branch"] == "main"
     assert (
-        build_props(
-            ChangeEvent(project=event.project, branch="main", commit_sha="x"), job
-        )["pr_number"]
+        build_props(ChangeEvent(repo=event.repo, branch="main", commit_sha="x"), job)[
+            "pr_number"
+        ]
         == ""
     )
 

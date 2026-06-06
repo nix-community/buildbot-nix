@@ -16,7 +16,7 @@ stale posts (lower generation than the last one sent for that build)
 are dropped.
 
 Target URLs point at the engine's own URL scheme
-(/projects/<name>/builds/<number>), independent of the frontend tasks.
+(/repos/<name>/builds/<number>), independent of the frontend tasks.
 """
 
 from __future__ import annotations
@@ -210,7 +210,7 @@ class ForgeStatusReporter:
         self._posted_generations: dict[int, int] = {}
 
     def build_url(self, event: ChangeEvent, build: BuildRecord) -> str:
-        return f"{self.base_url}/projects/{event.project.name}/builds/{build.number}"
+        return f"{self.base_url}/repos/{event.repo.name}/builds/{build.number}"
 
     async def _post(
         self,
@@ -220,13 +220,13 @@ class ForgeStatusReporter:
         state: StatusState,
         description: str,
     ) -> None:
-        poster = self.posters.get(event.project.forge)
+        poster = self.posters.get(event.repo.forge)
         if poster is None:
             return
         try:
             await poster.post(
-                event.project.owner,
-                event.project.repo,
+                event.repo.owner,
+                event.repo.repo,
                 event.commit_sha,
                 context,
                 state,
@@ -316,7 +316,7 @@ class ForgeStatusReporter:
         reported = 0
         for result in results:
             context = attr_status_context(
-                event.project.forge, event.project.name, result.attr, attr_prefix
+                event.repo.forge, event.repo.name, result.attr, attr_prefix
             )
             if result.status.value in FAILED_STATUS_STATES:
                 counts["failed"] += 1
@@ -373,8 +373,7 @@ class ForgeStatusReporter:
         """Attrs whose failed status must be flipped: feed to the
         scheduler as force_attrs so already-built attrs still run."""
         prefix = (
-            f"buildbot/nix-build {event.project.forge}:"
-            f"{event.project.name}#{attr_prefix}."
+            f"buildbot/nix-build {event.repo.forge}:{event.repo.name}#{attr_prefix}."
         )
         return {
             name.removeprefix(prefix)

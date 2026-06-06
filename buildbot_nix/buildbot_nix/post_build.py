@@ -42,11 +42,11 @@ def build_props(event: ChangeEvent, job: NixEvalJobSuccess) -> dict[str, str]:
         "out_path": job.outputs.get("out") or "",
         "drv_path": job.drvPath,
         "system": job.system,
-        "project": event.project.name,
+        "project": event.repo.name,
         "branch": event.branch,
         "revision": event.commit_sha,
         "pr_number": str(event.pr_number or ""),
-        "default_branch": event.project.default_branch,
+        "default_branch": event.repo.default_branch,
     }
 
 

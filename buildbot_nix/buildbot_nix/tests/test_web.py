@@ -95,27 +95,27 @@ def test_homepage(client: WebClient) -> None:
 
 
 def test_project_page_with_filters(client: WebClient) -> None:
-    response = get(client, "/projects/acme/widget")
+    response = get(client, "/repos/acme/widget")
     assert response.status_code == 200
     assert "#1" in response.text
     assert "#2" in response.text
 
-    filtered = get(client, "/projects/acme/widget?status=failed")
+    filtered = get(client, "/repos/acme/widget?status=failed")
     assert "#2" in filtered.text
     assert ">#1<" not in filtered.text
 
-    by_branch = get(client, "/projects/acme/widget?ref=feature")
+    by_branch = get(client, "/repos/acme/widget?ref=feature")
     assert "#3" in by_branch.text
     assert ">#2<" not in by_branch.text
 
     # A numeric ref means a PR; build 3 is PR #5.
-    by_pr = get(client, "/projects/acme/widget?ref=%235")
+    by_pr = get(client, "/repos/acme/widget?ref=%235")
     assert "#3" in by_pr.text
     assert ">#2<" not in by_pr.text
 
 
 def test_build_page(client: WebClient) -> None:
-    response = get(client, "/projects/acme/widget/builds/2")
+    response = get(client, "/repos/acme/widget/builds/2")
     assert response.status_code == 200
     text = response.text
     # Attributes grouped by system, failed first.
@@ -139,7 +139,7 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
         )
 
     client.loop.run_until_complete(seed())
-    text = get(client, "/projects/acme/widget/builds/2").text
+    text = get(client, "/repos/acme/widget/builds/2").text
     assert "evaluation warning: foo is deprecated" in text
     assert "trace: bar" in text
     # Decoded, not the raw jsonb string.
@@ -148,7 +148,7 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
 
 
 def test_build_page_live_markers(client: WebClient) -> None:
-    running = get(client, "/projects/acme/widget/builds/3")
+    running = get(client, "/repos/acme/widget/builds/3")
     # htmx SSE wiring: event stream scoped to the build, main region
     # refetched and morphed on events.
     assert 'sse-connect="/events?build=' in running.text
@@ -158,7 +158,7 @@ def test_build_page_live_markers(client: WebClient) -> None:
 
 
 def test_attribute_history(client: WebClient) -> None:
-    response = get(client, "/projects/acme/widget/attrs/x86_64-linux.bad")
+    response = get(client, "/repos/acme/widget/attrs/x86_64-linux.bad")
     assert response.status_code == 200
     # Appears in all three builds.
     for number in (1, 2, 3):
@@ -174,9 +174,9 @@ def test_project_filter_escapes_like_wildcards(client: WebClient) -> None:
 
 def test_page_out_of_range_does_not_error(client: WebClient) -> None:
     # page <= 0 must not turn into a negative SQL OFFSET (500).
-    assert get(client, "/projects/acme/widget?page=0").status_code == 200
-    assert get(client, "/projects/acme/widget?page=-5").status_code == 200
-    api = get(client, "/api/projects/acme/widget/builds?page=0")
+    assert get(client, "/repos/acme/widget?page=0").status_code == 200
+    assert get(client, "/repos/acme/widget?page=-5").status_code == 200
+    api = get(client, "/api/repos/acme/widget/builds?page=0")
     assert api.status_code == 200
     assert api.json()["items"]
 
@@ -212,14 +212,14 @@ def test_activity_rows_fragment_pagination(client: WebClient) -> None:
 
 
 def test_project_rows_fragment_filters(client: WebClient) -> None:
-    all_rows = get(client, "/projects/acme/widget/rows?before=999999")
+    all_rows = get(client, "/repos/acme/widget/rows?before=999999")
     assert all_rows.text.count("data-id=") == 3
 
-    failed = get(client, "/projects/acme/widget/rows?before=999999&status=failed")
+    failed = get(client, "/repos/acme/widget/rows?before=999999&status=failed")
     assert failed.text.count("data-id=") == 1
     assert ">#2<" in failed.text
 
-    branch = get(client, "/projects/acme/widget/rows?before=999999&ref=feature")
+    branch = get(client, "/repos/acme/widget/rows?before=999999&ref=feature")
     assert branch.text.count("data-id=") == 1
     assert ">#3<" in branch.text
 
@@ -240,6 +240,14 @@ def test_static_urls_carry_content_version(client: WebClient) -> None:
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
+def test_legacy_project_urls_redirect(client: WebClient) -> None:
+    r = get(client, "/projects/acme/widget/builds/2?x=1")
+    assert r.status_code == 307
+    assert r.headers["location"] == "/repos/acme/widget/builds/2?x=1"
+    r = get(client, "/api/projects/acme/widget")
+    assert r.headers["location"] == "/api/repos/acme/widget"
+
+
 def test_health_and_static(client: WebClient) -> None:
     assert get(client, "/health").text == "ok"
     css = get(client, "/static/style.css")
@@ -247,8 +255,8 @@ def test_health_and_static(client: WebClient) -> None:
 
 
 def test_404s(client: WebClient) -> None:
-    assert get(client, "/projects/acme/nope").status_code == 404
-    assert get(client, "/projects/acme/widget/builds/999").status_code == 404
+    assert get(client, "/repos/acme/nope").status_code == 404
+    assert get(client, "/repos/acme/widget/builds/999").status_code == 404
 
 
 def test_timeago() -> None:
@@ -379,7 +387,7 @@ def seed_log(client: WebClient, tmp_path: Path) -> None:
 
 def test_log_viewer_and_raw(client: WebClient, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    viewer = get(client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad")
+    viewer = get(client, "/repos/acme/widget/builds/2/logs/x86_64-linux.bad")
     assert viewer.status_code == 200
     assert "ansi-red" in viewer.text
     assert 'id="L1"' in viewer.text
@@ -390,10 +398,10 @@ def test_log_viewer_and_raw(client: WebClient, tmp_path: Path) -> None:
     assert 'rel="next"' in viewer.text
     assert "/builds/3/logs/x86_64-linux.bad" in viewer.text
 
-    raw = get(client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
+    raw = get(client, "/repos/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
     assert "build exploded" in raw.text
 
-    missing = get(client, "/projects/acme/widget/builds/2/logs/nope")
+    missing = get(client, "/repos/acme/widget/builds/2/logs/nope")
     assert missing.status_code == 404
 
 
@@ -423,7 +431,7 @@ def test_log_viewer_waits_for_queued_attribute(client: WebClient) -> None:
 
     client.loop.run_until_complete(make_pending())
     try:
-        response = get(client, "/projects/acme/widget/builds/3/logs/x86_64-linux.ok")
+        response = get(client, "/repos/acme/widget/builds/3/logs/x86_64-linux.ok")
         assert response.status_code == 200
         assert "waiting for the build to start" in response.text
     finally:
@@ -432,9 +440,7 @@ def test_log_viewer_waits_for_queued_attribute(client: WebClient) -> None:
 
 def test_log_sse_stream_finished(client: WebClient, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    response = get(
-        client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad/stream"
-    )
+    response = get(client, "/repos/acme/widget/builds/2/logs/x86_64-linux.bad/stream")
     assert response.status_code == 200
     assert "build exploded" in response.text
     assert "event: done" in response.text
@@ -444,22 +450,22 @@ def test_log_sse_stream_finished(client: WebClient, tmp_path: Path) -> None:
 
 
 def test_api_projects_and_builds(client: WebClient) -> None:
-    projects = get(client, "/api/projects").json()
+    projects = get(client, "/api/repos").json()
     assert any(p["name"] == "widget" for p in projects)
 
-    builds = get(client, "/api/projects/acme/widget/builds").json()
+    builds = get(client, "/api/repos/acme/widget/builds").json()
     assert builds["page"] == 1
     assert len(builds["items"]) == 3
 
-    filtered = get(client, "/api/projects/acme/widget/builds?status=failed").json()
+    filtered = get(client, "/api/repos/acme/widget/builds?status=failed").json()
     assert [b["number"] for b in filtered["items"]] == [2]
 
-    detail = get(client, "/api/projects/acme/widget/builds/2").json()
+    detail = get(client, "/api/repos/acme/widget/builds/2").json()
     assert detail["build"]["status"] == "failed"
     statuses = {a["attr"]: a["status"] for a in detail["attributes"]}
     assert statuses["x86_64-linux.bad"] == "failed"
 
-    history = get(client, "/api/projects/acme/widget/attrs/x86_64-linux.bad").json()
+    history = get(client, "/api/repos/acme/widget/attrs/x86_64-linux.bad").json()
     assert len(history) == 3
 
     queue = get(client, "/api/queue").json()
@@ -468,7 +474,7 @@ def test_api_projects_and_builds(client: WebClient) -> None:
 
 def test_build_rows_link_refs(client: WebClient) -> None:
     # Branch builds link to the branch, PR builds to the pull request.
-    page = get(client, "/projects/acme/widget").text
+    page = get(client, "/repos/acme/widget").text
     assert "https://github.com/acme/widget/tree/main" in page
     assert "https://github.com/acme/widget/pull/5" in page
     # Cross-project rows on the activity feed carry their own forge URL.
@@ -528,12 +534,12 @@ def test_queue_sorts_active_before_pending(client: WebClient) -> None:
     # earlier-submitted pending one.
     assert client.loop.run_until_complete(run()) == [3, 91, 90]
 
-    assert get(client, "/api/projects/acme/nope").status_code == 404
+    assert get(client, "/api/repos/acme/nope").status_code == 404
 
 
 def test_openapi_docs(client: WebClient) -> None:
     spec = get(client, "/api/openapi.json").json()
-    assert "/api/projects" in spec["paths"]
+    assert "/api/repos" in spec["paths"]
     assert get(client, "/docs").status_code == 200
 
 
@@ -553,7 +559,7 @@ def test_live_log_history_before_completion(client: WebClient, tmp_path: Path) -
         await writer.write(b"early output\n")
         registry.register(build_id, "x86_64-linux.ok", writer)
         try:
-            base = "/projects/acme/widget/builds/3/logs/x86_64-linux.ok"
+            base = "/repos/acme/widget/builds/3/logs/x86_64-linux.ok"
             raw = (await client.http.get(f"{base}.txt")).text
             viewer = (await client.http.get(base)).text
             # The stream must replay history; close the writer so the
@@ -577,26 +583,24 @@ def test_live_log_history_before_completion(client: WebClient, tmp_path: Path) -
 
 
 def test_api_builds_commit_filter(client: WebClient) -> None:
-    hits = get(client, "/api/projects/acme/widget/builds?commit=sha-2").json()
+    hits = get(client, "/api/repos/acme/widget/builds?commit=sha-2").json()
     assert [b["number"] for b in hits["items"]] == [2]
-    misses = get(client, "/api/projects/acme/widget/builds?commit=ffff").json()
+    misses = get(client, "/api/repos/acme/widget/builds?commit=ffff").json()
     assert misses["items"] == []
 
 
 def test_log_tail_param(client: WebClient, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    full = get(client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
+    full = get(client, "/repos/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
     assert "build exploded" in full.text
-    tail = get(
-        client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.txt?tail=1"
-    )
+    tail = get(client, "/repos/acme/widget/builds/2/logs/x86_64-linux.bad.txt?tail=1")
     # ANSI escapes are stripped from the plain-text view.
     assert tail.text == "build exploded\n"
 
 
 def test_api_build_failures(client: WebClient, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    summary = get(client, "/api/projects/acme/widget/builds/2/failures").json()
+    summary = get(client, "/api/repos/acme/widget/builds/2/failures").json()
     assert summary["status"] == "failed"
     failed = {f["attr"]: f for f in summary["failures"]}
     assert "x86_64-linux.bad" in failed

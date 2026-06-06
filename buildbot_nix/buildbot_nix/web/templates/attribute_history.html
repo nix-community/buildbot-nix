@@ -9,7 +9,7 @@ block body %}
   <section class="content">
     <h2>
       <code>{{ attr }}</code>
-      <small>in <a href="/projects/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a></small>
+      <small>in <a href="/repos/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a></small>
     </h2>
     <table class="builds">
       <tr>
@@ -22,7 +22,7 @@ block body %}
       {% for h in history %}
         <tr>
           <td>
-            <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ h.build_number }}">#{{ h.build_number }}</a>
+            <a href="/repos/{{ project.owner }}/{{ project.name }}/builds/{{ h.build_number }}">#{{ h.build_number }}</a>
           </td>
           <td>{{ h.branch }}</td>
           <td>

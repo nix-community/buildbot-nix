@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from buildbot_nix.db import BuildRecord
-from buildbot_nix.events import ChangeEvent, ProjectInfo
+from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.models import NixEvalJobError
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 from buildbot_nix.status import (
@@ -62,7 +62,7 @@ class MemoryFailedStatuses:
         self.failed.get(revision, set()).discard(status_name)
 
 
-PROJECT = ProjectInfo(
+PROJECT = RepoInfo(
     id=1,
     key="github/acme/widget",
     name="acme/widget",
@@ -73,7 +73,7 @@ PROJECT = ProjectInfo(
     default_branch="main",
 )
 
-EVENT = ChangeEvent(project=PROJECT, branch="main", commit_sha="sha1")
+EVENT = ChangeEvent(repo=PROJECT, branch="main", commit_sha="sha1")
 
 BUILD = BuildRecord(
     id=10,
@@ -144,7 +144,7 @@ def test_phase_statuses_and_target_url() -> None:
         ("buildbot/nix-build", StatusState.success),
     ]
     assert all(
-        p.target_url == "https://ci.test/projects/acme/widget/builds/42"
+        p.target_url == "https://ci.test/repos/acme/widget/builds/42"
         for p in poster.posts
     )
     assert "(1 warning)" in poster.posts[1].description

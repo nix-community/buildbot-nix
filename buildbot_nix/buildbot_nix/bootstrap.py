@@ -44,12 +44,12 @@ from .migrations import apply_migrations
 from .nix_eval import CgroupLimiter, EvalRunner
 from .orchestrator import Orchestrator
 from .polling import PolledRepository, PollingService
-from .projects import ProjectStore
 from .recovery import (
     fail_interrupted_eval,
     find_unfinished_builds,
     settle_already_built,
 )
+from .repos import RepoStore
 from .status import (
     CommitStatusPoster,
     FailedStatusStore,
@@ -207,7 +207,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
         config=config,
         pool=pool,
         orchestrator=orchestrator,
-        project_store=ProjectStore(pool),
+        repo_store=RepoStore(pool),
         github=github,
         gitea=gitea,
         credentials_providers=credentials_providers,

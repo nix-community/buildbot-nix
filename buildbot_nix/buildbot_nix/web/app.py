@@ -8,7 +8,7 @@ numbers in URLs; prev/next navigation between builds and
 per-attribute history; attributes grouped by system with
 failed-first ordering and inline error excerpts.
 
-Visibility filtering hooks (`visible_project_ids`) are wired by task
+Visibility filtering hooks (`visible_repo_ids`) are wired by task
 5.3b; None means everything is visible.
 """
 
@@ -26,7 +26,12 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -205,19 +210,19 @@ class WebContext:
             context.setdefault("user", self.current_user(request))
         return HTMLResponse(self.env.get_template(template).render(**context))
 
-    async def visible_project_ids(self, request: Request) -> list[int] | None:
+    async def visible_repo_ids(self, request: Request) -> list[int] | None:
         """None = all projects visible."""
         if self.visibility is None:
             return None
-        return await self.visibility.visible_project_ids(
+        return await self.visibility.visible_repo_ids(
             await self.request_user(request), await self._forge_token(request)
         )
 
-    async def toggleable_project_ids(self, request: Request) -> list[int] | None:
+    async def toggleable_repo_ids(self, request: Request) -> list[int] | None:
         """Projects the requester may enable/disable; None = all."""
         if self.visibility is None:
             return []
-        return await self.visibility.toggleable_project_ids(
+        return await self.visibility.toggleable_repo_ids(
             await self.request_user(request), await self._forge_token(request)
         )
 
@@ -234,16 +239,16 @@ class WebContext:
             return None
         return await self.forge_tokens.get(session_id)
 
-    async def project_or_404(
+    async def repo_or_404(
         self, owner: str, name: str, request: Request | None = None
     ) -> dict[str, Any]:
         """404 for unknown projects AND for private projects the
         requester cannot see (their existence stays hidden)."""
-        project = await self.queries.project_by_name(owner, name)
+        project = await self.queries.repo_by_name(owner, name)
         if project is None:
             raise HTTPException(status_code=404)
         if request is not None:
-            visible = await self.visible_project_ids(request)
+            visible = await self.visible_repo_ids(request)
             if visible is not None and project["id"] not in visible:
                 raise HTTPException(status_code=404)
         return project
@@ -252,12 +257,24 @@ class WebContext:
 def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     router = APIRouter()
 
+    # Transitional: the v2 URLs said /projects/ before settling on
+    # /repos/. 307 keeps the method for API POSTs. Remove after the
+    # rename has been deployed for a while.
+    @router.api_route("/projects/{rest:path}", methods=["GET", "POST"])
+    @router.api_route("/api/projects/{rest:path}", methods=["GET", "POST"])
+    async def legacy_project_urls(request: Request, rest: str) -> RedirectResponse:
+        prefix = "/api/repos" if request.url.path.startswith("/api/") else "/repos"
+        url = f"{prefix}/{rest}"
+        if request.url.query:
+            url += f"?{request.url.query}"
+        return RedirectResponse(url, status_code=307)
+
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request, q: str = "") -> HTMLResponse:
-        visible = await ctx.visible_project_ids(request)
+        visible = await ctx.visible_repo_ids(request)
         # Discovery inserts repos disabled; admins enable them via
         # search, which is the only place disabled projects appear.
-        toggleable = await ctx.toggleable_project_ids(request)
+        toggleable = await ctx.toggleable_repo_ids(request)
         disabled = [
             p
             for p in (await ctx.queries.projects(enabled=False, q=q) if q else [])
@@ -268,17 +285,15 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             request=request,
             q=q,
             toggleable=toggleable,
-            projects=await ctx.queries.project_overview(
-                project_ids=visible, q=q or None
-            ),
+            projects=await ctx.queries.repo_overview(project_ids=visible, q=q or None),
             counts=await ctx.queries.status_counts(project_ids=visible),
-            project_count=await ctx.queries.project_count(project_ids=visible),
+            repo_count=await ctx.queries.repo_count(project_ids=visible),
             disabled_projects=disabled,
         )
 
     @router.get("/builds", response_class=HTMLResponse)
     async def activity(request: Request) -> HTMLResponse:
-        visible = await ctx.visible_project_ids(request)
+        visible = await ctx.visible_repo_ids(request)
         return ctx.render(
             "activity.html",
             request=request,
@@ -295,7 +310,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         """Row fragments: infinite scroll (before=) and live refresh of
         the loaded rows (limit=)."""
         limit = min(max(limit, 1), MAX_ROWS)
-        visible = await ctx.visible_project_ids(request)
+        visible = await ctx.visible_repo_ids(request)
         builds = await ctx.queries.recent_builds(
             limit=limit + 1, project_ids=visible, before=before
         )
@@ -309,13 +324,13 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
 
     @router.get("/builds/queue", response_class=HTMLResponse)
     async def queue_fragment(request: Request) -> HTMLResponse:
-        visible = await ctx.visible_project_ids(request)
+        visible = await ctx.visible_repo_ids(request)
         return ctx.render(
             "_queue.html", request=request, queue=await ctx.queries.queue(visible)
         )
 
-    @router.get("/projects/{owner}/{name}", response_class=HTMLResponse)
-    async def project_page(  # noqa: PLR0913
+    @router.get("/repos/{owner}/{name}", response_class=HTMLResponse)
+    async def repo_page(  # noqa: PLR0913
         request: Request,
         owner: str,
         name: str,
@@ -323,14 +338,14 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         status: str | None = None,
         ref: str | None = None,
     ) -> HTMLResponse:
-        project = await ctx.project_or_404(owner, name, request)
-        builds = await ctx.queries.builds_for_project(
+        project = await ctx.repo_or_404(owner, name, request)
+        builds = await ctx.queries.builds_for_repo(
             project["id"],
             page=page,
             filters=BuildFilters.for_ref(ref, status=status),
         )
         return ctx.render(
-            "project.html",
+            "repo.html",
             request=request,
             project=project,
             builds=builds,
@@ -338,8 +353,8 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             ref=ref or "",
         )
 
-    @router.get("/projects/{owner}/{name}/rows", response_class=HTMLResponse)
-    async def project_rows(  # noqa: PLR0913
+    @router.get("/repos/{owner}/{name}/rows", response_class=HTMLResponse)
+    async def repo_rows(  # noqa: PLR0913
         request: Request,
         owner: str,
         name: str,
@@ -351,8 +366,8 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         """Row fragments: infinite scroll (before=) and live refresh of
         the loaded rows (limit=)."""
         limit = min(max(limit, 1), MAX_ROWS)
-        project = await ctx.project_or_404(owner, name, request)
-        builds = await ctx.queries.builds_for_project(
+        project = await ctx.repo_or_404(owner, name, request)
+        builds = await ctx.queries.builds_for_repo(
             project["id"],
             limit=limit,
             filters=BuildFilters.for_ref(ref, status=status or None, before=before),
@@ -362,16 +377,16 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             request=request,
             builds=builds.items,
             has_more=builds.has_next,
-            more_url=f"/projects/{owner}/{name}/rows?status={status or ''}"
+            more_url=f"/repos/{owner}/{name}/rows?status={status or ''}"
             f"&ref={quote(ref or '')}",
             project=project,
         )
 
-    @router.get("/projects/{owner}/{name}/builds/{number}", response_class=HTMLResponse)
+    @router.get("/repos/{owner}/{name}/builds/{number}", response_class=HTMLResponse)
     async def build_page(
         request: Request, owner: str, name: str, number: int
     ) -> HTMLResponse:
-        project = await ctx.project_or_404(owner, name, request)
+        project = await ctx.repo_or_404(owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
@@ -391,11 +406,11 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             next_number=next_number,
         )
 
-    @router.get("/projects/{owner}/{name}/attrs/{attr}", response_class=HTMLResponse)
+    @router.get("/repos/{owner}/{name}/attrs/{attr}", response_class=HTMLResponse)
     async def attribute_history(
         request: Request, owner: str, name: str, attr: str
     ) -> HTMLResponse:
-        project = await ctx.project_or_404(owner, name, request)
+        project = await ctx.repo_or_404(owner, name, request)
         return ctx.render(
             "attribute_history.html",
             request=request,
@@ -427,18 +442,18 @@ the instance restricts project visibility.
 
 ## Answering "why did build X / commit Y fail?"
 
-- GET /api/projects -> [{owner, name, ...}]
-- GET /api/projects/{owner}/{name}/builds?commit={sha-prefix} -> find the build number
+- GET /api/repos -> [{owner, name, ...}]
+- GET /api/repos/{owner}/{name}/builds?commit={sha-prefix} -> find the build number
   (other filters: status, branch, pr_number, page)
-- GET /api/projects/{owner}/{name}/builds/{number}/failures?tail=50
+- GET /api/repos/{owner}/{name}/builds/{number}/failures?tail=50
   -> {status, error, eval_warnings, failures: [{attr, status, error, log_tail}]}
 
 ## Other endpoints
 
-- GET /api/projects/{owner}/{name}/builds/{number} -> build + all attributes
-- GET /api/projects/{owner}/{name}/attrs/{attr} -> per-attribute history
+- GET /api/repos/{owner}/{name}/builds/{number} -> build + all attributes
+- GET /api/repos/{owner}/{name}/attrs/{attr} -> per-attribute history
 - GET /api/queue -> global build queue
-- GET /projects/{owner}/{name}/builds/{number}/logs/{attr}.txt?tail=N
+- GET /repos/{owner}/{name}/builds/{number}/logs/{attr}.txt?tail=N
   -> plain-text log (full when tail is omitted)
 """
 

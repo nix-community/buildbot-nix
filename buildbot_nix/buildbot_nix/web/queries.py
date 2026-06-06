@@ -79,7 +79,7 @@ class WebQueries:
             )
         )
 
-    async def project_by_name(self, owner: str, name: str) -> dict[str, Any] | None:
+    async def repo_by_name(self, owner: str, name: str) -> dict[str, Any] | None:
         # (owner, name) is only unique per forge; until URLs carry the
         # forge, pick deterministically rather than by planner row order.
         row = await self.pool.fetchrow(
@@ -90,7 +90,7 @@ class WebQueries:
         )
         return dict(row) if row else None
 
-    async def project_overview(
+    async def repo_overview(
         self, project_ids: list[int] | None = None, q: str | None = None
     ) -> list[dict[str, Any]]:
         """Homepage pipeline rows: each project with its latest build,
@@ -149,7 +149,7 @@ class WebQueries:
             row["history"] = json.loads(row["history"]) if row["history"] else []
         return overview
 
-    async def project_count(self, project_ids: list[int] | None = None) -> int:
+    async def repo_count(self, project_ids: list[int] | None = None) -> int:
         return await self.pool.fetchval(
             """
             SELECT count(*) FROM projects
@@ -195,7 +195,7 @@ class WebQueries:
             )
         )
 
-    async def builds_for_project(
+    async def builds_for_repo(
         self,
         project_id: int,
         *,

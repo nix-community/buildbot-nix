@@ -140,7 +140,7 @@ def create_events_router(ctx: WebContext, broker: EventBroker) -> APIRouter:
         build: int | None = None,
         project: int | None = None,
     ) -> StreamingResponse:
-        visible = await ctx.visible_project_ids(request)
+        visible = await ctx.visible_repo_ids(request)
         sub = broker.subscribe(
             build_id=build,
             project_id=project,

@@ -21,7 +21,7 @@
           {{ status_icon("pending", labelled=false) }}
           {{ counts.pending | default(0) }} queued
         </span>
-        <span class="summary-item muted">{{ project_count }} repositories</span>
+        <span class="summary-item muted">{{ repo_count }} repositories</span>
       </div>
       <h2 class="section">Repositories</h2>
       <p class="filters">
@@ -41,7 +41,7 @@
           {% set max_secs = p.history | map(attribute='secs') | select | max | default(1, true) %}
           <div class="pipeline-row">
             <a class="pipeline{% if p.last_status %} {{ p.last_status }}{% endif %}"
-               href="/projects/{{ p.owner }}/{{ p.name }}">
+               href="/repos/{{ p.owner }}/{{ p.name }}">
               {{ status_icon(p.last_status or "", labelled=false) }}
               {% if p.last_status %}
                 <span class="visually-hidden">{{ p.last_status.replace('_', ' ') }}</span>
@@ -85,8 +85,8 @@
             </a>
             {% if toggleable is none or p.id in toggleable %}
               <form method="post"
-                    action="/admin/projects/{{ p.id }}/toggle"
-                    hx-post="/admin/projects/{{ p.id }}/toggle"
+                    action="/admin/repos/{{ p.id }}/toggle"
+                    hx-post="/admin/repos/{{ p.id }}/toggle"
                     hx-select="#main"
                     hx-target="#main"
                     hx-swap="morph:outerHTML">
@@ -99,7 +99,7 @@
           {% if q %}
             <p class="muted">no matching repositories</p>
           {% elif toggleable is none or toggleable %}
-            <p class="muted">no repositories enabled yet &mdash; search above to find yours</p>
+            <p class="muted">no repositories enabled yet — search above to find yours</p>
           {% else %}
             <p class="muted">no repositories enabled yet</p>
           {% endif %}
@@ -119,8 +119,8 @@
                 {% endif %}
               </span>
               <form method="post"
-                    action="/admin/projects/{{ p.id }}/toggle"
-                    hx-post="/admin/projects/{{ p.id }}/toggle"
+                    action="/admin/repos/{{ p.id }}/toggle"
+                    hx-post="/admin/repos/{{ p.id }}/toggle"
                     hx-select="#main"
                     hx-target="#main"
                     hx-swap="morph:outerHTML">

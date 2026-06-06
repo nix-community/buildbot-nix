@@ -421,7 +421,7 @@ def test_pull_based_projects_synced_and_buildable(
             await asyncio.gather(*service._tasks)  # noqa: SLF001
             assert len(events) == 1
             event, credentials = events[0]
-            assert event.project.forge == "pull_based"
+            assert event.repo.forge == "pull_based"
             # SSH credentials resolved for the polled repository.
             assert credentials.ssh_private_key_file == key
         finally:
