@@ -1,10 +1,10 @@
-{% extends "base.html" %} {% block title %}{{ project.owner }}/{{ project.name
-}} #{{ build.number }}{% endblock %} {% block body %}
+{% extends "base.html" %} {% block title %}{{ repo_name(project.owner,
+project.name) }} #{{ build.number }}{% endblock %} {% block body %}
 <main>
   <section class="content">
     <h2>
       <a href="/projects/{{ project.owner }}/{{ project.name }}"
-      >{{ project.owner }}/{{ project.name }}</a>
+      >{{ repo_name(project.owner, project.name) }}</a>
       build #{{ build.number }}
       <span class="status {{ build.status }}">{{ build.status }}</span>
     </h2>

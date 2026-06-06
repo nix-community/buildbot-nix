@@ -6,7 +6,7 @@ row_name = b["project_name"] if "project_name" in b else project.name %}
       href="/projects/{{ row_owner }}/{{ row_name }}/builds/{{ b.number }}"
     >#{{ b.number }}</a>
   </td>
-  {% if "project_name" in b %}<td>{{ row_owner }}/{{ row_name }}</td>{% endif %}
+  {% if "project_name" in b %}<td>{{ repo_name(row_owner, row_name) }}</td>{% endif %}
   <td>
     {{ b.branch }}{% if b.pr_number %} <span class="muted"
     >PR #{{ b.pr_number }}</span>{% endif %}

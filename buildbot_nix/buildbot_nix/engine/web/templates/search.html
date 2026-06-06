@@ -7,7 +7,7 @@
       {% for p in results.projects %}
       <li>
         <a href="/projects/{{ p.owner }}/{{ p.name }}"
-        >{{ p.owner }}/{{ p.name }}</a>
+        >{{ repo_name(p.owner, p.name) }}</a>
       </li>
       {% else %}<li class="muted">none</li>{% endfor %}
     </ul>
@@ -26,7 +26,7 @@
             href="/projects/{{ a.owner }}/{{ a.project_name }}/attrs/{{ a.attr }}"
           ><code>{{ a.attr }}</code></a>
         </td>
-        <td>{{ a.owner }}/{{ a.project_name }}</td>
+        <td>{{ repo_name(a.owner, a.project_name) }}</td>
         <td>
           <span class="status {{ a.status }}"
           >{{ a.status.replace("_", " ") }}</span>

@@ -5,7 +5,7 @@ block body %}
     <h2>
       <code>{{ attr }}</code>
       <small>in <a href="/projects/{{ project.owner }}/{{ project.name }}"
-        >{{ project.owner }}/{{ project.name }}</a></small>
+        >{{ repo_name(project.owner, project.name) }}</a></small>
     </h2>
     <table>
       <tr>

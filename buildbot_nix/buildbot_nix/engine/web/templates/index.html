@@ -6,7 +6,7 @@
       {% for p in projects %}
       <li>
         <a href="/projects/{{ p.owner }}/{{ p.name }}"
-        >{{ p.owner }}/{{ p.name }}</a>
+        >{{ repo_name(p.owner, p.name) }}</a>
       </li>
       {% else %}
       <li class="muted">no enabled projects</li>
@@ -17,7 +17,7 @@
     <ul>
       {% for p in all_projects %}
       <li>
-        {{ p.owner }}/{{ p.name }}
+        {{ repo_name(p.owner, p.name) }}
         <form method="post" action="/admin/projects/{{ p.id }}/toggle">
           <button>{{ "disable" if p.enabled else "enable" }}</button>
         </form>

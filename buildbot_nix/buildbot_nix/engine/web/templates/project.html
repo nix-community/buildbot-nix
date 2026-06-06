@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ project.owner }}/{{ project.name }}{% endblock %}
+{% block title %}{{ repo_name(project.owner, project.name) }}{% endblock %}
 {% block body %}
 <main>
   <section class="content">
-    <h2>{{ project.owner }}/{{ project.name }}
+    <h2>{{ repo_name(project.owner, project.name) }}
       <small>
         {# Pull-based projects carry a local path, not a web URL. #}
         {% if project.url.startswith("http") %}

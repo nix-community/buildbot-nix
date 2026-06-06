@@ -14,7 +14,7 @@
       {% for b in queue %}
       <tr>
         <td>{{ b.queue_position }}</td>
-        <td>{{ b.owner }}/{{ b.project_name }}</td>
+        <td>{{ repo_name(b.owner, b.project_name) }}</td>
         <td>
           <a
             href="/projects/{{ b.owner }}/{{ b.project_name }}/builds/{{ b.number }}"
