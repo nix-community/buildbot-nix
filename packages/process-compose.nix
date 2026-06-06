@@ -41,7 +41,7 @@ let
         repositories = {
           buildbot-nix = {
             name = "buildbot-nix";
-            default_branch = "main";
+            default_branch = "__GIT_BRANCH__";
             url = "__GIT_ROOT__";
             poll_interval = 30;
           };
@@ -58,7 +58,11 @@ let
     if [ ! -d "$dev/pgdata" ]; then
       initdb -D "$dev/pgdata" --auth=trust >/dev/null
     fi
-    sed "s|__GIT_ROOT__|$git_root|g" ${engineConfig} > "$dev/engine.json"
+    # Build whatever branch the checkout has checked out.
+    git_branch=$(git -C "$git_root" symbolic-ref --short HEAD)
+    sed -e "s|__GIT_ROOT__|$git_root|g" \
+        -e "s|__GIT_BRANCH__|$git_branch|g" \
+        ${engineConfig} > "$dev/engine.json"
   '';
 
   # process-compose already runs commands through a shell; resolve the
