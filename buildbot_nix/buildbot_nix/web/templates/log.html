@@ -47,9 +47,15 @@
       {% endif %}
       {% if waiting %}
         <p class="muted">waiting for the build to start…</p>
-        <script>setTimeout(() => location.reload(), 3000);</script>
+      {% elif not content and not live %}
+        <p class="muted">no output — everything was already built</p>
       {% else %}
         <pre class="log" id="log">{{ content | safe }}</pre>
+      {% endif %}
+      {% if not live and attr_status in ('pending', 'building') %}
+        {# Queued or just (re)started: the log shown is stale or empty.
+           Reload until the live stream is available. #}
+        <script>setTimeout(() => location.reload(), 2000);</script>
       {% endif %}
     </section>
   </main>
@@ -57,7 +63,7 @@
     <script>
 const log = document.getElementById('log');
 /* Failures sit at the end; start there unless a line is linked. */
-if (!location.hash) log.scrollTop = log.scrollHeight;
+if (log && !location.hash) log.scrollTop = log.scrollHeight;
     </script>
   {% endif %}
   {% if live %}
@@ -97,7 +103,12 @@ source.onmessage = (event) => {
   log.insertAdjacentHTML('beforeend', ansi.ansi_to_html(event.data));
   if (follow.checked) log.scrollTop = log.scrollHeight;
 };
-source.addEventListener('done', () => source.close());
+source.addEventListener('done', () => {
+  source.close();
+  /* Re-render server-side: final status in the header, line
+     anchors in the log. */
+  setTimeout(() => location.reload(), 1500);
+});
     </script>
   {% endif %}
 {% endblock body %}
