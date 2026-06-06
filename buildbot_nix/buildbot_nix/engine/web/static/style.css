@@ -239,6 +239,30 @@ button:hover {
   gap: 1rem;
   padding: 0.8rem 0;
 }
+.build-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.build-header .controls {
+  display: flex;
+  gap: 0.5rem;
+  /* Align with the heading text, not the section top. */
+  margin-top: 0.5rem;
+}
+.build-header .pager {
+  display: inline-flex;
+  padding: 0;
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: normal;
+}
+p.build-meta {
+  margin-top: 0;
+  color: var(--muted);
+}
 h2 small {
   color: var(--muted);
   font-weight: normal;
