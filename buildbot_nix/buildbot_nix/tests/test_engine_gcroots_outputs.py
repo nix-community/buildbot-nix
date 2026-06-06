@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
@@ -23,14 +23,23 @@ from buildbot_nix.engine.outputs import (
     write_output_path,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 def test_gcroot_path_layout() -> None:
-    assert str(gcroot_path("ci-user", "owner/repo", "checks.x.foo")) == (
-        "/nix/var/nix/gcroots/per-user/ci-user/owner/repo/checks.x.foo"
+    assert (
+        str(
+            gcroot_path(
+                Path("/nix/var/nix/gcroots/per-user/ci-user"),
+                "owner/repo",
+                "checks.x.foo",
+            )
+        )
+        == "/nix/var/nix/gcroots/per-user/ci-user/owner/repo/checks.x.foo"
     )
+
+
+def test_gcroot_path_custom_dir(tmp_path: Path) -> None:
+    # Dev setups point gcroots_dir at a user-writable directory.
+    assert gcroot_path(tmp_path, "o/r", "a") == tmp_path / "o" / "r" / "a"
 
 
 def test_safe_attr_filename_preserves_normal_attrs() -> None:
@@ -41,12 +50,12 @@ def test_safe_attr_filename_preserves_normal_attrs() -> None:
 
 def test_safe_attr_filename_blocks_traversal() -> None:
     # Quoted Nix attribute names may contain `/` and `..`.
-    base = gcroot_path("u", "o/r", "x").parent
+    base = gcroot_path(Path("/g/u"), "o/r", "x").parent
     for attr in ('checks."../../../../tmp/evil"', "..", ".", "", "a/b"):
         encoded = safe_attr_filename(attr)
         assert "/" not in encoded
         assert encoded not in {"", ".", ".."}
-        root = gcroot_path("u", "o/r", attr)
+        root = gcroot_path(Path("/g/u"), "o/r", attr)
         assert root.parent == base
 
 
@@ -62,7 +71,7 @@ def test_register_gcroot_refreshes_mtime(
     os.utime(root, (old, old), follow_symlinks=False)
     monkeypatch.setattr(gcroots_mod, "gcroot_path", lambda *_a: root)
     # No fake nix-store on PATH: re-registration would fail loudly.
-    asyncio.run(register_gcroot("u", "proj", "attr", "/nix/store/abc"))
+    asyncio.run(register_gcroot(tmp_path, "proj", "attr", "/nix/store/abc"))
     assert root.lstat().st_mtime > old
 
 

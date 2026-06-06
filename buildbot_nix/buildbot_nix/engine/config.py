@@ -310,7 +310,9 @@ class EngineConfig(BaseModel):
         47  # Default: 50 total - 3 reserved for eval/build/effects
     )
     branches: BranchConfigDict = BranchConfigDict({})
-    gcroots_user: str = "buildbot-nix"
+    # Outside /nix/var/nix/gcroots (e.g. dev setups) nix-store
+    # --add-root registers indirect roots, so any writable dir works.
+    gcroots_dir: Path = Path("/nix/var/nix/gcroots/per-user/buildbot-nix")
 
     effects_per_repo_secrets: dict[str, str] = {}
     effects_extra_sandbox_paths: list[Path] = []

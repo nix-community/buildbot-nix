@@ -117,7 +117,7 @@ let
       }) cfg.postBuildSteps;
       failed_build_report_limit = cfg.failedBuildReportLimit;
       branches = cfg.branches;
-      gcroots_user = "buildbot-nix";
+      gcroots_dir = "/nix/var/nix/gcroots/per-user/buildbot-nix";
       effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
         inherit name;
         value = "effects-secret__${cleanUpRepoName name}";

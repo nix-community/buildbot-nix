@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     from .nix_eval import EvalRunner
     from .scheduler import FailedBuildCache
 
-    GcrootRegistrar = Callable[[str, str, str, str], Awaitable[None]]
+    GcrootRegistrar = Callable[[Path, str, str, str], Awaitable[None]]
     OutputWriter = Callable[[Path, str, str, str, str, str], Path]
 
 logger = logging.getLogger(__name__)
@@ -702,7 +702,7 @@ class Orchestrator:
                 continue
             if branches.do_register_gcroot(project.default_branch, event.branch):
                 await self.register_gcroot(
-                    self.config.gcroots_user, project.name, attr, out_path
+                    self.config.gcroots_dir, project.name, attr, out_path
                 )
             if self.config.outputs_path is not None and branches.do_update_outputs(
                 project.default_branch, event.branch

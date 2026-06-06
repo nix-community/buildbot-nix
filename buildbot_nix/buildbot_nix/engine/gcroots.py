@@ -1,8 +1,8 @@
 """GC-root registration, ported from nix_gcroot.py.
 
 The latest successful result of each attribute is protected from
-garbage collection under
-/nix/var/nix/gcroots/per-user/<user>/<project>/<attr>. Skipped-as-
+garbage collection under <gcroots_dir>/<project>/<attr> (in
+production /nix/var/nix/gcroots/per-user/buildbot-nix). Skipped-as-
 already-built attributes are registered too. Re-registration is
 skipped when the root already points at the same store path.
 """
@@ -12,8 +12,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +41,8 @@ def safe_attr_filename(attr: str) -> str:
     return encoded
 
 
-def gcroot_path(gcroots_user: str, project: str, attr: str) -> Path:
-    return (
-        Path("/nix/var/nix/gcroots/per-user")
-        / gcroots_user
-        / project
-        / safe_attr_filename(attr)
-    )
+def gcroot_path(gcroots_dir: Path, project: str, attr: str) -> Path:
+    return gcroots_dir / project / safe_attr_filename(attr)
 
 
 def gcroot_already_points_to(gc_root: Path, out_path: str) -> bool:
@@ -55,10 +53,10 @@ def gcroot_already_points_to(gc_root: Path, out_path: str) -> bool:
 
 
 async def register_gcroot(
-    gcroots_user: str, project: str, attr: str, out_path: str
+    gcroots_dir: Path, project: str, attr: str, out_path: str
 ) -> None:
     """Register (or refresh) the gc-root for one attribute result."""
-    root = gcroot_path(gcroots_user, project, attr)
+    root = gcroot_path(gcroots_dir, project, attr)
     if await asyncio.to_thread(gcroot_already_points_to, root, out_path):
         # Refresh the symlink's timestamp: age-based tmpfiles cleanup
         # must not expire roots of attributes that are still rebuilt

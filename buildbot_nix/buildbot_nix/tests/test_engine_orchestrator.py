@@ -246,10 +246,12 @@ def make_orchestrator(
         state_dir=tmp_path / "state",
     )
     reporter = RecordingReporter()
-    registered: list[tuple[str, str, str, str]] = []
+    registered: list[tuple[Path, str, str, str]] = []
 
-    async def fake_register(user: str, project: str, attr: str, out: str) -> None:
-        registered.append((user, project, attr, out))
+    async def fake_register(
+        gcroots_dir: Path, project: str, attr: str, out: str
+    ) -> None:
+        registered.append((gcroots_dir, project, attr, out))
 
     orchestrator = Orchestrator(
         config=config,
