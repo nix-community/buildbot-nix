@@ -64,7 +64,13 @@ def duration(row: dict[str, Any]) -> str:
     if not started:
         return "—"
     end = finished or datetime.now(tz=UTC)
-    seconds = int((end - started).total_seconds())
+    return duration_secs((end - started).total_seconds())
+
+
+def duration_secs(value: float | None) -> str:
+    if value is None:
+        return "—"
+    seconds = int(value)
     if seconds >= 3600:  # noqa: PLR2004
         return f"{seconds // 3600}h {seconds % 3600 // 60}m"
     if seconds >= 60:  # noqa: PLR2004
@@ -113,6 +119,7 @@ def make_env() -> Environment:
     )
     env.filters["timeago"] = timeago
     env.filters["duration"] = duration
+    env.filters["duration_secs"] = duration_secs
     env.filters["excerpt"] = excerpt
     env.globals["commit_url"] = commit_url
     env.globals["repo_name"] = repo_name

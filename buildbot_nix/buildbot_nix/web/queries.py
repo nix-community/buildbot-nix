@@ -66,15 +66,16 @@ class WebQueries:
     async def project_overview(
         self, project_ids: list[int] | None = None
     ) -> list[dict[str, Any]]:
-        """Homepage cards: each project with its latest build and the
-        last ten build statuses for the history sparkline."""
+        """Homepage pipeline rows: each project with its latest build,
+        the last ten builds (status + duration) for the bar chart, and
+        speed/reliability over the last thirty builds."""
         rows = await self.pool.fetch(
             """
             SELECT p.*,
                    lb.number AS last_number, lb.status AS last_status,
                    lb.branch AS last_branch, lb.created_at AS last_created_at,
                    lb.started_at, lb.finished_at,
-                   h.history
+                   h.history, m.avg_secs, m.pass_rate
             FROM projects p
             LEFT JOIN LATERAL (
                 SELECT * FROM builds b WHERE b.project_id = p.id
@@ -82,15 +83,30 @@ class WebQueries:
             ) lb ON true
             LEFT JOIN LATERAL (
                 SELECT json_agg(
-                    json_build_object('number', t.number, 'status', t.status)
+                    json_build_object(
+                        'number', t.number, 'status', t.status,
+                        'secs', EXTRACT(EPOCH FROM (t.finished_at - t.started_at))
+                    )
                     ORDER BY t.number
                 ) AS history
                 FROM (
-                    SELECT number, status FROM builds b
+                    SELECT number, status, started_at, finished_at FROM builds b
                     WHERE b.project_id = p.id
                     ORDER BY number DESC LIMIT 10
                 ) t
             ) h ON true
+            LEFT JOIN LATERAL (
+                SELECT avg(EXTRACT(EPOCH FROM (t.finished_at - t.started_at)))
+                           FILTER (WHERE t.status = 'succeeded') AS avg_secs,
+                       count(*) FILTER (WHERE t.status = 'succeeded')::float
+                           / NULLIF(count(*), 0) AS pass_rate
+                FROM (
+                    SELECT status, started_at, finished_at FROM builds b
+                    WHERE b.project_id = p.id
+                      AND b.status IN ('succeeded', 'failed', 'cancelled')
+                    ORDER BY b.number DESC LIMIT 30
+                ) t
+            ) m ON true
             WHERE p.enabled AND ($1::bigint[] IS NULL OR p.id = ANY($1))
             ORDER BY p.owner, p.name
             """,
