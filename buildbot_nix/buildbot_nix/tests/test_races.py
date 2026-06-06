@@ -1,7 +1,7 @@
 """Race-condition tests: cancellation during retry, restart
 recovery idempotence. Out-of-order supersede, shared-context
 cancellation, and tree-hash dedup are covered in
-test_engine_canceller.py / test_engine_orchestrator.py."""
+test_canceller.py / test_orchestrator.py."""
 
 # ruff: noqa: ARG001 (fake _run_once must match the real signature)
 from __future__ import annotations

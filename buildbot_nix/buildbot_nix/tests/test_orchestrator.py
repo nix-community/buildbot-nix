@@ -698,7 +698,9 @@ def test_pending_attribute_rows_recorded_for_crash_recovery(
                 project.id,
             )
             assert {r["attr"] for r in rows} == {"a", "b"}
-            assert "pending" in {r["status"] for r in rows}
+            # Both attrs may already be 'building' depending on timing;
+            # recovery only needs the unfinished rows to exist.
+            assert {r["status"] for r in rows} <= {"pending", "building"}
             assert executor.gate is not None
             executor.gate.set()
             build = await task
