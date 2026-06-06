@@ -83,6 +83,14 @@ th {
   color: var(--muted);
   font-weight: 600;
 }
+th.actions, td.actions {
+  text-align: right;
+  white-space: nowrap;
+  width: 1%;
+}
+td.actions a {
+  color: var(--muted);
+}
 .status {
   font-weight: 600;
 }

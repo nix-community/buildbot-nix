@@ -4,26 +4,27 @@
   <tr>
     <th>attribute</th>
     <th>status</th>
-    <th>log</th>
-    <th>history</th>
+    <th>duration</th>
+    <th class="actions"></th>
   </tr>
   {% for a in attrs %}
   <tr data-attr="{{ a.attr | lower }}">
-    <td><code>{{ a.attr }}</code></td>
-    <td>
-      <span class="status {{ a.status }}"
-      >{{ a.status.replace("_", " ") }}</span>
-    </td>
     <td>
       {% if a.log_path or a.status in ('pending', 'building') %}
       <a
         href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ a.attr }}"
-      >log</a>
-      {% else %}<span class="muted">—</span>{% endif %}
+      ><code>{{ a.attr }}</code></a>
+      {% else %}<code>{{ a.attr }}</code>{% endif %}
     </td>
     <td>
+      <span class="status {{ a.status }}"
+      >{{ a.status.replace("_", " ") }}</span>
+    </td>
+    <td>{{ a | duration }}</td>
+    <td class="actions">
       <a
         href="/projects/{{ project.owner }}/{{ project.name }}/attrs/{{ a.attr }}"
+        title="result history across builds"
       >history</a>
     </td>
   </tr>
