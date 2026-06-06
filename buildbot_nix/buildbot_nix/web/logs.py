@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import html
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
@@ -46,38 +46,47 @@ class LogRegistry:
         return self._writers.get((build_id, attr))
 
 
-# Colons: ITU T.416 syntax for extended colors (38:5:185), used by
-# systemd among others.
-_ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;:]*)m")
-_ANSI_OTHER_RE = re.compile(r"\x1b\[[0-9;:?]*[A-Za-ln-z]")
-# An escape sequence cut off at the end of a chunk.
-_ANSI_PARTIAL_RE = re.compile(r"\x1b(\[[0-9;:?]*)?\Z")
+# One token per escape sequence. Colons in SGR: ITU T.416 syntax for
+# extended colors (38:5:185), used by systemd among others. OSC is
+# BEL- or ST-terminated; charset selects and other two-character
+# escapes are matched so their final byte does not leak as text.
+_ANSI_TOKEN_RE = re.compile(
+    r"\x1b\[(?P<sgr>[0-9;:]*)m"
+    r"|\x1b\](?P<osc>[^\x07\x1b]*)(?:\x07|\x1b\\)"
+    # Ordered after SGR: a plain [0-9;:]*m parameter list is colors,
+    # anything else (private markers like ?<=>) falls through here.
+    r"|\x1b\[[0-9;:?<=>]*[@-~]"
+    r"|\x1b[()*+]."
+    r"|\x1b[^\[\]]"
+)
+# C0 controls that mean nothing in a log (tab/newline/CR stay).
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]")
+# An escape sequence cut off at the end of a chunk; OSC is held back
+# until its terminator arrives.
+_ANSI_PARTIAL_RE = re.compile(r"\x1b(\[[0-9;:?<=>]*|\][^\x07\x1b]*\x1b?)?\Z")
 
 
 def strip_ansi(text: str) -> str:
     """Plain-text consumers (curl, scripts, agents) want clean text;
     the HTML viewer renders the colored original."""
-    return _ANSI_OTHER_RE.sub("", _ANSI_SGR_RE.sub("", text))
+    return _CTRL_RE.sub("", _ANSI_TOKEN_RE.sub("", text))
 
 
-_COLOR_CLASSES = {
-    **{
-        str(30 + i): f"ansi-{name}"
-        for i, name in enumerate(
-            ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
-        )
-    },
-    **{
-        str(90 + i): f"ansi-bright-{name}"
-        for i, name in enumerate(
-            ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
-        )
-    },
-}
+_COLOR_CLASSES = {}
+for _i, _name in enumerate(
+    ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
+):
+    _COLOR_CLASSES[str(30 + _i)] = f"ansi-{_name}"
+    _COLOR_CLASSES[str(90 + _i)] = f"ansi-bright-{_name}"
 
-# fg color class (or None) and bold; the default style.
-_Style = tuple[str | None, bool]
-_RESET: _Style = (None, False)
+
+class _Style(NamedTuple):
+    fg: str | None = None  # color class
+    bold: bool = False
+    href: str | None = None  # OSC 8 link target
+
+
+_RESET = _Style()
 
 
 def _apply_sgr(params: str, style: _Style) -> _Style:
@@ -86,13 +95,13 @@ def _apply_sgr(params: str, style: _Style) -> _Style:
     syntax (38:5:185 stays one unknown code); semicolon-separated
     extended colors consume their arguments so e.g. 38;5;31 is not
     read as red."""
-    fg, bold = style
+    fg, bold = style.fg, style.bold
     codes = (params or "0").split(";")
     i = 0
     while i < len(codes):
         code = codes[i] or "0"
         if code == "0":
-            fg, bold = _RESET
+            fg, bold = None, False
         elif code == "1":
             bold = True
         elif code == "22":
@@ -106,36 +115,50 @@ def _apply_sgr(params: str, style: _Style) -> _Style:
             is_rgb = i + 1 < len(codes) and codes[i + 1] == "2"
             i += 4 if is_rgb else 2
         i += 1
-    return fg, bold
+    return style._replace(fg=fg, bold=bold)
 
 
-def _classes(style: _Style) -> str:
-    fg, bold = style
-    return " ".join(c for c in (fg, "ansi-bold" if bold else None) if c)
+def _apply_osc(payload: str, style: _Style) -> _Style:
+    """OSC 8 opens/closes a hyperlink; every other OSC (window title
+    etc.) is dropped without touching the style."""
+    if not payload.startswith("8;"):
+        return style
+    uri = payload.split(";", 2)[-1]
+    # Logs are untrusted: http(s) targets only.
+    if not uri.startswith(("http://", "https://")):
+        uri = ""
+    return style._replace(href=uri or None)
+
+
+def _render_segment(segment: str, style: _Style) -> str:
+    if not segment:
+        return ""
+    # Stripping C0 before tokenizing would eat OSC's BEL terminator.
+    out = html.escape(_CTRL_RE.sub("", segment))
+    classes = " ".join(c for c in (style.fg, "ansi-bold" if style.bold else None) if c)
+    if classes:
+        out = f'<span class="{classes}">{out}</span>'
+    if style.href:
+        out = (
+            f'<a href="{html.escape(style.href, quote=True)}" rel="nofollow">{out}</a>'
+        )
+    return out
 
 
 def _ansi_convert(text: str, style: _Style) -> tuple[str, _Style]:
-    """Convert SGR color/bold codes to spans; strip other sequences.
-    `style` carries in from the previous chunk/line; the style left
-    open at the end is returned for the next one."""
-    text = _ANSI_OTHER_RE.sub("", text)
-    segments: list[tuple[str, _Style]] = []
+    """Convert SGR colors to spans and OSC 8 to links; strip every
+    other sequence. `style` carries in from the previous chunk/line;
+    the style left open at the end is returned for the next one."""
+    out: list[str] = []
     pos = 0
-    for match in _ANSI_SGR_RE.finditer(text):
-        segments.append((text[pos : match.start()], style))
+    for match in _ANSI_TOKEN_RE.finditer(text):
+        out.append(_render_segment(text[pos : match.start()], style))
         pos = match.end()
-        style = _apply_sgr(match.group(1), style)
-    segments.append((text[pos:], style))
-    out = []
-    for segment, seg_style in segments:
-        if not segment:
-            continue
-        if seg_style == _RESET:
-            out.append(html.escape(segment))
-        else:
-            out.append(
-                f'<span class="{_classes(seg_style)}">{html.escape(segment)}</span>'
-            )
+        if match.group("sgr") is not None:
+            style = _apply_sgr(match.group("sgr"), style)
+        elif match.group("osc") is not None:
+            style = _apply_osc(match.group("osc"), style)
+    out.append(_render_segment(text[pos:], style))
     return "".join(out), style
 
 

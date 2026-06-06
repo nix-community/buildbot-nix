@@ -281,6 +281,37 @@ def test_ansi_sgr_is_stateful() -> None:
     assert strip_ansi("\x1b[0;1;38:5:185meth1") == "eth1"
 
 
+def test_osc8_hyperlinks() -> None:
+    raw = "\x1b]8;;https://example.com\x1b\\click\x1b]8;;\x1b\\ plain"
+    assert ansi_to_html(raw) == (
+        '<a href="https://example.com" rel="nofollow">click</a> plain'
+    )
+    # Colored link text nests; the link survives an SGR reset.
+    raw = "\x1b]8;;https://e.x\x07\x1b[31mred\x1b[0mplain\x1b]8;;\x07"
+    assert ansi_to_html(raw) == (
+        '<a href="https://e.x" rel="nofollow"><span class="ansi-red">red</span></a>'
+        '<a href="https://e.x" rel="nofollow">plain</a>'
+    )
+    # Untrusted logs: only http(s) targets become links.
+    assert ansi_to_html("\x1b]8;;javascript:alert(1)\x1b\\x\x1b]8;;\x1b\\") == "x"
+    assert strip_ansi("\x1b]8;;https://e.x\x07click\x1b]8;;\x07") == "click"
+
+
+def test_non_sgr_sequences_are_stripped() -> None:
+    cases = {
+        "\x1b]0;make all\x07hello": "hello",  # window title
+        "\x1b(Bhello": "hello",  # charset select
+        "\x1b7hello": "hello",  # DECSC
+        "\x1b[>4;2mhello": "hello",  # xterm private CSI
+        "ding\x07dong": "dingdong",  # BEL
+        "a\x0bb\x0cc": "abc",  # C0 controls
+        "tab\there": "tab\there",  # tab survives
+    }
+    for raw, expected in cases.items():
+        assert ansi_to_html(raw) == expected, raw
+        assert strip_ansi(raw) == expected, raw
+
+
 def test_render_log_lines_carries_color_across_lines() -> None:
     # nix error blocks are colored over several lines; the reset
     # arrives lines later.
@@ -298,6 +329,11 @@ def test_ansi_stream_state_across_chunks() -> None:
     # The open color carries into the next chunk.
     assert stream.feed("still red") == '<span class="ansi-red">still red</span>'
     assert stream.feed("\x1b[0mplain") == "plain"
+    # An OSC split across chunks is held until its terminator.
+    assert stream.feed("a\x1b]8;;https://e") == "a"
+    assert stream.feed(".x\x1b") == ""
+    link = '<a href="https://e.x" rel="nofollow">link</a>'
+    assert stream.feed("\\link") == link
 
 
 def seed_log(client: WebClient, tmp_path: Path) -> None:
