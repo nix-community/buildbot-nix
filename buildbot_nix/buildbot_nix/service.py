@@ -206,10 +206,12 @@ class EngineService:
             build_id,
             attr,
         )
-        # Clear the stale completion timestamp: retention cleanup keys
-        # on finished_at and must not delete a build mid-rerun.
+        # Queued, not started: the rerun decides whether this becomes
+        # a re-eval (evaluating) or an attribute rerun (building).
+        # Clearing finished_at keeps retention cleanup off a build
+        # that is about to rerun.
         await self.pool.execute(
-            "UPDATE builds SET status = 'building', finished_at = NULL WHERE id = $1",
+            "UPDATE builds SET status = 'pending', finished_at = NULL WHERE id = $1",
             build_id,
         )
         await self._rerun_pending(build_id)

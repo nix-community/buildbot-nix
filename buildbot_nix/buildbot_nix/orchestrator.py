@@ -452,6 +452,8 @@ class Orchestrator:
             if current is not None and current.status == "cancelled":
                 # Cancelled between scheduling the rerun and getting here.
                 return
+            # No re-eval happens on this path; go straight to building.
+            await self.db.set_build_status(build.id, BuildStatus.BUILDING)
             event = ChangeEvent(
                 project=info,
                 branch=build.branch,

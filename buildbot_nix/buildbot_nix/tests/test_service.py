@@ -224,6 +224,11 @@ def test_restart_eval_failed_build_reevaluates(
 
             service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
             await service.restart_build(build_id)
+            # A restart only queues; the rerun sets the real status.
+            status = await pool.fetchval(
+                "SELECT status FROM builds WHERE id = $1", build_id
+            )
+            assert status == "pending"
             await asyncio.gather(*service._tasks)  # noqa: SLF001
 
             assert reevals == [build_id]
@@ -275,6 +280,11 @@ def test_restart_failed_eval_attribute_reevaluates(
 
             service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
             await service.restart_build(build_id)
+            # A restart only queues; the rerun sets the real status.
+            status = await pool.fetchval(
+                "SELECT status FROM builds WHERE id = $1", build_id
+            )
+            assert status == "pending"
             await asyncio.gather(*service._tasks)  # noqa: SLF001
 
             assert reevals == [build_id]
