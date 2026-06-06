@@ -226,6 +226,8 @@ def test_ansi_to_html() -> None:
     lines = render_log_lines("one\ntwo")
     assert 'id="L1"' in lines
     assert 'href="#L2"' in lines
+    # Newlines between block-level spans double-space the log in <pre>.
+    assert "\n" not in lines
 
 
 def seed_log(client: WebClient, tmp_path: Path) -> None:

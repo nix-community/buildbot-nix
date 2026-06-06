@@ -101,7 +101,9 @@ def render_log_lines(text: str) -> str:
             f'<span class="logline" id="L{i}">'
             f'<a class="lineno" href="#L{i}">{i}</a>{ansi_to_html(line)}</span>'
         )
-    return "\n".join(lines)
+    # .logline is display:block; a joining "\n" inside <pre> would
+    # render as an extra blank line.
+    return "".join(lines)
 
 
 def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # noqa: C901
