@@ -1,33 +1,48 @@
 {% extends "base.html" %}
 {% block body %}
   <main id="main">
-    <nav class="sidebar">
-      <h2>Projects</h2>
-      <ul>
+    <section class="content dashboard">
+      <div class="summary-strip">
+        <span class="summary-item">
+          <span class="dot building" aria-hidden="true"></span>
+          {{ (counts.building | default(0) ) + (counts.evaluating | default(0)) }} running
+        </span>
+        <span class="summary-item">
+          <span class="dot pending" aria-hidden="true"></span>
+          {{ counts.pending | default(0) }} queued
+        </span>
+        <span class="summary-item muted">{{ projects | length }} projects</span>
+      </div>
+      <h3>Projects</h3>
+      <div class="project-grid">
         {% for p in projects %}
-          <li>
-            <a href="/projects/{{ p.owner }}/{{ p.name }}">{{ repo_name(p.owner, p.name) }}</a>
-          </li>
+          <a class="project-card"
+             href="/projects/{{ p.owner }}/{{ p.name }}"
+             {% if p.last_status %}data-status="{{ p.last_status }}"{% endif %}>
+            <div class="project-card-head">
+              {% if p.last_status %}<span class="dot {{ p.last_status }}" aria-hidden="true"></span>{% endif %}
+              <span class="project-card-name">{{ repo_name(p.owner, p.name) }}</span>
+            </div>
+            {% if p.last_number %}
+              <div class="project-card-meta muted">
+                #{{ p.last_number }} · {{ p.last_branch }}
+                {% if p.last_created_at %}· {{ p.last_created_at | timeago }}{% endif %}
+              </div>
+            {% else %}
+              <div class="project-card-meta muted">no builds yet</div>
+            {% endif %}
+            <div class="spark" aria-hidden="true">
+              {% for h in p.history %}
+                <i class="spark-bar {{ h.status }}"
+                   title="#{{ h.number }} {{ h.status }}"></i>
+              {% endfor %}
+            </div>
+          </a>
         {% else %}
-          <li class="muted">no enabled projects</li>
+          <p class="muted">no enabled projects</p>
         {% endfor %}
-      </ul>
-      {% if all_projects %}
-        <h2>Administration</h2>
-        <ul>
-          {% for p in all_projects %}
-            <li>
-              {{ repo_name(p.owner, p.name) }}
-              <form method="post" action="/admin/projects/{{ p.id }}/toggle">
-                <button>{{ "disable" if p.enabled else "enable" }}</button>
-              </form>
-            </li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-    </nav>
-    <section class="content">
-      <h2>Recent builds</h2>
+      </div>
+      <h3>Recent activity</h3>
       <table class="builds">
         <tr>
           <th scope="col">#</th>
@@ -42,6 +57,19 @@
           {% include "_build_row.html" %}
         {% endfor %}
       </table>
+      {% if all_projects %}
+        <h3>Administration</h3>
+        <ul class="admin-projects">
+          {% for p in all_projects %}
+            <li>
+              {{ repo_name(p.owner, p.name) }}
+              <form method="post" action="/admin/projects/{{ p.id }}/toggle">
+                <button>{{ "disable" if p.enabled else "enable" }}</button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
     </section>
   </main>
 {% endblock body %}

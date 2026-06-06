@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -61,6 +62,59 @@ class WebQueries:
             name,
         )
         return dict(row) if row else None
+
+    async def project_overview(
+        self, project_ids: list[int] | None = None
+    ) -> list[dict[str, Any]]:
+        """Homepage cards: each project with its latest build and the
+        last ten build statuses for the history sparkline."""
+        rows = await self.pool.fetch(
+            """
+            SELECT p.*,
+                   lb.number AS last_number, lb.status AS last_status,
+                   lb.branch AS last_branch, lb.created_at AS last_created_at,
+                   lb.started_at, lb.finished_at,
+                   h.history
+            FROM projects p
+            LEFT JOIN LATERAL (
+                SELECT * FROM builds b WHERE b.project_id = p.id
+                ORDER BY b.number DESC LIMIT 1
+            ) lb ON true
+            LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object('number', t.number, 'status', t.status)
+                    ORDER BY t.number
+                ) AS history
+                FROM (
+                    SELECT number, status FROM builds b
+                    WHERE b.project_id = p.id
+                    ORDER BY number DESC LIMIT 10
+                ) t
+            ) h ON true
+            WHERE p.enabled AND ($1::bigint[] IS NULL OR p.id = ANY($1))
+            ORDER BY p.owner, p.name
+            """,
+            project_ids,
+        )
+        overview = _rows(rows)
+        for row in overview:
+            row["history"] = json.loads(row["history"]) if row["history"] else []
+        return overview
+
+    async def status_counts(
+        self, project_ids: list[int] | None = None
+    ) -> dict[str, int]:
+        """Running/queued counts for the homepage summary strip."""
+        rows = await self.pool.fetch(
+            """
+            SELECT status, count(*) AS n FROM builds
+            WHERE status IN ('pending', 'evaluating', 'building')
+              AND ($1::bigint[] IS NULL OR project_id = ANY($1))
+            GROUP BY status
+            """,
+            project_ids,
+        )
+        return {r["status"]: r["n"] for r in rows}
 
     async def recent_builds(
         self, limit: int = 30, project_ids: list[int] | None = None

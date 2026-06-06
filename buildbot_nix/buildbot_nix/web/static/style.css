@@ -438,3 +438,106 @@ pre.log {
 		animation: none;
 	}
 }
+
+/* Dashboard (homepage) */
+.summary-strip {
+	display: flex;
+	gap: 1.5rem;
+	align-items: center;
+	margin: 0.5rem 0 1.5rem;
+	padding: 0.75rem 1rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+.summary-item {
+	display: inline-flex;
+	align-items: center;
+	font-size: 0.9rem;
+}
+.project-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+	gap: 1rem;
+	margin-bottom: 2rem;
+}
+.project-card {
+	display: block;
+	padding: 1rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--fg);
+	text-decoration: none;
+	transition:
+		border-color 0.15s,
+		transform 0.15s;
+}
+.project-card:hover {
+	border-color: var(--accent);
+	transform: translateY(-1px);
+}
+.project-card[data-status="failed"] {
+	border-left: 3px solid var(--bad);
+}
+.project-card[data-status="succeeded"] {
+	border-left: 3px solid var(--ok);
+}
+.project-card[data-status="building"],
+.project-card[data-status="evaluating"],
+.project-card[data-status="pending"] {
+	border-left: 3px solid var(--run);
+}
+.project-card-head {
+	display: flex;
+	align-items: center;
+	font-weight: 600;
+}
+.project-card-name {
+	font-family: var(--mono);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.project-card-meta {
+	margin-top: 0.35rem;
+	font-size: 0.85rem;
+}
+/* Last ten builds, oldest to newest. */
+.spark {
+	display: flex;
+	gap: 3px;
+	margin-top: 0.75rem;
+	height: 1.1rem;
+}
+.spark-bar {
+	flex: 1;
+	max-width: 1rem;
+	border-radius: 2px;
+	background: var(--muted);
+	opacity: 0.85;
+}
+.spark-bar.succeeded {
+	background: var(--ok);
+}
+.spark-bar.failed {
+	background: var(--bad);
+}
+.spark-bar.cancelled {
+	background: var(--warn);
+}
+.spark-bar.pending,
+.spark-bar.evaluating,
+.spark-bar.building {
+	background: var(--run);
+}
+.admin-projects {
+	list-style: none;
+	padding: 0;
+}
+.admin-projects li {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.25rem 0;
+}

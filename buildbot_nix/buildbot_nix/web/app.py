@@ -199,9 +199,6 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
-        projects = await ctx.queries.projects()
-        if visible is not None:
-            projects = [p for p in projects if p["id"] in visible]
         # Discovery inserts repos disabled; admins enable them here.
         admin = ctx.visibility is not None and is_admin(
             ctx.current_user(request), ctx.visibility.authz
@@ -210,7 +207,8 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         return ctx.render(
             "index.html",
             request=request,
-            projects=projects,
+            projects=await ctx.queries.project_overview(project_ids=visible),
+            counts=await ctx.queries.status_counts(project_ids=visible),
             builds=await ctx.queries.recent_builds(project_ids=visible),
             all_projects=all_projects,
         )
