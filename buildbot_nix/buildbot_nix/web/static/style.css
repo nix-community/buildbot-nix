@@ -1,6 +1,7 @@
 /* Minimal stylesheet with system-preference dark mode. The accent
    leans on the Nix logo blue. */
 :root {
+	color-scheme: light dark;
 	--bg: #fcfcfb;
 	--fg: #24292e;
 	--muted: #6c757d;
@@ -11,6 +12,9 @@
 	--run: #1565c0;
 	--accent: #5277c3;
 	--card: #f4f5f7;
+	--hover: rgb(130 170 255 / 6%);
+	--highlight: rgb(130 170 255 / 15%);
+	--ansi-magenta: #ab47bc;
 	--mono:
 		ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
 }
@@ -26,6 +30,7 @@
 		--run: #8ab4f8;
 		--accent: #7ca4e0;
 		--card: #1b2025;
+		--ansi-magenta: #ce93d8;
 	}
 }
 * {
@@ -36,7 +41,7 @@ body {
 	background: var(--bg);
 	color: var(--fg);
 	font:
-		15px / 1.5 system-ui,
+		0.9375rem / 1.5 system-ui,
 		sans-serif;
 }
 a {
@@ -125,7 +130,8 @@ th {
    dots and pill labels. Shared by attribute and build tables. */
 table.attrs,
 table.builds,
-.summary-strip {
+.summary-strip,
+.pipeline {
 	background: var(--card);
 	border: 1px solid var(--border);
 	border-radius: 8px;
@@ -147,12 +153,12 @@ table.builds tr:last-child td {
 }
 table.attrs tr:hover td,
 table.builds tr:hover td {
-	background: rgba(130, 170, 255, 0.06);
+	background: var(--hover);
 }
 table.builds th {
 	padding: 0.5rem 0.75rem;
 	border-bottom: 1px solid var(--border);
-	font-size: 12px;
+	font-size: 0.75rem;
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
 }
@@ -192,21 +198,21 @@ h2 .dot {
 		opacity: 0.3;
 	}
 }
+.status {
+	font-weight: 600;
+	color: var(--status-color, inherit);
+}
 /* Pill chrome only inside the card lists; headings keep plain text.
    No color here: it would outweigh the .status.<state> variants
    below (higher specificity). currentColor keeps the border in
    sync with the state color. */
 table.attrs .status,
 table.builds .status {
-	font-size: 12px;
+	font-size: 0.75rem;
 	padding: 0.1rem 0.55rem;
 	border-radius: 999px;
 	border: 1px solid currentColor;
 	white-space: nowrap;
-}
-.status {
-	font-weight: 600;
-	color: var(--status-color, inherit);
 }
 .muted {
 	color: var(--muted);
@@ -221,15 +227,18 @@ pre.error {
 	padding: 0.5rem 0.8rem;
 	white-space: pre-wrap;
 	overflow-x: auto;
-	font-size: 13px;
+	font-size: 0.8125rem;
 }
 pre.warning {
 	border-left-color: var(--warn);
 }
+details summary {
+	cursor: pointer;
+}
 details.error summary {
 	color: var(--bad);
 	font-family: var(--mono);
-	font-size: 13px;
+	font-size: 0.8125rem;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -315,9 +324,6 @@ h2.section {
 	letter-spacing: 0.08em;
 	margin: 1.5rem 0 0.5rem;
 }
-details summary {
-	cursor: pointer;
-}
 
 /* Log viewer */
 pre.log {
@@ -327,14 +333,14 @@ pre.log {
 	/* Own scroll pane: tail-following must not scroll the page and
      hide the header. */
 	max-height: calc(100vh - 11rem);
-	font-size: 13px;
+	font-size: 0.8125rem;
 	line-height: 1.4;
 }
 .logline {
 	display: block;
 }
 .logline:target {
-	background: rgba(130, 170, 255, 0.15);
+	background: var(--highlight);
 }
 .lineno {
 	display: inline-block;
@@ -378,7 +384,7 @@ pre.log {
 .ansi-bright-magenta,
 .ansi-magenta-fg,
 .ansi-bright-magenta-fg {
-	color: #ab47bc;
+	color: var(--ansi-magenta);
 }
 .ansi-bold {
 	font-weight: bold;
@@ -441,9 +447,6 @@ pre.log {
 	align-items: center;
 	gap: 1rem;
 	padding: 0.8rem 1.2rem;
-	background: var(--card);
-	border: 1px solid var(--border);
-	border-radius: 8px;
 	border-left: 3px solid var(--status-color, var(--border));
 	color: var(--fg);
 	text-decoration: none;

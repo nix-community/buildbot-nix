@@ -31,12 +31,12 @@
   };
 
   settings.formatter.biome-css = {
-    command = lib.getExe pkgs.biome;
-    options = [
-      "format"
-      "--write"
-      "--no-errors-on-unmatched"
-    ];
+    command = lib.getExe (
+      pkgs.writeShellScriptBin "biome-css" ''
+        ${lib.getExe pkgs.biome} format --write --no-errors-on-unmatched "$@"
+        exec ${lib.getExe pkgs.biome} lint --error-on-warnings --no-errors-on-unmatched "$@"
+      ''
+    );
     includes = [ "*.css" ];
   };
   programs.ruff.check = true;
