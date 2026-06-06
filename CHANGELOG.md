@@ -30,6 +30,14 @@ PostgreSQL over the unix socket; for a remote database set `database.url` or
 covers the same need: private repositories are hidden from anyone not authorized
 to see them. GitHub token mode is also gone; use a GitHub App.
 
+`authBackend` now defaults to `none`, and `github.enable`/`gitea.enable` default
+to true only when that forge backs the login. If you relied on the old defaults,
+set `authBackend` (or the forge's `enable`) explicitly — otherwise the forge is
+off and no projects show up.
+
+`admins` entries must be provider-qualified: `github:Mic92`, not `Mic92`.
+Unqualified entries never match and only log a warning.
+
 **Commit statuses.** Context names lose the `buildbot/` prefix —
 `buildbot/nix-build ...` becomes `nix-build ...`. Branch protection rules that
 require the old contexts need updating. Statuses link to the new web UI.

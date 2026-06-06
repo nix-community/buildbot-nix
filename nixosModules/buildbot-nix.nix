@@ -1,5 +1,6 @@
 {
   config,
+  options,
   pkgs,
   lib,
   ...
@@ -857,6 +858,16 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # Forges default to enabled only when they back the login
+    # (authBackend); a configured but disabled forge is more likely a
+    # migration accident than intent.
+    warnings =
+      lib.optional (!cfg.github.enable && options.services.buildbot-nix.github.appId.isDefined)
+        "buildbot-nix: github.* is configured but github.enable is false (authBackend is ${cfg.authBackend}); GitHub projects will not appear. Set services.buildbot-nix.github.enable = true."
+      ++
+        lib.optional (!cfg.gitea.enable && options.services.buildbot-nix.gitea.tokenFile.isDefined)
+          "buildbot-nix: gitea.* is configured but gitea.enable is false (authBackend is ${cfg.authBackend}); Gitea projects will not appear. Set services.buildbot-nix.gitea.enable = true.";
+
     assertions = [
       {
         assertion =
