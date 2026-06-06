@@ -14,7 +14,6 @@ import os
 import re
 from collections.abc import Callable, Mapping  # noqa: TC003
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -31,13 +30,6 @@ class RepoFilters:
     repo_allowlist: list[str] | None = None
     user_allowlist: list[str] | None = None
     topic: str | None = None
-
-
-class AuthBackendConfig(StrEnum):
-    github = "github"
-    gitea = "gitea"
-    oidc = "oidc"
-    none = "none"
 
 
 def read_secret_file(secret_file: Path) -> str:
@@ -291,7 +283,6 @@ class EngineConfig(BaseModel):
     state_dir: Path = Path("/var/lib/buildbot-nix")
 
     use_https: bool = False
-    auth_backend: AuthBackendConfig = AuthBackendConfig.none
     eval_max_memory_size: int = 4096
     admins: list[str] = []
     eval_worker_count: int | None = None

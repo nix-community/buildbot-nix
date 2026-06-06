@@ -40,7 +40,6 @@ let
       webhook_base_url = cfg.webhookBaseUrl;
       state_dir = "/var/lib/buildbot-nix";
       use_https = cfg.useHTTPS;
-      auth_backend = cfg.authBackend;
       admins = cfg.admins;
       eval_max_memory_size = cfg.evalMaxMemorySize;
       eval_worker_count = cfg.evalWorkerCount;
@@ -390,7 +389,12 @@ in
         "none"
       ];
       default = "none";
-      description = "Login backend for the web frontend.";
+      description = ''
+        Which forge backs the web login by default; it also enables that
+        forge. Login providers are independent of this: every enabled
+        forge with oauthId/oauthSecretFile set (plus OIDC) is offered on
+        the login page, so several can be active at once.
+      '';
     };
 
     admins = lib.mkOption {

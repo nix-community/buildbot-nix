@@ -38,6 +38,9 @@ off and no projects show up.
 `admins` entries must be provider-qualified: `github:Mic92`, not `Mic92`.
 Unqualified entries never match and only log a warning.
 
+Logins are no longer limited to one backend: every enabled forge with OAuth
+credentials configured (plus OIDC) shows up on the login page.
+
 **Commit statuses.** Context names lose the `buildbot/` prefix —
 `buildbot/nix-build ...` becomes `nix-build ...`. Branch protection rules that
 require the old contexts need updating. Statuses link to the new web UI.
