@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import io
+import json
 import logging
 import os
 import signal
@@ -268,7 +269,12 @@ def build_nix_command(
     return [
         "nix",
         "build",
-        "-L",
+        # internal-json keeps the ANSI colors that the terminal loggers
+        # strip from non-tty output and tags every build-log line with
+        # its derivation; render_log_event turns that back into
+        # attributed, colored text.
+        "--log-format",
+        "internal-json",
         *(["--show-trace"] if settings.show_trace else []),
         "--option",
         "keep-going",
@@ -280,6 +286,48 @@ def build_nix_command(
         str(out_link),
         f"{job.drvPath}^*",
     ]
+
+
+# nix activity/result types (nix/util/logging.hh).
+ACT_BUILD = 105
+RES_BUILD_LOG_LINE = 101
+
+
+def _drv_display_name(drv_path: str) -> str:
+    name = drv_path.rsplit("/", 1)[-1].removesuffix(".drv")
+    _, _, name = name.partition("-")  # drop the store hash
+    return name or drv_path
+
+
+def render_log_event(line: bytes, activities: dict[int, str]) -> bytes | None:
+    """One line of `nix build --log-format internal-json` to log text.
+
+    Build-log lines get a `name> ` prefix from their build activity;
+    nix's own messages pass through with their ANSI colors. Returns
+    None for events with no log output (progress, stops, ...).
+    """
+    if not line.startswith(b"@nix "):
+        return line  # not an event: pass through (e.g. daemon chatter)
+    try:
+        event = json.loads(line[len(b"@nix ") :])
+    except ValueError:
+        return line
+    action = event.get("action")
+    if action == "start" and event.get("type") == ACT_BUILD:
+        fields = event.get("fields") or []
+        if fields:
+            activities[event["id"]] = _drv_display_name(str(fields[0]))
+        text = event.get("text", "")
+        return f"{text}\n".encode() if text else None
+    if action == "result" and event.get("type") == RES_BUILD_LOG_LINE:
+        fields = event.get("fields") or [""]
+        name = activities.get(event.get("id"), "")
+        prefix = f"{name}> " if name else ""
+        return f"{prefix}{fields[0]}\n".encode()
+    if action == "msg":
+        msg = event.get("msg", "")
+        return f"{msg}\n".encode() if msg else None
+    return None
 
 
 def is_transient_error(output_tail: str) -> bool:
@@ -376,7 +424,11 @@ class NixBuildExecutor:
 
         async def pump() -> None:
             assert proc.stdout is not None  # noqa: S101
-            async for line in proc.stdout:
+            activities: dict[int, str] = {}
+            async for raw in proc.stdout:
+                line = render_log_event(raw, activities)
+                if line is None:
+                    continue
                 output_tail.append(line)
                 await log_writer.write(line)
 

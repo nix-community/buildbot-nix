@@ -22,6 +22,7 @@ from buildbot_nix.executor import (
     build_nix_command,
     is_transient_error,
     read_log,
+    render_log_event,
 )
 from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.scheduler import BuildOutcome
@@ -188,7 +189,7 @@ def test_log_writer_truncation_keeps_head_and_tail(tmp_path: Path) -> None:
 def test_build_nix_command(tmp_path: Path) -> None:
     settings = BuildSettings(log_dir=tmp_path, max_silent_time=77, show_trace=True)
     cmd = build_nix_command(mk_job(), settings, tmp_path / "result-foo")
-    assert cmd[:3] == ["nix", "build", "-L"]
+    assert cmd[:4] == ["nix", "build", "--log-format", "internal-json"]
     assert "--show-trace" in cmd
     assert cmd[cmd.index("--max-silent-time") + 1] == "77"
     assert cmd[-1] == "/nix/store/foo.drv^*"
@@ -483,3 +484,29 @@ def test_executor_task_cancelled_while_queued_releases_waiter(
         await asyncio.wait_for(queue.acquire("c"), timeout=1)
 
     asyncio.run(run())
+
+
+def test_render_log_event_attributes_and_colors() -> None:
+    activities: dict[int, str] = {}
+    start = (
+        b'@nix {"action":"start","id":7,"type":105,'
+        b'"text":"building \'/nix/store/abc123-hello-2.12.drv\'",'
+        b'"fields":["/nix/store/abc123-hello-2.12.drv"]}'
+    )
+    assert render_log_event(start, activities) == (
+        b"building '/nix/store/abc123-hello-2.12.drv'\n"
+    )
+    log_line = (
+        b'@nix {"action":"result","id":7,"type":101,'
+        b'"fields":["checking for gcc... yes"]}'
+    )
+    assert render_log_event(log_line, activities) == (
+        b"hello-2.12> checking for gcc... yes\n"
+    )
+    # nix's own messages keep their ANSI colors.
+    msg = b'@nix {"action":"msg","level":0,"msg":"\\u001b[31;1merror:\\u001b[0m boom"}'
+    assert render_log_event(msg, activities) == b"\x1b[31;1merror:\x1b[0m boom\n"
+    # Progress events produce no log output.
+    assert render_log_event(b'@nix {"action":"stop","id":7}', activities) is None
+    # Non-event output passes through.
+    assert render_log_event(b"plain line\n", activities) == b"plain line\n"
