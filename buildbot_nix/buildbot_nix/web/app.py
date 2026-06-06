@@ -316,7 +316,37 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             return PlainTextResponse("database unavailable", status_code=503)
         return PlainTextResponse("ok")
 
+    @router.get("/llms.txt", response_class=PlainTextResponse)
+    async def llms_txt() -> PlainTextResponse:
+        return PlainTextResponse(LLMS_TXT)
+
     return router
+
+
+LLMS_TXT = """\
+# buildbot-nix
+
+Nix CI. Every build evaluates a flake and builds each derivation
+("attribute") of `.#checks`. JSON API under /api (OpenAPI spec:
+/api/openapi.json). All endpoints support unauthenticated GET unless
+the instance restricts project visibility.
+
+## Answering "why did build X / commit Y fail?"
+
+- GET /api/projects -> [{owner, name, ...}]
+- GET /api/projects/{owner}/{name}/builds?commit={sha-prefix} -> find the build number
+  (other filters: status, branch, page)
+- GET /api/projects/{owner}/{name}/builds/{number}/failures?tail=50
+  -> {status, error, eval_warnings, failures: [{attr, status, error, log_tail}]}
+
+## Other endpoints
+
+- GET /api/projects/{owner}/{name}/builds/{number} -> build + all attributes
+- GET /api/projects/{owner}/{name}/attrs/{attr} -> per-attribute history
+- GET /api/queue -> global build queue
+- GET /projects/{owner}/{name}/builds/{number}/logs/{attr}.txt?tail=N
+  -> plain-text log (full when tail is omitted)
+"""
 
 
 def create_app(

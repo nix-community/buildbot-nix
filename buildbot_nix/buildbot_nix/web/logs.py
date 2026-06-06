@@ -22,6 +22,7 @@ from fastapi.responses import (
 )
 
 from ..executor import read_log  # noqa: TID252
+from ..scheduler import TERMINAL_FAILURES  # noqa: TID252
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -49,6 +50,13 @@ class LogRegistry:
 
 _ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSI_OTHER_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-ln-z]")
+
+
+def strip_ansi(text: str) -> str:
+    """Plain-text consumers (curl, scripts, agents) want clean text;
+    the colored original stays available as .zst."""
+    return _ANSI_OTHER_RE.sub("", _ANSI_SGR_RE.sub("", text))
+
 
 _COLOR_CLASSES = {
     **{
@@ -106,6 +114,74 @@ def render_log_lines(text: str) -> str:
     return "".join(lines)
 
 
+async def _log_path(
+    ctx: WebContext, registry: LogRegistry, build: dict, attr: str
+) -> Path | None:
+    row = await ctx.pool.fetchrow(
+        """
+        SELECT l.path FROM logs l
+        JOIN build_attributes a ON a.id = l.attribute_id
+        WHERE a.build_id = $1 AND a.attr = $2
+        """,
+        build["id"],
+        attr,
+    )
+    path = ctx.state_dir / row["path"] if row else None
+    if path is None:
+        # No logs row until completion; running attributes use the
+        # live writer's on-disk file.
+        writer = registry.get(build["id"], attr)
+        if writer is not None:
+            path = writer.path
+    return path
+
+
+async def _log_text(
+    registry: LogRegistry, build: dict, attr: str, path: Path | None
+) -> str | None:
+    writer = registry.get(build["id"], attr)
+    if writer is not None:
+        # Running attribute: part of the log is still buffered in
+        # the writer, not yet on disk.
+        data = await writer.snapshot()
+    elif path is None or not await asyncio.to_thread(path.exists):
+        return None
+    else:
+        # Decompression off the event loop: logs are up to 64 MB.
+        data = await asyncio.to_thread(read_log, path)
+    return data.decode(errors="replace")
+
+
+async def _failure_summary(
+    ctx: WebContext, registry: LogRegistry, build: dict, tail: int
+) -> dict:
+    failures = []
+    for a in await ctx.queries.attributes(build["id"]):
+        if a["status"] not in _FAILURE_STATUSES:
+            continue
+        path = await _log_path(ctx, registry, build, a["attr"])
+        text = await _log_text(registry, build, a["attr"], path)
+        if text is not None:
+            text = strip_ansi(text)
+        failures.append(
+            {
+                "attr": a["attr"],
+                "status": a["status"],
+                "error": a["error"],
+                "log_tail": "\n".join(text.splitlines()[-tail:]) if text else None,
+            }
+        )
+    return {
+        "status": build["status"],
+        "error": build["error"],
+        "eval_warnings": build["eval_warnings"],
+        "failures": failures,
+    }
+
+
+_FAILURE_STATUSES = {s.value for s in TERMINAL_FAILURES} | {"cancelled"}
+
+
 def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # noqa: C901
     router = APIRouter()
 
@@ -116,40 +192,40 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
-        row = await ctx.pool.fetchrow(
-            """
-            SELECT l.path FROM logs l
-            JOIN build_attributes a ON a.id = l.attribute_id
-            WHERE a.build_id = $1 AND a.attr = $2
-            """,
-            build["id"],
-            attr,
-        )
-        path = ctx.state_dir / row["path"] if row else None
-        if path is None:
-            # No logs row until completion; running attributes use the
-            # live writer's on-disk file.
-            writer = registry.get(build["id"], attr)
-            if writer is not None:
-                path = writer.path
-        return project, build, path
+        return project, build, await _log_path(ctx, registry, build, attr)
 
     @router.get("/projects/{owner}/{name}/builds/{number}/logs/{attr}.txt")
-    async def log_raw_text(
-        request: Request, owner: str, name: str, number: int, attr: str
+    async def log_raw_text(  # noqa: PLR0913
+        request: Request,
+        owner: str,
+        name: str,
+        number: int,
+        attr: str,
+        tail: int | None = None,
     ) -> PlainTextResponse:
+        """Full log as plain text; ?tail=N returns only the last N lines."""
         _, build, path = await _resolve(request, owner, name, number, attr)
-        writer = registry.get(build["id"], attr)
-        if writer is not None:
-            # Running attribute: part of the log is still buffered in
-            # the writer, not yet on disk.
-            data = await writer.snapshot()
-        elif path is None or not path.exists():
+        text = await _log_text(registry, build, attr, path)
+        if text is None:
             raise HTTPException(status_code=404)
-        else:
-            # Decompression off the event loop: logs are up to 64 MB.
-            data = await asyncio.to_thread(read_log, path)
-        return PlainTextResponse(data.decode(errors="replace"))
+        if tail is not None and tail > 0:
+            text = "\n".join(text.splitlines()[-tail:]) + "\n"
+        return PlainTextResponse(strip_ansi(text))
+
+    @router.get("/api/projects/{owner}/{name}/builds/{number}/failures")
+    async def build_failures(
+        request: Request, owner: str, name: str, number: int, tail: int = 50
+    ) -> dict:
+        """One-shot failure summary: failed attributes with log tails.
+
+        Saves API consumers (CI scripts, LLM agents) a request per
+        attribute when answering "why did this build fail?".
+        """
+        project = await ctx.project_or_404(owner, name, request)
+        build = await ctx.queries.build_by_number(project["id"], number)
+        if build is None:
+            raise HTTPException(status_code=404)
+        return await _failure_summary(ctx, registry, build, tail)
 
     @router.get("/projects/{owner}/{name}/builds/{number}/logs/{attr}.zst")
     async def log_raw_zst(

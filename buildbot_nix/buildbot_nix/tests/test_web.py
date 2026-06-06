@@ -393,3 +393,39 @@ def test_live_log_history_before_completion(client: WebClient, tmp_path: Path) -
     assert "early output" in stream
     assert "late output" in stream
     assert "event: done" in stream
+
+
+def test_api_builds_commit_filter(client: WebClient) -> None:
+    hits = get(client, "/api/projects/acme/widget/builds?commit=sha-2").json()
+    assert [b["number"] for b in hits["items"]] == [2]
+    misses = get(client, "/api/projects/acme/widget/builds?commit=ffff").json()
+    assert misses["items"] == []
+
+
+def test_log_tail_param(client: WebClient, tmp_path: Path) -> None:
+    seed_log(client, tmp_path)
+    full = get(client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
+    assert "build exploded" in full.text
+    tail = get(
+        client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.txt?tail=1"
+    )
+    # ANSI escapes are stripped from the plain-text view.
+    assert tail.text == "build exploded\n"
+
+
+def test_api_build_failures(client: WebClient, tmp_path: Path) -> None:
+    seed_log(client, tmp_path)
+    summary = get(client, "/api/projects/acme/widget/builds/2/failures").json()
+    assert summary["status"] == "failed"
+    failed = {f["attr"]: f for f in summary["failures"]}
+    assert "x86_64-linux.bad" in failed
+    assert "build exploded" in failed["x86_64-linux.bad"]["log_tail"]
+    # Succeeded attributes are not in the failure summary.
+    assert "x86_64-linux.ok" not in failed
+
+
+def test_llms_txt(client: WebClient) -> None:
+    response = get(client, "/llms.txt")
+    assert response.status_code == 200
+    assert "/api/openapi.json" in response.text
+    assert "failures" in response.text

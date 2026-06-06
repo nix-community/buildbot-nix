@@ -56,11 +56,12 @@ def create_api_router(ctx: WebContext) -> APIRouter:
         page: int = 1,
         status: str | None = None,
         branch: str | None = None,
+        commit: str | None = None,
     ) -> dict[str, Any]:
-        """Paginated builds with status/branch filters."""
+        """Paginated builds with status/branch/commit-prefix filters."""
         project = await ctx.project_or_404(owner, name, request)
         builds = await ctx.queries.builds_for_project(
-            project["id"], page=page, status=status, branch=branch
+            project["id"], page=page, status=status, branch=branch, commit=commit
         )
         return {
             "items": [_clean(b) for b in builds.items],

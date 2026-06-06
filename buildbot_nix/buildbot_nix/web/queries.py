@@ -97,6 +97,7 @@ class WebQueries:
         page: int = 1,
         status: str | None = None,
         branch: str | None = None,
+        commit: str | None = None,
     ) -> Page:
         page = max(page, 1)
         conditions = ["project_id = $1"]
@@ -107,6 +108,10 @@ class WebQueries:
         if branch:
             args.append(branch)
             conditions.append(f"branch = ${len(args)}")
+        if commit:
+            # Prefix match so agents can pass short revs.
+            args.append(commit)
+            conditions.append(f"starts_with(commit_sha, ${len(args)})")
         args.append(PAGE_SIZE + 1)
         args.append((page - 1) * PAGE_SIZE)
         rows = await self.pool.fetch(
