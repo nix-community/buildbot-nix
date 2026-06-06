@@ -37,6 +37,10 @@ configured offers a login, and several can be active at once.
 `admins` entries must be provider-qualified: `github:Mic92`, not `Mic92`.
 Unqualified entries never match and only log a warning.
 
+OAuth callback URLs change: update your GitHub App / Gitea application to
+`https://<domain>/auth/<provider>/callback` (buildbot used `/auth/login`), e.g.
+`https://buildbot.example.com/auth/github/callback`.
+
 **Commit statuses.** Context names lose the `buildbot/` prefix —
 `buildbot/nix-build ...` becomes `nix-build ...`. Branch protection rules that
 require the old contexts need updating. Statuses link to the new web UI.
