@@ -510,6 +510,14 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
             assert submitted == 2
             shas = {e.commit_sha for e in events}  # type: ignore[attr-defined]
             assert shas == {"head-main", "head-pr5"}
+
+            # First contact (no builds at all): default branch only, the
+            # open-PR backlog is not built.
+            await pool.execute("DELETE FROM builds WHERE project_id = $1", project_id)
+            events.clear()
+            submitted = await reconcile_project(pool, project, heads, Sink())
+            assert submitted == 1
+            assert events[0].commit_sha == "head-main"  # type: ignore[attr-defined]
         finally:
             await pool.close()
 

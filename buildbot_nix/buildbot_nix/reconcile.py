@@ -103,6 +103,15 @@ async def gitea_heads(client: GiteaClient, project: ProjectRecord) -> list[Remot
     return heads
 
 
+async def _has_builds(pool: asyncpg.Pool, project_id: int) -> bool:
+    return (
+        await pool.fetchval(
+            "SELECT 1 FROM builds WHERE project_id = $1 LIMIT 1", project_id
+        )
+        is not None
+    )
+
+
 async def is_built(pool: asyncpg.Pool, project_id: int, commit_sha: str) -> bool:
     return (
         await pool.fetchval(
@@ -120,9 +129,16 @@ async def reconcile_project(
     heads: list[RemoteHead],
     sink: ChangeSink,
 ) -> int:
-    """Submit change events for unbuilt heads. Returns submit count."""
+    """Submit change events for unbuilt heads. Returns submit count.
+
+    A project without any build record is fresh, not recovering from
+    downtime: build the default branch only, the open-PR backlog would
+    be stale work. PRs build on their next push."""
+    first_contact = not await _has_builds(pool, project.id)
     submitted = 0
     for head in heads:
+        if first_contact and head.pr_number is not None:
+            continue
         if await is_built(pool, project.id, head.commit_sha):
             continue
         logger.info(
