@@ -94,7 +94,9 @@
         let connected = false;
         const source = new EventSource(eventsUrl);
         source.onopen = () => {
-          // Catch up after a reconnect; the first open needs nothing.
+          // Events fired before the connection opened are lost; let
+          // pages verify the state they rendered.
+          document.dispatchEvent(new Event("eventsopen"));
           if (connected) refreshFragments();
           connected = true;
         };

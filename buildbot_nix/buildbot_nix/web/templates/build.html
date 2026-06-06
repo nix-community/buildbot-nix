@@ -80,11 +80,25 @@
   <script>
     /* Build-level status only shows in the server-rendered header:
        reload, unless the user is mid-interaction. */
-    document.addEventListener("buildevent", (ev) => {
-      if (ev.detail.attr) return;
+    const refresh = () => {
       if (document.activeElement !== document.body) return;
       if (document.querySelector("details[open]")) return;
       location.reload();
+    };
+    document.addEventListener("buildevent", (ev) => {
+      if (!ev.detail.attr) refresh();
     });
+    {% if build.status in RUNNING_STATUSES %}
+      /* A status change between render and SSE connect is lost; check
+         on (re)connect whether the rendered status is still current. */
+      document.addEventListener("eventsopen", () => {
+        fetch("/api/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data && data.build.status !== {{ build.status | tojson }}) refresh();
+          })
+          .catch(() => { /* transient */ });
+      });
+    {% endif %}
   </script>
 {% endblock body %}
