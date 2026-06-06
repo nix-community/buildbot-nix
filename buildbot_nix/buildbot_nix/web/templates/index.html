@@ -16,9 +16,8 @@
       <h2 class="section">Projects</h2>
       <div class="project-grid">
         {% for p in projects %}
-          <a class="project-card"
-             href="/projects/{{ p.owner }}/{{ p.name }}"
-             {% if p.last_status %}data-status="{{ p.last_status }}"{% endif %}>
+          <a class="project-card{% if p.last_status %} {{ p.last_status }}{% endif %}"
+             href="/projects/{{ p.owner }}/{{ p.name }}">
             <div class="project-card-head">
               {% if p.last_status %}<span class="dot {{ p.last_status }}" aria-hidden="true"></span>{% endif %}
               <span class="project-card-name">{{ repo_name(p.owner, p.name) }}</span>

@@ -115,16 +115,41 @@ th {
 	color: var(--muted);
 	font-weight: 600;
 }
+/* One status-to-color map consumed by dots, pills, sparklines, and
+   project cards. Anything without a state falls back per consumer. */
+.succeeded {
+	--status-color: var(--ok);
+}
+.failed,
+.failed_eval,
+.dependency_failed,
+.cached_failure {
+	--status-color: var(--bad);
+}
+.pending,
+.evaluating,
+.building {
+	--status-color: var(--run);
+}
+.cancelled,
+.skipped_local {
+	--status-color: var(--muted);
+}
 /* Buildkite-style lists: rounded card, one row per item, status
    dots and pill labels. Shared by attribute and build tables. */
 table.attrs,
-table.builds {
+table.builds,
+.summary-strip,
+.project-card {
+	background: var(--card);
 	border: 1px solid var(--border);
 	border-radius: 8px;
+}
+table.attrs,
+table.builds {
 	border-collapse: separate;
 	border-spacing: 0;
 	overflow: hidden;
-	background: var(--card);
 }
 table.attrs td,
 table.builds td {
@@ -167,22 +192,7 @@ td.attr-duration {
 	height: 0.6rem;
 	border-radius: 50%;
 	margin-right: 0.5rem;
-	background: var(--muted);
-}
-.dot.succeeded,
-.dot.success {
-	background: var(--ok);
-}
-.dot.failed,
-.dot.failed_eval,
-.dot.dependency_failed,
-.dot.cached_failure {
-	background: var(--bad);
-}
-.dot.pending,
-.dot.evaluating,
-.dot.building {
-	background: var(--run);
+	background: var(--status-color, var(--muted));
 }
 .dot.building,
 .dot.evaluating {
@@ -197,9 +207,6 @@ h2 .dot {
 		opacity: 0.3;
 	}
 }
-.status {
-	font-weight: 600;
-}
 /* Pill chrome only inside the card lists; headings keep plain text.
    No color here: it would outweigh the .status.<state> variants
    below (higher specificity). currentColor keeps the border in
@@ -212,24 +219,9 @@ table.builds .status {
 	border: 1px solid currentColor;
 	white-space: nowrap;
 }
-.status.succeeded,
-.status.success {
-	color: var(--ok);
-}
-.status.failed,
-.status.failed_eval,
-.status.dependency_failed,
-.status.cached_failure {
-	color: var(--bad);
-}
-.status.cancelled,
-.status.skipped_local {
-	color: var(--muted);
-}
-.status.pending,
-.status.evaluating,
-.status.building {
-	color: var(--run);
+.status {
+	font-weight: 600;
+	color: var(--status-color, inherit);
 }
 .muted {
 	color: var(--muted);
@@ -251,7 +243,7 @@ pre.warning {
 }
 details.error summary {
 	color: var(--bad);
-	font-family: monospace;
+	font-family: var(--mono);
 	font-size: 13px;
 	white-space: nowrap;
 	overflow: hidden;
@@ -447,9 +439,6 @@ pre.log {
 	align-items: center;
 	margin: 0.5rem 0 1.5rem;
 	padding: 0.75rem 1rem;
-	background: var(--card);
-	border: 1px solid var(--border);
-	border-radius: 8px;
 }
 .summary-item {
 	display: inline-flex;
@@ -465,11 +454,9 @@ pre.log {
 .project-card {
 	display: block;
 	padding: 1rem;
-	background: var(--card);
-	border: 1px solid var(--border);
-	border-radius: 8px;
 	color: var(--fg);
 	text-decoration: none;
+	border-left: 3px solid var(--status-color, var(--border));
 	transition:
 		border-color 0.15s,
 		transform 0.15s;
@@ -477,17 +464,6 @@ pre.log {
 .project-card:hover {
 	border-color: var(--accent);
 	transform: translateY(-1px);
-}
-.project-card[data-status="failed"] {
-	border-left: 3px solid var(--bad);
-}
-.project-card[data-status="succeeded"] {
-	border-left: 3px solid var(--ok);
-}
-.project-card[data-status="building"],
-.project-card[data-status="evaluating"],
-.project-card[data-status="pending"] {
-	border-left: 3px solid var(--run);
 }
 .project-card-head {
 	display: flex;
@@ -515,22 +491,8 @@ pre.log {
 	flex: 1;
 	max-width: 1rem;
 	border-radius: 2px;
-	background: var(--muted);
+	background: var(--status-color, var(--muted));
 	opacity: 0.85;
-}
-.spark-bar.succeeded {
-	background: var(--ok);
-}
-.spark-bar.failed {
-	background: var(--bad);
-}
-.spark-bar.cancelled {
-	background: var(--warn);
-}
-.spark-bar.pending,
-.spark-bar.evaluating,
-.spark-bar.building {
-	background: var(--run);
 }
 .admin-projects {
 	list-style: none;
@@ -555,8 +517,8 @@ pre.log {
 	border: 1px solid var(--border);
 	border-radius: 6px;
 }
-.empty-state {
-	padding: 1.5rem !important;
+table td.empty-state {
+	padding: 1.5rem;
 	text-align: center;
 	color: var(--muted);
 }
