@@ -1,26 +1,36 @@
-/* Minimal classless stylesheet with system-preference dark mode. */
+/* Minimal stylesheet with system-preference dark mode. The accent
+   leans on the Nix logo blue. */
 :root {
-  --bg: #ffffff;
-  --fg: #1d2021;
+  --bg: #fcfcfb;
+  --fg: #24292e;
   --muted: #6c757d;
-  --border: #dee2e6;
+  --border: #dde2e8;
   --ok: #2e7d32;
   --bad: #c62828;
   --warn: #e65100;
   --run: #1565c0;
-  --card: #f8f9fa;
+  --accent: #5277c3;
+  --card: #f4f5f7;
+  --mono:
+    ui-monospace,
+    "SFMono-Regular",
+    "JetBrains Mono",
+    Menlo,
+    Consolas,
+    monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16181a;
+    --bg: #131619;
     --fg: #e8e6e3;
     --muted: #9aa0a6;
-    --border: #33373b;
+    --border: #2d3338;
     --ok: #81c995;
     --bad: #f28b82;
     --warn: #fdd663;
     --run: #8ab4f8;
-    --card: #1f2326;
+    --accent: #7ca4e0;
+    --card: #1b2025;
   }
 }
 * {
@@ -33,27 +43,46 @@ body {
   font: 15px/1.5 system-ui, sans-serif;
 }
 a {
-  color: var(--run);
+  color: var(--accent);
   text-decoration: none;
 }
 a:hover {
   text-decoration: underline;
 }
+code, pre, .lineno {
+  font-family: var(--mono);
+}
 header {
   display: flex;
   gap: 1rem;
   align-items: baseline;
-  padding: 0.6rem 1rem;
+  padding: 0.55rem 1.25rem;
   border-bottom: 1px solid var(--border);
+  background: var(--card);
 }
 header h1 {
-  font-size: 1.1rem;
+  font-size: 1rem;
   margin: 0;
+  font-family: var(--mono);
+  letter-spacing: -0.02em;
+}
+header h1 a::before {
+  content: "❅ ";
+  color: var(--accent);
+}
+header h1 a {
+  color: var(--fg);
+}
+header > a {
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 main {
   display: flex;
-  gap: 1.5rem;
-  padding: 1rem;
+  gap: 2rem;
+  padding: 1.25rem;
+  max-width: 90rem;
+  margin: 0 auto;
 }
 nav.sidebar {
   min-width: 16rem;
@@ -266,9 +295,25 @@ p.build-meta {
   margin-top: 0;
   color: var(--muted);
 }
+h2 {
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+}
+h2 code {
+  font-size: 1.1rem;
+}
 h2 small {
   color: var(--muted);
   font-weight: normal;
+  font-size: 0.85rem;
+}
+h3 {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 1.5rem 0 0.5rem;
 }
 details summary {
   cursor: pointer;
