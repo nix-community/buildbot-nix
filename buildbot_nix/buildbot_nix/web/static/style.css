@@ -524,8 +524,19 @@ pre.log {
 	flex: 1;
 	min-width: 0;
 }
+.disabled-projects {
+	margin-bottom: 2rem;
+}
+.disabled-projects summary {
+	cursor: pointer;
+	padding: 0.3rem 0;
+}
+.disabled-projects .pipeline-row {
+	margin-top: 0.4rem;
+}
 .pipeline-row.disabled .pipeline {
 	opacity: 0.55;
+	padding: 0.35rem 1.2rem;
 }
 .pipeline-row form {
 	display: flex;

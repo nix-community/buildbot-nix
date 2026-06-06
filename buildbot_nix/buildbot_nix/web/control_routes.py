@@ -123,8 +123,11 @@ def create_control_router(  # noqa: C901
     ) -> RedirectResponse:
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
+        # Instance admins, or forge-side admins of this repo.
         if not is_admin(await ctx.request_user(request), authz):
-            raise HTTPException(status_code=403, detail="admin only")
+            toggleable = await ctx.toggleable_project_ids(request) or []
+            if project_id not in toggleable:
+                raise HTTPException(status_code=403, detail="not a project admin")
         await ctx.pool.execute(
             "UPDATE projects SET enabled = NOT enabled, updated_at = now() "
             "WHERE id = $1",

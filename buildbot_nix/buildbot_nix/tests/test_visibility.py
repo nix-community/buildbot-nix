@@ -21,7 +21,7 @@ from buildbot_nix.api_tokens import ApiTokenStore
 from buildbot_nix.auth import AuthzConfig, SessionSigner, User
 from buildbot_nix.forge_tokens import ForgeTokenStore
 from buildbot_nix.migrations import apply_migrations
-from buildbot_nix.visibility import AccessCache, VisibilityService
+from buildbot_nix.visibility import AccessCache, RepoAccess, VisibilityService
 from buildbot_nix.web.app import create_app
 
 if TYPE_CHECKING:
@@ -33,13 +33,22 @@ pytestmark = pytest.mark.skipif(
 
 
 class FakeFetcher:
-    def __init__(self, grants: dict[str, frozenset[str]]) -> None:
+    def __init__(
+        self,
+        grants: dict[str, frozenset[str]],
+        admin_grants: dict[str, frozenset[str]] | None = None,
+    ) -> None:
         self.grants = grants
+        self.admin_grants = admin_grants or {}
         self.calls = 0
 
-    async def accessible_repo_ids(self, user: User, token: str) -> frozenset[str]:
+    async def repo_access(self, user: User, token: str) -> RepoAccess:
         self.calls += 1
-        return self.grants.get(f"{user.qualified}:{token}", frozenset())
+        key = f"{user.qualified}:{token}"
+        return RepoAccess(
+            accessible=self.grants.get(key, frozenset()),
+            admin=self.admin_grants.get(key, frozenset()),
+        )
 
 
 @pytest.fixture(scope="module")
@@ -221,16 +230,45 @@ class FailingFetcher:
         self.fail = True
         self.calls = 0
 
-    async def accessible_repo_ids(
+    async def repo_access(
         self,
         user: User,  # noqa: ARG002
         token: str,  # noqa: ARG002
-    ) -> frozenset[str]:
+    ) -> RepoAccess:
         self.calls += 1
         if self.fail:
             msg = "forge down"
             raise httpx.ConnectError(msg)
-        return frozenset({"github:priv-1"})
+        return RepoAccess(frozenset({"github:priv-1"}), frozenset())
+
+
+def test_forge_repo_admins_can_toggle_their_repos(harness: tuple) -> None:
+    loop, client = harness
+    ctx = client._transport.app.state.web_context  # noqa: SLF001
+    fetcher = FakeFetcher(
+        grants={"github:carol:tok-carol": frozenset({"github:priv-1"})},
+        admin_grants={"github:carol:tok-carol": frozenset({"github:priv-1"})},
+    )
+    service = VisibilityService(
+        ctx.pool,
+        AuthzConfig(admins=["github:root"]),
+        fetcher=fetcher,
+        cache=AccessCache(ttl=3600),
+    )
+
+    async def run() -> None:
+        # Instance admin: everything (None).
+        assert await service.toggleable_project_ids(ROOT) is None
+        # Repo admin: exactly their repo.
+        ids = await service.toggleable_project_ids(CAROL, "tok-carol")
+        assert ids is not None
+        assert len(ids) == 1
+        # Access without forge-admin permission: nothing.
+        assert await service.toggleable_project_ids(MALLORY, "tok-mallory") == []
+        # Anonymous: nothing.
+        assert await service.toggleable_project_ids(None) == []
+
+    loop.run_until_complete(run())
 
 
 def test_fetch_errors_are_not_cached(harness: tuple) -> None:
@@ -270,9 +308,10 @@ def test_access_cache_used(harness: tuple) -> None:
 
 def test_cache_negative_results() -> None:
     cache = AccessCache(ttl=60)
+    empty = RepoAccess(frozenset(), frozenset())
     assert cache.get("u") is None
-    cache.set("u", frozenset())
-    assert cache.get("u") == frozenset()
+    cache.set("u", empty)
+    assert cache.get("u") == empty
     cache.invalidate("u")
     assert cache.get("u") is None
 

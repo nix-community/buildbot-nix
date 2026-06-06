@@ -83,7 +83,7 @@
                 <span class="muted">reliability</span>
               </div>
             </a>
-            {% if admin %}
+            {% if toggleable is none or p.id in toggleable %}
               <form method="post" action="/admin/projects/{{ p.id }}/toggle">
                 <input type="hidden" name="q" value="{{ q }}">
                 <button class="toggle-btn">disable</button>

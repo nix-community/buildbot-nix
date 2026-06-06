@@ -30,28 +30,37 @@ logger = logging.getLogger(__name__)
 DEFAULT_TTL = 60 * 60
 
 
+@dataclass(frozen=True)
+class RepoAccess:
+    """Repo keys ("forge:forge_repo_id") a user can see, and the subset
+    where the forge grants them admin permission."""
+
+    accessible: frozenset[str]
+    admin: frozenset[str]
+
+
 @dataclass
 class _CacheEntry:
-    repo_ids: frozenset[str]
+    access: RepoAccess
     expires: float
 
 
 class AccessCache:
-    """Per-user accessible-repo-set cache (negatives cached)."""
+    """Per-user repo-access cache (negatives cached)."""
 
     def __init__(self, ttl: int = DEFAULT_TTL) -> None:
         self.ttl = ttl
         self._entries: dict[str, _CacheEntry] = {}
 
-    def get(self, user_key: str) -> frozenset[str] | None:
+    def get(self, user_key: str) -> RepoAccess | None:
         entry = self._entries.get(user_key)
         if entry is None or entry.expires < time.monotonic():
             return None
-        return entry.repo_ids
+        return entry.access
 
-    def set(self, user_key: str, repo_ids: frozenset[str]) -> None:
+    def set(self, user_key: str, access: RepoAccess) -> None:
         self._entries[user_key] = _CacheEntry(
-            repo_ids=repo_ids, expires=time.monotonic() + self.ttl
+            access=access, expires=time.monotonic() + self.ttl
         )
 
     def invalidate(self, user_key: str) -> None:
@@ -59,9 +68,9 @@ class AccessCache:
 
 
 class RepoAccessFetcher(Protocol):
-    """Fetches the set of (forge, forge_repo_id) a user can access."""
+    """Fetches the repos a user can access on their forge."""
 
-    async def accessible_repo_ids(self, user: User, token: str) -> frozenset[str]: ...
+    async def repo_access(self, user: User, token: str) -> RepoAccess: ...
 
 
 class ForgeRepoAccessFetcher:
@@ -71,15 +80,15 @@ class ForgeRepoAccessFetcher:
         self.http = http
         self.gitea_url = gitea_url.rstrip("/") if gitea_url else None
 
-    async def accessible_repo_ids(self, user: User, token: str) -> frozenset[str]:
+    async def repo_access(self, user: User, token: str) -> RepoAccess:
         if user.provider == "github":
             return await self._github(token)
         if user.provider == "gitea" and self.gitea_url:
             return await self._gitea(token)
-        return frozenset()
+        return RepoAccess(frozenset(), frozenset())
 
-    async def _github(self, token: str) -> frozenset[str]:
-        ids: set[str] = set()
+    async def _github(self, token: str) -> RepoAccess:
+        repos: list[dict] = []
         url: str | None = "https://api.github.com/user/repos?per_page=100"
         while url:
             response = await self.http.get(
@@ -88,12 +97,12 @@ class ForgeRepoAccessFetcher:
             # Raise instead of truncating: a partial/empty set cached by
             # the caller would hide private projects for the whole TTL.
             response.raise_for_status()
-            ids.update(f"github:{repo['id']}" for repo in response.json())
+            repos += response.json()
             url = response.links.get("next", {}).get("url")
-        return frozenset(ids)
+        return _collect("github", repos)
 
-    async def _gitea(self, token: str) -> frozenset[str]:
-        ids: set[str] = set()
+    async def _gitea(self, token: str) -> RepoAccess:
+        repos: list[dict] = []
         page = 1
         while True:
             response = await self.http.get(
@@ -102,9 +111,20 @@ class ForgeRepoAccessFetcher:
             )
             response.raise_for_status()
             if not response.json():
-                return frozenset(ids)
-            ids.update(f"gitea:{repo['id']}" for repo in response.json())
+                return _collect("gitea", repos)
+            repos += response.json()
             page += 1
+
+
+def _collect(forge: str, repos: list[dict]) -> RepoAccess:
+    """Both forges report per-repo permissions in the listing itself."""
+    keys = [(f"{forge}:{repo['id']}", repo) for repo in repos]
+    return RepoAccess(
+        accessible=frozenset(key for key, _ in keys),
+        admin=frozenset(
+            key for key, repo in keys if repo.get("permissions", {}).get("admin")
+        ),
+    )
 
 
 class VisibilityService:
@@ -131,24 +151,52 @@ class VisibilityService:
             "SELECT id, forge, forge_repo_id, private FROM projects"
         )
         visible = [row["id"] for row in rows if not row["private"]]
-        if user is None or self.fetcher is None or token is None:
+        access = await self._repo_access(user, token)
+        if access is None:
             return visible
-        accessible = self.cache.get(user.qualified)
-        if accessible is None:
+        visible.extend(
+            row["id"]
+            for row in rows
+            if row["private"]
+            and f"{row['forge']}:{row['forge_repo_id']}" in access.accessible
+        )
+        return visible
+
+    async def toggleable_project_ids(
+        self, user: User | None, token: str | None = None
+    ) -> list[int] | None:
+        """Projects the requester may enable/disable. None = all
+        (instance admins); forge-side repo admins get their own."""
+        if is_admin(user, self.authz):
+            return None
+        access = await self._repo_access(user, token)
+        if access is None:
+            return []
+        rows = await self.pool.fetch("SELECT id, forge, forge_repo_id FROM projects")
+        return [
+            row["id"]
+            for row in rows
+            if f"{row['forge']}:{row['forge_repo_id']}" in access.admin
+        ]
+
+    async def _repo_access(
+        self, user: User | None, token: str | None
+    ) -> RepoAccess | None:
+        """None: no usable access info (anonymous, no fetcher, or the
+        forge failed) — callers fall back to their public behavior."""
+        if user is None or self.fetcher is None or token is None:
+            return None
+        access = self.cache.get(user.qualified)
+        if access is None:
             try:
-                accessible = await self.fetcher.accessible_repo_ids(user, token)
+                access = await self.fetcher.repo_access(user, token)
             except httpx.HTTPError:
-                # Transient forge failure: public-only for this request,
-                # uncached so the next one retries.
+                # Transient forge failure: uncached so the next request
+                # retries.
                 logger.warning(
                     "failed to fetch accessible repos",
                     extra={"user": user.qualified},
                 )
-                return visible
-            self.cache.set(user.qualified, accessible)
-        visible.extend(
-            row["id"]
-            for row in rows
-            if row["private"] and f"{row['forge']}:{row['forge_repo_id']}" in accessible
-        )
-        return visible
+                return None
+            self.cache.set(user.qualified, access)
+        return access

@@ -28,7 +28,6 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from ..auth import is_admin  # noqa: TID252
 from ..recovery import check_db_health  # noqa: TID252
 from .api_routes import create_api_router
 from .auth_routes import SESSION_COOKIE
@@ -181,15 +180,25 @@ class WebContext:
         """None = all projects visible."""
         if self.visibility is None:
             return None
-        user = await self.request_user(request)
-        token = None
-        if self.signer is not None and self.forge_tokens is not None:
-            session_id = self.signer.session_id_from(
-                request.cookies.get(SESSION_COOKIE)
-            )
-            if session_id is not None:
-                token = await self.forge_tokens.get(session_id)
-        return await self.visibility.visible_project_ids(user, token)
+        return await self.visibility.visible_project_ids(
+            await self.request_user(request), await self._forge_token(request)
+        )
+
+    async def toggleable_project_ids(self, request: Request) -> list[int] | None:
+        """Projects the requester may enable/disable; None = all."""
+        if self.visibility is None:
+            return []
+        return await self.visibility.toggleable_project_ids(
+            await self.request_user(request), await self._forge_token(request)
+        )
+
+    async def _forge_token(self, request: Request) -> str | None:
+        if self.signer is None or self.forge_tokens is None:
+            return None
+        session_id = self.signer.session_id_from(request.cookies.get(SESSION_COOKIE))
+        if session_id is None:
+            return None
+        return await self.forge_tokens.get(session_id)
 
     async def project_or_404(
         self, owner: str, name: str, request: Request | None = None
@@ -212,23 +221,24 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request, q: str = "") -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
-        # Discovery inserts repos disabled; admins enable them here.
-        admin = ctx.visibility is not None and is_admin(
-            ctx.current_user(request), ctx.visibility.authz
-        )
+        # Discovery inserts repos disabled; instance admins and
+        # forge-side repo admins enable them here.
+        toggleable = await ctx.toggleable_project_ids(request)
         return ctx.render(
             "index.html",
             request=request,
             q=q,
-            admin=admin,
+            toggleable=toggleable,
             projects=await ctx.queries.project_overview(
                 project_ids=visible, q=q or None
             ),
             counts=await ctx.queries.status_counts(project_ids=visible),
             project_count=await ctx.queries.project_count(project_ids=visible),
-            disabled_projects=(
-                await ctx.queries.projects(enabled=False, q=q or None) if admin else []
-            ),
+            disabled_projects=[
+                p
+                for p in await ctx.queries.projects(enabled=False, q=q or None)
+                if toggleable is None or p["id"] in toggleable
+            ],
         )
 
     @router.get("/builds", response_class=HTMLResponse)
