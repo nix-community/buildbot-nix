@@ -31,6 +31,16 @@ logs, and Prometheus metrics.
   `buildbot/` prefix (e.g. `buildbot/nix-build ...` becomes `nix-build ...`);
   update branch protection rules that require the old contexts.
 - `buildbot-nix.toml` per-repository configuration is unchanged.
+- `postBuildSteps` keep the `interpolate` placeholders. Available properties:
+  `attr`, `out_path`, `drv_path`, `system`, `project`, `branch`, `revision`,
+  `pr_number`, `default_branch`. PR builds no longer report `refs/pull/N/merge`
+  branches; use `%(prop:pr_number)s` instead of parsing the branch.
+  `%(secret:NAME)s` now reads systemd credentials of the `buildbot-nix` unit:
+  move `LoadCredential` entries from `systemd.services.buildbot-master` to
+  `systemd.services.buildbot-nix`.
+- Customizations through `services.buildbot-master`/buildbot APIs (e.g.
+  `extraConfig`, manhole, `pythonPackages`) have no equivalent: there is no
+  buildbot underneath anymore.
 - Commit statuses link to the new web UI; the JSON API moves to `/api/*` with an
   OpenAPI schema at `/openapi.json`.
 

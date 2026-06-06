@@ -769,7 +769,11 @@ in
               description = ''
                 Extra environment variables for this step. Use
                 `inputs.buildbot-nix.lib.interpolate "result-%(prop:attr)s"`
-                for per-build placeholders.
+                for per-build placeholders. Available properties: attr,
+                out_path, drv_path, system, project, branch, revision,
+                pr_number, default_branch. `%(secret:NAME)s` reads a
+                systemd credential; load it via
+                `systemd.services.buildbot-nix.serviceConfig.LoadCredential`.
               '';
             };
 

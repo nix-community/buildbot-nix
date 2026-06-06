@@ -3,8 +3,8 @@ attribute build (cachix/niks3 uploads and operator-defined steps).
 
 Ported from PostBuildStep.to_buildstep: instead of buildbot's
 Interpolate, the engine substitutes the placeholder forms actually used
-by the NixOS modules — `%(prop:NAME)s` (build properties such as `attr`
-and `out_path`) and `%(secret:NAME)s` (files under
+by the NixOS modules — `%(prop:NAME)s` (see `build_props` for the
+available properties) and `%(secret:NAME)s` (files under
 $CREDENTIALS_DIRECTORY). `warn_only` steps log failures without
 failing the attribute.
 """
@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from .config import Interpolate, PostBuildStep
+    from .events import ChangeEvent
+    from .models import NixEvalJobSuccess
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,21 @@ _PLACEHOLDER_RE = re.compile(r"%\((prop|secret):([^)]+)\)s")
 
 class InterpolationError(Exception):
     pass
+
+
+def build_props(event: ChangeEvent, job: NixEvalJobSuccess) -> dict[str, str]:
+    """Properties available to %(prop:...)s in post-build steps."""
+    return {
+        "attr": job.attr,
+        "out_path": job.outputs.get("out") or "",
+        "drv_path": job.drvPath,
+        "system": job.system,
+        "project": event.project.name,
+        "branch": event.branch,
+        "revision": event.commit_sha,
+        "pr_number": str(event.pr_number or ""),
+        "default_branch": event.project.default_branch,
+    }
 
 
 def read_secret(name: str) -> str:

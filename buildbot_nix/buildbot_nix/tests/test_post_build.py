@@ -9,8 +9,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from buildbot_nix.config import Interpolate, PostBuildStep
+from buildbot_nix.events import ChangeEvent, ProjectInfo
+from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.post_build import (
     InterpolationError,
+    build_props,
     interpolate,
     run_post_build_steps,
 )
@@ -19,6 +22,47 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 PROPS = {"attr": "x86_64-linux.foo", "out_path": "/nix/store/abc-foo"}
+
+
+def test_build_props_exposes_change_context() -> None:
+    event = ChangeEvent(
+        project=ProjectInfo(
+            id=1,
+            key="github/acme/proj",
+            name="acme/proj",
+            owner="acme",
+            repo="proj",
+            forge="github",
+            clone_url="https://example.com/acme/proj.git",
+            default_branch="main",
+        ),
+        branch="feature",
+        commit_sha="deadbeef",
+        pr_number=42,
+    )
+    job = NixEvalJobSuccess(
+        attr="foo",
+        attrPath=["foo"],
+        cacheStatus=CacheStatus.notBuilt,
+        neededBuilds=[],
+        neededSubstitutes=[],
+        drvPath="/nix/store/foo.drv",
+        name="foo",
+        outputs={"out": "/nix/store/foo-out"},
+        system="x86_64-linux",
+    )
+    props = build_props(event, job)
+    assert props["project"] == "acme/proj"
+    assert props["branch"] == "feature"
+    assert props["revision"] == "deadbeef"
+    assert props["pr_number"] == "42"
+    assert props["default_branch"] == "main"
+    assert (
+        build_props(
+            ChangeEvent(project=event.project, branch="main", commit_sha="x"), job
+        )["pr_number"]
+        == ""
+    )
 
 
 def test_interpolate_plain_string() -> None:

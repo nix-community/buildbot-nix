@@ -42,7 +42,7 @@ from .gitrepo import GitError, MergeConflictError, run_git
 from .memory import calculate_eval_workers
 from .models import NixEvalJobSuccess
 from .nix_eval import EvalError, EvalSettings
-from .post_build import run_post_build_steps
+from .post_build import build_props, run_post_build_steps
 from .repo_config import BranchConfig
 from .scheduled import ScheduledEffectsStore, discover_schedules
 from .scheduler import (
@@ -710,12 +710,7 @@ class _OrchestratorExecutor:
                 attr_cancel,
             )
             if outcome == BuildOutcome.success and self.o.config.post_build_steps:
-                props = {
-                    "attr": job.attr,
-                    "out_path": job.outputs.get("out") or "",
-                    "drv_path": job.drvPath,
-                    "system": job.system,
-                }
+                props = build_props(self.event, job)
                 step_results = await run_post_build_steps(
                     self.o.config.post_build_steps, props, self.worktree_path
                 )
