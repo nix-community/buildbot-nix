@@ -1,7 +1,7 @@
 {% set row_owner = b["owner"] if "owner" in b else project.owner %}
 {% set
 row_name = b["project_name"] if "project_name" in b else project.name %}
-<tr>
+<tr data-id="{{ b.id }}">
   <td>
     <span class="dot {{ b.status }}" aria-hidden="true"></span><a href="/projects/{{ row_owner }}/{{ row_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
   </td>

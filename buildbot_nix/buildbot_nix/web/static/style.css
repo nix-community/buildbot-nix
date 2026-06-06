@@ -552,3 +552,12 @@ table td.empty-state {
 	border-color: var(--accent);
 	color: var(--accent);
 }
+
+.scroll-sentinel {
+	padding: 1rem;
+	text-align: center;
+	font-size: 0.85rem;
+}
+.header-spacer {
+	margin-left: auto;
+}

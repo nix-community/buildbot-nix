@@ -5,7 +5,15 @@
 {% block body %}
   <main id="main">
     <section class="content">
-      <h2>Search results for “{{ q }}”</h2>
+      <h2>Search</h2>
+      <form action="/search" method="get" class="filters">
+        <input type="search"
+               name="q"
+               aria-label="search projects and attributes"
+               placeholder="search projects &amp; attributes"
+               value="{{ q }}">
+        <button>search</button>
+      </form>
       <h3>Projects</h3>
       <div class="chip-row">
         {% for p in results.projects %}

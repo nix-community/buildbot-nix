@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -181,11 +182,47 @@ def test_page_out_of_range_does_not_error(client: WebClient) -> None:
     assert api.json()["items"]
 
 
-def test_queue_page(client: WebClient) -> None:
-    response = get(client, "/queue")
+def test_activity_page(client: WebClient) -> None:
+    response = get(client, "/builds")
     assert response.status_code == 200
-    assert "#3" in response.text  # the building build
-    assert ">#1<" not in response.text
+    # Queue section shows the building build with its position.
+    assert "queue-pos" in response.text
+    assert "#3" in response.text
+    # Activity feed lists finished builds too.
+    assert ">#1<" in response.text
+
+
+def test_activity_rows_fragment_pagination(client: WebClient) -> None:
+    rows = get(client, "/builds/rows?before=1")
+    assert rows.status_code == 200
+    assert "<tr" not in rows.text  # nothing older than build id 1
+
+    # Walk the cursor like the frontend does: each fragment's last
+    # data-id feeds the next request until the response is empty.
+    cursor = 999999
+    seen: list[int] = []
+    while True:
+        text = get(client, f"/builds/rows?before={cursor}").text
+        ids = re.findall(r'data-id="(\d+)"', text)
+        if not ids:
+            break
+        seen.extend(int(i) for i in ids)
+        cursor = int(ids[-1])
+    assert len(seen) == 3
+    assert seen == sorted(seen, reverse=True)  # newest first, no overlap
+
+
+def test_project_rows_fragment_filters(client: WebClient) -> None:
+    all_rows = get(client, "/projects/acme/widget/rows?before=999999")
+    assert all_rows.text.count("data-id=") == 3
+
+    failed = get(client, "/projects/acme/widget/rows?before=999999&status=failed")
+    assert failed.text.count("data-id=") == 1
+    assert ">#2<" in failed.text
+
+    branch = get(client, "/projects/acme/widget/rows?before=999999&branch=feature")
+    assert branch.text.count("data-id=") == 1
+    assert ">#3<" in branch.text
 
 
 def test_metrics_are_gauges(client: WebClient) -> None:

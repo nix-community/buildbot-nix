@@ -12,6 +12,14 @@ if TYPE_CHECKING:
 PAGE_SIZE = 50
 
 
+@dataclass
+class BuildFilters:
+    status: str | None = None
+    branch: str | None = None
+    commit: str | None = None
+    before: int | None = None  # cursor: only builds with a smaller id
+
+
 def _like_escape(query: str) -> str:
     """Escape LIKE/ILIKE metacharacters so user input matches literally."""
     return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -133,30 +141,24 @@ class WebQueries:
         return {r["status"]: r["n"] for r in rows}
 
     async def recent_builds(
-        self, limit: int = 30, project_ids: list[int] | None = None
+        self,
+        limit: int = 50,
+        project_ids: list[int] | None = None,
+        before: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Homepage feed; optionally restricted to visible projects."""
-        if project_ids is None:
-            return _rows(
-                await self.pool.fetch(
-                    """
-                    SELECT b.*, p.owner, p.name AS project_name
-                    FROM builds b JOIN projects p ON p.id = b.project_id
-                    ORDER BY b.id DESC LIMIT $1
-                    """,
-                    limit,
-                )
-            )
+        """Activity feed; cursor on build id for infinite scroll."""
         return _rows(
             await self.pool.fetch(
                 """
                 SELECT b.*, p.owner, p.name AS project_name
                 FROM builds b JOIN projects p ON p.id = b.project_id
-                WHERE b.project_id = ANY($2::bigint[])
+                WHERE ($2::bigint[] IS NULL OR b.project_id = ANY($2))
+                  AND ($3::bigint IS NULL OR b.id < $3)
                 ORDER BY b.id DESC LIMIT $1
                 """,
                 limit,
                 project_ids,
+                before,
             )
         )
 
@@ -165,23 +167,25 @@ class WebQueries:
         project_id: int,
         *,
         page: int = 1,
-        status: str | None = None,
-        branch: str | None = None,
-        commit: str | None = None,
+        filters: BuildFilters | None = None,
     ) -> Page:
+        f = filters or BuildFilters()
         page = max(page, 1)
         conditions = ["project_id = $1"]
         args: list[Any] = [project_id]
-        if status:
-            args.append(status)
+        if f.status:
+            args.append(f.status)
             conditions.append(f"status = ${len(args)}")
-        if branch:
-            args.append(branch)
+        if f.branch:
+            args.append(f.branch)
             conditions.append(f"branch = ${len(args)}")
-        if commit:
+        if f.commit:
             # Prefix match so agents can pass short revs.
-            args.append(commit)
+            args.append(f.commit)
             conditions.append(f"starts_with(commit_sha, ${len(args)})")
+        if f.before is not None:
+            args.append(f.before)
+            conditions.append(f"id < ${len(args)}")
         args.append(PAGE_SIZE + 1)
         args.append((page - 1) * PAGE_SIZE)
         rows = await self.pool.fetch(

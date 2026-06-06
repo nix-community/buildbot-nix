@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from buildbot_nix.web.queries import PAGE_SIZE
+
 if TYPE_CHECKING:
     from playwright.sync_api import Page
+
+    from .support import EngineServer
 
 
 def test_homepage_lists_project_and_recent_builds(page: Page) -> None:
@@ -74,8 +78,46 @@ def test_header_search(page: Page) -> None:
     page.get_by_role("link", name="acme/widget").first.wait_for()
 
 
-def test_queue_shows_running_build(page: Page) -> None:
-    page.goto("/queue")
+def test_activity_shows_running_build(page: Page) -> None:
+    page.goto("/builds")
     content = page.content()
     assert "acme/widget" in content
     assert "#3" in content
+
+
+SEEDED_BUILDS = 70
+
+
+def test_activity_infinite_scroll(page: Page, server: EngineServer) -> None:
+    async def seed_history() -> None:
+        project_id = await server.pool.fetchval(
+            "SELECT id FROM projects WHERE owner = 'acme' AND name = 'widget'"
+        )
+        await server.pool.executemany(
+            """
+            INSERT INTO builds (project_id, number, tree_hash, commit_sha,
+                                branch, status, created_at, started_at,
+                                finished_at)
+            VALUES ($1, $2, $3, $4, 'main', 'succeeded', now(), now(), now())
+            """,
+            [
+                (project_id, n, f"tree-{n}", f"sha-{n}{'0' * 30}")
+                for n in range(100, 100 + SEEDED_BUILDS)
+            ],
+        )
+
+    server.run(seed_history())
+    try:
+        page.goto("/builds")
+        rows = page.locator("tr[data-id]")
+        first_batch = rows.count()
+        assert first_batch == PAGE_SIZE
+
+        # Scrolling to the sentinel loads the next batch.
+        page.locator("[data-more-url]").scroll_into_view_if_needed()
+        page.wait_for_function(
+            f"document.querySelectorAll('tr[data-id]').length > {PAGE_SIZE}"
+        )
+        assert rows.count() == SEEDED_BUILDS + 3  # plus the base fixture
+    finally:
+        server.run(server.pool.execute("DELETE FROM builds WHERE number >= 100"))

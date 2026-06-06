@@ -14,11 +14,19 @@
         <span class="summary-item muted">{{ projects | length }} projects</span>
       </div>
       <h2 class="section">Projects</h2>
+      <form action="/search" method="get" class="filters">
+        <input type="search"
+               name="q"
+               id="pipeline-filter"
+               aria-label="filter projects, search attributes on enter"
+               placeholder="filter projects — press enter to search attributes">
+      </form>
       <div class="pipelines">
         {% for p in projects %}
           {% set max_secs = p.history | map(attribute='secs') | select | max | default(1, true) %}
           <a class="pipeline{% if p.last_status %} {{ p.last_status }}{% endif %}"
-             href="/projects/{{ p.owner }}/{{ p.name }}">
+             href="/projects/{{ p.owner }}/{{ p.name }}"
+             data-pipeline="{{ repo_name(p.owner, p.name) | lower }}">
             <span class="dot {{ p.last_status or '' }}" aria-hidden="true"></span>
             <div class="pipeline-info">
               <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
@@ -61,21 +69,6 @@
           <p class="muted">no enabled projects</p>
         {% endfor %}
       </div>
-      <h2 class="section">Recent activity</h2>
-      <table class="builds">
-        <tr>
-          <th scope="col">#</th>
-          <th scope="col">project</th>
-          <th scope="col">branch</th>
-          <th scope="col">status</th>
-          <th scope="col">commit</th>
-          <th scope="col">when</th>
-          <th scope="col">took</th>
-        </tr>
-        {% for b in builds %}
-          {% include "_build_row.html" %}
-        {% endfor %}
-      </table>
       {% if all_projects %}
         <h2 class="section">Administration</h2>
         <ul class="admin-projects">

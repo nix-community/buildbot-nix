@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from .queries import BuildFilters
+
 if TYPE_CHECKING:
     from .app import WebContext
 
@@ -61,7 +63,9 @@ def create_api_router(ctx: WebContext) -> APIRouter:
         """Paginated builds with status/branch/commit-prefix filters."""
         project = await ctx.project_or_404(owner, name, request)
         builds = await ctx.queries.builds_for_project(
-            project["id"], page=page, status=status, branch=branch, commit=commit
+            project["id"],
+            page=page,
+            filters=BuildFilters(status=status, branch=branch, commit=commit),
         )
         return {
             "items": [_clean(b) for b in builds.items],

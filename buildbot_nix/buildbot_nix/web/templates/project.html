@@ -43,14 +43,12 @@
           {% include "_build_row.html" %}
         {% endfor %}
       </table>
-      <div class="pager">
-        {% if builds.page > 1 %}
-          <a href="?page={{ builds.page - 1 }}&status={{ status }}&branch={{ branch }}">← newer</a>
-        {% endif %}
-        {% if builds.has_next %}
-          <a href="?page={{ builds.page + 1 }}&status={{ status }}&branch={{ branch }}">older →</a>
-        {% endif %}
-      </div>
+      {% if builds.has_next %}
+        <div class="scroll-sentinel muted"
+             data-more-url="/projects/{{ project.owner }}/{{ project.name }}/rows?status={{ status or '' }}&amp;branch={{ branch or '' }}">
+          loading more…
+        </div>
+      {% endif %}
     </section>
   </main>
 {% endblock body %}

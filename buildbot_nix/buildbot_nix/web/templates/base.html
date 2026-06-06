@@ -19,14 +19,8 @@
       <h1>
         <a href="/">buildbot-nix</a>
       </h1>
-      <a href="/queue">queue</a>
-      <form action="/search" method="get" class="header-search">
-        <input type="search"
-               name="q"
-               aria-label="search projects and attributes"
-               placeholder="search projects &amp; attributes"
-               value="{{ q | default('') }}">
-      </form>
+      <a href="/builds">builds</a>
+      <span class="header-spacer"></span>
       {% if user %}
         <span class="muted">{{ user.qualified }}</span>
         <a href="/tokens">tokens</a>
@@ -51,6 +45,39 @@
           } catch (e) { /* transient */ }
         };
         setInterval(tick, 5000);
+      }
+      /* Infinite scroll: append row fragments when the sentinel under
+         a table.builds becomes visible. Cursor is the last row id. */
+      const sentinel = document.querySelector("[data-more-url]");
+      if (sentinel) {
+        const body = sentinel.previousElementSibling.tBodies[0];
+        let busy = false;
+        const io = new IntersectionObserver(async (entries) => {
+          if (!entries[0].isIntersecting || busy) return;
+          busy = true;
+          const url = new URL(sentinel.dataset.moreUrl, location.origin);
+          const rows = body.querySelectorAll("tr[data-id]");
+          if (rows.length) url.searchParams.set("before", rows[rows.length - 1].dataset.id);
+          try {
+            const res = await fetch(url);
+            const html = (await res.text()).trim();
+            if (!res.ok || !html) { io.disconnect(); sentinel.remove(); return; }
+            body.insertAdjacentHTML("beforeend", html);
+          } catch (e) { /* transient; retried on next intersection */ }
+          busy = false;
+        });
+        io.observe(sentinel);
+      }
+      /* Landing page: filter pipeline rows as you type; submitting
+         the form searches attributes server-side. */
+      const pfilter = document.querySelector("#pipeline-filter");
+      if (pfilter) {
+        pfilter.addEventListener("input", () => {
+          const q = pfilter.value.toLowerCase();
+          for (const row of document.querySelectorAll("[data-pipeline]")) {
+            row.style.display = row.dataset.pipeline.includes(q) ? "" : "none";
+          }
+        });
       }
       /* Client-side attribute filter. */
       const filter = document.querySelector("#attr-filter");

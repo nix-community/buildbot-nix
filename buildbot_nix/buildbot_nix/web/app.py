@@ -31,7 +31,7 @@ from .api_routes import create_api_router
 from .auth_routes import SESSION_COOKIE
 from .logs import LogRegistry, create_log_router
 from .metrics import create_metrics_router
-from .queries import WebQueries
+from .queries import PAGE_SIZE, BuildFilters, WebQueries
 
 if TYPE_CHECKING:
     from ..api_tokens import ApiTokenStore  # noqa: TID252
@@ -216,7 +216,6 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             request=request,
             projects=await ctx.queries.project_overview(project_ids=visible),
             counts=await ctx.queries.status_counts(project_ids=visible),
-            builds=await ctx.queries.recent_builds(project_ids=visible),
             all_projects=all_projects,
         )
 
@@ -230,12 +229,23 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         )
         return ctx.render("search.html", request=request, q=q, results=results)
 
-    @router.get("/queue", response_class=HTMLResponse)
-    async def queue(request: Request) -> HTMLResponse:
+    @router.get("/builds", response_class=HTMLResponse)
+    async def activity(request: Request) -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
         return ctx.render(
-            "queue.html", request=request, queue=await ctx.queries.queue(visible)
+            "activity.html",
+            request=request,
+            queue=await ctx.queries.queue(visible),
+            builds=(builds := await ctx.queries.recent_builds(project_ids=visible)),
+            has_more=len(builds) == PAGE_SIZE,
         )
+
+    @router.get("/builds/rows", response_class=HTMLResponse)
+    async def activity_rows(request: Request, before: int) -> HTMLResponse:
+        """Infinite-scroll fragment for the activity feed."""
+        visible = await ctx.visible_project_ids(request)
+        builds = await ctx.queries.recent_builds(project_ids=visible, before=before)
+        return ctx.render("_build_rows.html", request=request, builds=builds)
 
     @router.get("/projects/{owner}/{name}", response_class=HTMLResponse)
     async def project_page(  # noqa: PLR0913
@@ -248,7 +258,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     ) -> HTMLResponse:
         project = await ctx.project_or_404(owner, name, request)
         builds = await ctx.queries.builds_for_project(
-            project["id"], page=page, status=status, branch=branch
+            project["id"], page=page, filters=BuildFilters(status=status, branch=branch)
         )
         return ctx.render(
             "project.html",
@@ -257,6 +267,27 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             builds=builds,
             status=status or "",
             branch=branch or "",
+        )
+
+    @router.get("/projects/{owner}/{name}/rows", response_class=HTMLResponse)
+    async def project_rows(  # noqa: PLR0913
+        request: Request,
+        owner: str,
+        name: str,
+        before: int,
+        status: str | None = None,
+        branch: str | None = None,
+    ) -> HTMLResponse:
+        """Infinite-scroll fragment for the project build list."""
+        project = await ctx.project_or_404(owner, name, request)
+        builds = await ctx.queries.builds_for_project(
+            project["id"],
+            filters=BuildFilters(
+                status=status or None, branch=branch or None, before=before
+            ),
+        )
+        return ctx.render(
+            "_build_rows.html", request=request, builds=builds.items, project=project
         )
 
     @router.get("/projects/{owner}/{name}/builds/{number}", response_class=HTMLResponse)
