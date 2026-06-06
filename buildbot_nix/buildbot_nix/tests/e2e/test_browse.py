@@ -114,7 +114,7 @@ def test_activity_infinite_scroll(page: Page, server: EngineServer) -> None:
         assert first_batch == PAGE_SIZE
 
         # Scrolling to the sentinel loads the next batch.
-        page.locator("[data-more-url]").scroll_into_view_if_needed()
+        page.locator("tr.scroll-sentinel").scroll_into_view_if_needed()
         page.wait_for_function(
             f"document.querySelectorAll('tr[data-id]').length > {PAGE_SIZE}"
         )

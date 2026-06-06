@@ -1,23 +1,32 @@
 {% extends "base.html" %}
 {% block bodyattrs %}
-  data-events="/events"
+  hx-ext="sse, morph" sse-connect="/events"
 {% endblock bodyattrs %}
 {% block body %}
-  <main id="main">
+  <main id="main"
+        hx-get="/"
+        hx-include="#pipeline-filter"
+        hx-select="#main"
+        hx-target="this"
+        hx-swap="morph:outerHTML"
+        hx-trigger="sse:message delay:300ms">
     <section class="content dashboard">
-      <div data-poll-url="/fragments/summary">
-        {% with project_count = projects | length %}
-          {% include "_summary.html" %}
-        {% endwith %}
-      </div>
+      {% include "_summary.html" %}
       <h2 class="section">Projects</h2>
       <p class="filters">
         <input type="search"
                id="pipeline-filter"
+               name="q"
+               value="{{ q }}"
+               hx-get="/"
+               hx-trigger="input changed delay:200ms"
+               hx-select="#main"
+               hx-target="#main"
+               hx-swap="morph:outerHTML"
                aria-label="filter projects"
                placeholder="filter projects">
       </p>
-      <div id="pipelines" data-poll-url="/fragments/pipelines">{% include "_pipelines.html" %}</div>
+      {% include "_pipelines.html" %}
       {% if all_projects %}
         <h2 class="section">Administration</h2>
         <ul class="admin-projects">

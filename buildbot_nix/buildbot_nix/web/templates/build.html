@@ -4,10 +4,21 @@
     project.name) }} #{{ build.number }}
 {% endblock title %}
 {% block bodyattrs %}
-  data-events="/events?build={{ build.id }}"
+  hx-ext="sse, morph" sse-connect="/events?build={{ build.id }}"
 {% endblock bodyattrs %}
 {% block body %}
-  <main id="main">
+  {# sseOpen re-checks state rendered before the stream connected;
+     a status change in that gap would otherwise be lost. #}
+  {% set trigger = "sse:message delay:300ms" %}
+  {% if build.status in RUNNING_STATUSES %}
+    {% set trigger = trigger ~ ", htmx:sseOpen from:body" %}
+  {% endif %}
+  <main id="main"
+        hx-get="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}"
+        hx-select="#main"
+        hx-target="this"
+        hx-swap="morph:outerHTML"
+        hx-trigger="{{ trigger }}">
     <section class="content">
       <div class="build-header">
         <div>
@@ -71,34 +82,7 @@
                placeholder="filter attributes"
                aria-label="filter attributes">
       </p>
-      <div id="attributes"
-           data-poll-url="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attributes">
-        {% include "_attributes.html" %}
-      </div>
+      <div id="attributes">{% include "_attributes.html" %}</div>
     </section>
   </main>
-  <script>
-    /* Build-level status only shows in the server-rendered header:
-       reload, unless the user is mid-interaction. */
-    const refresh = () => {
-      if (document.activeElement !== document.body) return;
-      if (document.querySelector("details[open]")) return;
-      location.reload();
-    };
-    document.addEventListener("buildevent", (ev) => {
-      if (!ev.detail.attr) refresh();
-    });
-    {% if build.status in RUNNING_STATUSES %}
-      /* A status change between render and SSE connect is lost; check
-         on (re)connect whether the rendered status is still current. */
-      document.addEventListener("eventsopen", () => {
-        fetch("/api/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}")
-          .then((res) => (res.ok ? res.json() : null))
-          .then((data) => {
-            if (data && data.build.status !== {{ build.status | tojson }}) refresh();
-          })
-          .catch(() => { /* transient */ });
-      });
-    {% endif %}
-  </script>
 {% endblock body %}

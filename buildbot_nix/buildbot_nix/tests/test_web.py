@@ -137,18 +137,14 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
     assert '["' not in text
 
 
-def test_build_page_live_poll_marker(client: WebClient) -> None:
+def test_build_page_live_markers(client: WebClient) -> None:
     running = get(client, "/projects/acme/widget/builds/3")
-    # SSE-driven refresh markers: event stream scoped to the build,
-    # attributes fragment to refetch on events.
-    assert 'data-events="/events?build=' in running.text
-    assert 'data-poll-url="' in running.text
+    # htmx SSE wiring: event stream scoped to the build, main region
+    # refetched and morphed on events.
+    assert 'sse-connect="/events?build=' in running.text
+    assert 'hx-trigger="sse:message' in running.text
     # PR link on the PR build.
     assert "/pull/5" in running.text
-
-    fragment = get(client, "/projects/acme/widget/builds/3/attributes")
-    assert fragment.status_code == 200
-    assert "x86_64-linux.ok" in fragment.text
 
 
 def test_attribute_history(client: WebClient) -> None:
@@ -159,11 +155,11 @@ def test_attribute_history(client: WebClient) -> None:
         assert f"/builds/{number}" in response.text
 
 
-def test_pipelines_filter_escapes_like_wildcards(client: WebClient) -> None:
+def test_project_filter_escapes_like_wildcards(client: WebClient) -> None:
     # `%` and `_` must match literally, not as ILIKE wildcards.
-    assert "acme/widget" in get(client, "/fragments/pipelines?q=widg").text
-    assert "acme/widget" not in get(client, "/fragments/pipelines?q=%25").text
-    assert "acme/widget" not in get(client, "/fragments/pipelines?q=widge_").text
+    assert "acme/widget" in get(client, "/?q=widg").text
+    assert "acme/widget" not in get(client, "/?q=%25").text
+    assert "acme/widget" not in get(client, "/?q=widge_").text
 
 
 def test_page_out_of_range_does_not_error(client: WebClient) -> None:

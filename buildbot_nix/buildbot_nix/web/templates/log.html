@@ -2,9 +2,6 @@
 {% block title %}
   {{ attr }} log
 {% endblock title %}
-{% block bodyattrs %}
-  data-events="/events?build={{ build.id }}"
-{% endblock bodyattrs %}
 {% block body %}
   <main id="main">
     <section class="content">
@@ -64,15 +61,17 @@
       <script>
         /* Status changes for this attribute re-render the page:
            header dot, controls, and (once finished) line anchors. */
-        document.addEventListener("buildevent", (ev) => {
-          const e = ev.detail;
+        const events = new EventSource("/events?build={{ build.id }}");
+        events.onmessage = (ev) => {
+          let e;
+          try { e = JSON.parse(ev.data); } catch { return; }
           if (e.attr !== {{ attr | tojson }}) return;
           {% if live %}
             if (!["pending", "building"].includes(e.status)) location.reload();
           {% else %}
             location.reload();
           {% endif %}
-        });
+        };
       </script>
     </section>
   </main>

@@ -1,3 +1,11 @@
 {% for b in builds %}
   {% include "_build_row.html" %}
 {% endfor %}
+{% if has_more %}
+  <tr class="scroll-sentinel"
+      hx-get="{{ more_url }}{{ "&" if "?" in more_url else "?" }}before={{ (builds | last).id }}"
+      hx-trigger="revealed"
+      hx-swap="outerHTML">
+    <td colspan="7" class="muted">loading more…</td>
+  </tr>
+{% endif %}

@@ -18,12 +18,12 @@ import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -50,6 +50,8 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 RUNNING_STATUSES = ("pending", "evaluating", "building")
+# Upper bound for live row refreshes of deep-scrolled tables.
+MAX_ROWS = 500
 
 
 def timeago(value: datetime | None) -> str:
@@ -208,7 +210,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     router = APIRouter()
 
     @router.get("/", response_class=HTMLResponse)
-    async def index(request: Request) -> HTMLResponse:
+    async def index(request: Request, q: str = "") -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
         # Discovery inserts repos disabled; admins enable them here.
         admin = ctx.visibility is not None and is_admin(
@@ -218,8 +220,12 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         return ctx.render(
             "index.html",
             request=request,
-            projects=await ctx.queries.project_overview(project_ids=visible),
+            q=q,
+            projects=await ctx.queries.project_overview(
+                project_ids=visible, q=q or None
+            ),
             counts=await ctx.queries.status_counts(project_ids=visible),
+            project_count=await ctx.queries.project_count(project_ids=visible),
             all_projects=all_projects,
         )
 
@@ -232,48 +238,33 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             queue=await ctx.queries.queue(visible),
             builds=(builds := await ctx.queries.recent_builds(project_ids=visible)),
             has_more=len(builds) == PAGE_SIZE,
+            more_url="/builds/rows",
         )
 
     @router.get("/builds/rows", response_class=HTMLResponse)
     async def activity_rows(
-        request: Request,
-        before: int | None = None,
-        build_id: Annotated[int | None, Query(alias="id")] = None,
+        request: Request, before: int | None = None, limit: int = PAGE_SIZE
     ) -> HTMLResponse:
-        """Row fragments: infinite scroll (before=) or a single row
-        refreshed after a live status event (id=)."""
+        """Row fragments: infinite scroll (before=) and live refresh of
+        the loaded rows (limit=)."""
+        limit = min(max(limit, 1), MAX_ROWS)
         visible = await ctx.visible_project_ids(request)
         builds = await ctx.queries.recent_builds(
-            project_ids=visible, before=before, build_id=build_id
+            limit=limit + 1, project_ids=visible, before=before
         )
-        return ctx.render("_build_rows.html", request=request, builds=builds)
+        return ctx.render(
+            "_build_rows.html",
+            request=request,
+            builds=builds[:limit],
+            has_more=len(builds) > limit,
+            more_url="/builds/rows",
+        )
 
     @router.get("/builds/queue", response_class=HTMLResponse)
     async def queue_fragment(request: Request) -> HTMLResponse:
         visible = await ctx.visible_project_ids(request)
         return ctx.render(
             "_queue.html", request=request, queue=await ctx.queries.queue(visible)
-        )
-
-    @router.get("/fragments/summary", response_class=HTMLResponse)
-    async def summary_fragment(request: Request) -> HTMLResponse:
-        visible = await ctx.visible_project_ids(request)
-        return ctx.render(
-            "_summary.html",
-            request=request,
-            counts=await ctx.queries.status_counts(project_ids=visible),
-            project_count=await ctx.queries.project_count(project_ids=visible),
-        )
-
-    @router.get("/fragments/pipelines", response_class=HTMLResponse)
-    async def pipelines_fragment(
-        request: Request, q: str | None = None
-    ) -> HTMLResponse:
-        visible = await ctx.visible_project_ids(request)
-        return ctx.render(
-            "_pipelines.html",
-            request=request,
-            projects=await ctx.queries.project_overview(project_ids=visible, q=q),
         )
 
     @router.get("/projects/{owner}/{name}", response_class=HTMLResponse)
@@ -304,24 +295,29 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         owner: str,
         name: str,
         before: int | None = None,
-        build_id: Annotated[int | None, Query(alias="id")] = None,
+        limit: int = PAGE_SIZE,
         status: str | None = None,
         branch: str | None = None,
     ) -> HTMLResponse:
-        """Row fragments: infinite scroll (before=) or a single row
-        refreshed after a live status event (id=)."""
+        """Row fragments: infinite scroll (before=) and live refresh of
+        the loaded rows (limit=)."""
+        limit = min(max(limit, 1), MAX_ROWS)
         project = await ctx.project_or_404(owner, name, request)
         builds = await ctx.queries.builds_for_project(
             project["id"],
+            limit=limit,
             filters=BuildFilters(
-                status=status or None,
-                branch=branch or None,
-                before=before,
-                id=build_id,
+                status=status or None, branch=branch or None, before=before
             ),
         )
         return ctx.render(
-            "_build_rows.html", request=request, builds=builds.items, project=project
+            "_build_rows.html",
+            request=request,
+            builds=builds.items,
+            has_more=builds.has_next,
+            more_url=f"/projects/{owner}/{name}/rows?status={status or ''}"
+            f"&branch={branch or ''}",
+            project=project,
         )
 
     @router.get("/projects/{owner}/{name}/builds/{number}", response_class=HTMLResponse)
@@ -346,25 +342,6 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             attributes=await ctx.queries.attributes(build["id"]),
             prev_number=prev_number,
             next_number=next_number,
-        )
-
-    @router.get(
-        "/projects/{owner}/{name}/builds/{number}/attributes",
-        response_class=HTMLResponse,
-    )
-    async def build_attributes_fragment(
-        request: Request, owner: str, name: str, number: int
-    ) -> HTMLResponse:
-        """Polled fragment target for live updates while builds run."""
-        project = await ctx.project_or_404(owner, name, request)
-        build = await ctx.queries.build_by_number(project["id"], number)
-        if build is None:
-            raise HTTPException(status_code=404)
-        return ctx.render(
-            "_attributes.html",
-            project=project,
-            build=build,
-            attributes=await ctx.queries.attributes(build["id"]),
         )
 
     @router.get("/projects/{owner}/{name}/attrs/{attr}", response_class=HTMLResponse)

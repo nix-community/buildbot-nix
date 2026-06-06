@@ -3,7 +3,7 @@
   {{ repo_name(project.owner, project.name) }}
 {% endblock title %}
 {% block bodyattrs %}
-  data-events="/events?project={{ project.id }}"
+  hx-ext="sse, morph" sse-connect="/events?project={{ project.id }}"
 {% endblock bodyattrs %}
 {% block body %}
   <main id="main">
@@ -34,26 +34,28 @@
                value="{{ branch }}">
         <button>filter</button>
       </form>
-      <table class="builds"
-             data-row-url="/projects/{{ project.owner }}/{{ project.name }}/rows?status={{ status or '' }}&amp;branch={{ branch or '' }}">
-        <tr>
-          <th scope="col">#</th>
-          <th scope="col">branch</th>
-          <th scope="col">status</th>
-          <th scope="col">commit</th>
-          <th scope="col">when</th>
-          <th scope="col">took</th>
-        </tr>
-        {% for b in builds["items"] %}
-          {% include "_build_row.html" %}
-        {% endfor %}
+      {% set rows_url = "/projects/" ~ project.owner ~ "/" ~ project.name ~ "/rows?status=" ~ (status or "") ~ "&branch=" ~ (branch or "") %}
+      <table class="builds">
+        <thead>
+          <tr>
+            <th scope="col">#</th>
+            <th scope="col">branch</th>
+            <th scope="col">status</th>
+            <th scope="col">commit</th>
+            <th scope="col">when</th>
+            <th scope="col">took</th>
+          </tr>
+        </thead>
+        <tbody id="feed"
+               hx-get="{{ rows_url }}"
+               hx-trigger="sse:message delay:300ms"
+               hx-swap="morph:innerHTML"
+               hx-vals='js:{limit: document.querySelectorAll("#feed tr[data-id]").length}'>
+          {% with builds = builds["items"], has_more = builds.has_next, more_url = rows_url %}
+            {% include "_build_rows.html" %}
+          {% endwith %}
+        </tbody>
       </table>
-      {% if builds.has_next %}
-        <div class="scroll-sentinel muted"
-             data-more-url="/projects/{{ project.owner }}/{{ project.name }}/rows?status={{ status or '' }}&amp;branch={{ branch or '' }}">
-          loading more…
-        </div>
-      {% endif %}
     </section>
   </main>
 {% endblock body %}

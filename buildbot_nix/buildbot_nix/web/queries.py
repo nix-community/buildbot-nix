@@ -18,7 +18,6 @@ class BuildFilters:
     branch: str | None = None
     commit: str | None = None
     before: int | None = None  # cursor: only builds with a smaller id
-    id: int | None = None  # exactly one build, for live row refresh
 
 
 def _like_escape(query: str) -> str:
@@ -157,10 +156,8 @@ class WebQueries:
         limit: int = 50,
         project_ids: list[int] | None = None,
         before: int | None = None,
-        build_id: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Activity feed; cursor on build id for infinite scroll, or a
-        single build for live row refresh."""
+        """Activity feed; cursor on build id for infinite scroll."""
         return _rows(
             await self.pool.fetch(
                 """
@@ -168,13 +165,11 @@ class WebQueries:
                 FROM builds b JOIN projects p ON p.id = b.project_id
                 WHERE ($2::bigint[] IS NULL OR b.project_id = ANY($2))
                   AND ($3::bigint IS NULL OR b.id < $3)
-                  AND ($4::bigint IS NULL OR b.id = $4)
                 ORDER BY b.id DESC LIMIT $1
                 """,
                 limit,
                 project_ids,
                 before,
-                build_id,
             )
         )
 
@@ -183,6 +178,7 @@ class WebQueries:
         project_id: int,
         *,
         page: int = 1,
+        limit: int = PAGE_SIZE,
         filters: BuildFilters | None = None,
     ) -> Page:
         f = filters or BuildFilters()
@@ -202,11 +198,8 @@ class WebQueries:
         if f.before is not None:
             args.append(f.before)
             conditions.append(f"id < ${len(args)}")
-        if f.id is not None:
-            args.append(f.id)
-            conditions.append(f"id = ${len(args)}")
-        args.append(PAGE_SIZE + 1)
-        args.append((page - 1) * PAGE_SIZE)
+        args.append(limit + 1)
+        args.append((page - 1) * limit)
         rows = await self.pool.fetch(
             f"""
             SELECT * FROM builds WHERE {" AND ".join(conditions)}
@@ -214,9 +207,7 @@ class WebQueries:
             """,  # noqa: S608
             *args,
         )
-        return Page(
-            items=_rows(rows[:PAGE_SIZE]), page=page, has_next=len(rows) > PAGE_SIZE
-        )
+        return Page(items=_rows(rows[:limit]), page=page, has_next=len(rows) > limit)
 
     async def build_by_number(
         self, project_id: int, number: int
