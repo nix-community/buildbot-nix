@@ -152,8 +152,8 @@ td.attr-duration {
 .status {
   font-weight: 600;
 }
-/* Pill chrome only in the attribute list; headings keep plain text. */
-/* No color here: it would outweigh the .status.<state> variants
+/* Pill chrome only inside the card lists; headings keep plain text.
+   No color here: it would outweigh the .status.<state> variants
    below (higher specificity). currentColor keeps the border in
    sync with the state color. */
 table.attrs .status, table.builds .status {
@@ -162,11 +162,6 @@ table.attrs .status, table.builds .status {
   border-radius: 999px;
   border: 1px solid currentColor;
   white-space: nowrap;
-}
-form.filters {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0.8rem 0;
 }
 .status.succeeded, .status.success {
   color: var(--ok);
@@ -202,7 +197,6 @@ pre.warning {
   border-left-color: var(--warn);
 }
 details.error summary {
-  cursor: pointer;
   color: var(--bad);
   font-family: monospace;
   font-size: 13px;
@@ -222,6 +216,11 @@ input[type="search"], input[type="text"], select {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.3rem 0.5rem;
+}
+form.filters {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.8rem 0;
 }
 button {
   background: var(--card);
