@@ -13,12 +13,12 @@
           <span class="dot {{ builds['items'][0].status }}" aria-hidden="true"></span>
           <span class="visually-hidden">latest build {{ builds['items'][0].status.replace('_', ' ') }}</span>
         {% endif %}
-        {{ repo_name(project.owner, project.name) }}
-        <small>
-          {# Pull-based projects carry a local path, not a web URL. #}
-          {% if project.url.startswith("http") %}<a href="{{ project.url }}">repo</a> ·{% endif %}
-          default branch {{ project.default_branch }}
-        </small>
+        {# Pull-based projects carry a local path, not a web URL. #}
+        {% if project.url.startswith("http") %}
+          <a href="{{ project.url }}">{{ repo_name(project.owner, project.name) }}</a>
+        {% else %}
+          {{ repo_name(project.owner, project.name) }}
+        {% endif %}
       </h2>
       <form method="get" class="filters">
         <select name="status" aria-label="status">
