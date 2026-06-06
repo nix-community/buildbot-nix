@@ -23,7 +23,7 @@
       <div class="build-header">
         <div>
           <h2>
-            <span class="dot {{ build.status }}" aria-hidden="true"></span><a href="/projects/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a>
+            <span class="status-icon {{ build.status }}" aria-hidden="true"></span><a href="/projects/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a>
             build #{{ build.number }}
             <span class="status {{ build.status }}">{{ build.status }}</span>
             <span class="pager">

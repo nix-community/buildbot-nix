@@ -8,7 +8,7 @@
       <div class="build-header">
         <h2>
           {% if attr_status %}
-            <span class="dot {{ attr_status }}" aria-hidden="true"></span>
+            <span class="status-icon {{ attr_status }}" aria-hidden="true"></span>
             <span class="visually-hidden">{{ attr_status.replace('_', ' ') }}</span>
           {% endif %}
           <code>{{ attr }}</code>

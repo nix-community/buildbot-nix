@@ -189,14 +189,6 @@ td.attr-duration {
 	margin-right: 0.5rem;
 	background: var(--status-color, var(--muted));
 }
-.dot.building,
-.dot.evaluating {
-	animation: pulse 1.2s ease-in-out infinite;
-}
-h2 .dot {
-	width: 0.8rem;
-	height: 0.8rem;
-}
 @keyframes pulse {
 	50% {
 		opacity: 0.3;
@@ -212,13 +204,24 @@ h2 .dot {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+	flex: none;
 	width: 1.15rem;
 	height: 1.15rem;
+	margin-right: 0.5rem;
 	border: 1.5px solid var(--status-color, var(--muted));
 	border-radius: 50%;
 	color: var(--status-color, var(--muted));
 	font-size: 0.7rem;
 	line-height: 1;
+	vertical-align: text-bottom;
+}
+td.attr-status .status-icon {
+	margin-right: 0;
+}
+h2 .status-icon {
+	width: 1.3rem;
+	height: 1.3rem;
+	font-size: 0.8rem;
 }
 .status-icon.succeeded::before {
 	content: "\2713";

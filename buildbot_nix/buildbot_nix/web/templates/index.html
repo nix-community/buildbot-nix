@@ -13,11 +13,11 @@
     <section class="content dashboard">
       <div class="summary-strip">
         <span class="summary-item">
-          <span class="dot building" aria-hidden="true"></span>
+          <span class="status-icon building" aria-hidden="true"></span>
           {{ (counts.building | default(0) ) + (counts.evaluating | default(0)) }} running
         </span>
         <span class="summary-item">
-          <span class="dot pending" aria-hidden="true"></span>
+          <span class="status-icon pending" aria-hidden="true"></span>
           {{ counts.pending | default(0) }} queued
         </span>
         <span class="summary-item muted">{{ project_count }} projects</span>
@@ -42,7 +42,7 @@
           <div class="pipeline-row">
             <a class="pipeline{% if p.last_status %} {{ p.last_status }}{% endif %}"
                href="/projects/{{ p.owner }}/{{ p.name }}">
-              <span class="dot {{ p.last_status or '' }}" aria-hidden="true"></span>
+              <span class="status-icon {{ p.last_status or '' }}" aria-hidden="true"></span>
               {% if p.last_status %}
                 <span class="visually-hidden">{{ p.last_status.replace('_', ' ') }}</span>
               {% endif %}
