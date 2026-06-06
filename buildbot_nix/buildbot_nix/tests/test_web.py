@@ -256,6 +256,30 @@ def test_ansi_to_html() -> None:
     assert "\n" not in lines
 
 
+def test_ansi_sgr_is_stateful() -> None:
+    # Codes accumulate: bold must not drop the color set earlier.
+    assert ansi_to_html("\x1b[31mr\x1b[1mb") == (
+        '<span class="ansi-red">r</span><span class="ansi-red ansi-bold">b</span>'
+    )
+    # Unknown codes (dim) are ignored, not a reset.
+    assert ansi_to_html("\x1b[31ma\x1b[2mb") == (
+        '<span class="ansi-red">a</span><span class="ansi-red">b</span>'
+    )
+    # 5;31 are arguments of the (unsupported) 256-color code 38, not
+    # a basic red.
+    assert ansi_to_html("\x1b[38;5;31mx") == "x"
+    assert ansi_to_html("\x1b[38;2;1;2;3mx") == "x"
+
+
+def test_render_log_lines_carries_color_across_lines() -> None:
+    # nix error blocks are colored over several lines; the reset
+    # arrives lines later.
+    out = render_log_lines("\x1b[31mone\ntwo\x1b[0m\nthree")
+    assert '<span class="ansi-red">one</span>' in out
+    assert '<span class="ansi-red">two</span>' in out
+    assert ">three</span>" in out
+
+
 def test_ansi_stream_state_across_chunks() -> None:
     stream = AnsiHtmlStream()
     # Escape sequence split between chunks.

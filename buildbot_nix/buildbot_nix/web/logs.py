@@ -71,39 +71,72 @@ _COLOR_CLASSES = {
             ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
         )
     },
-    "1": "ansi-bold",
 }
 
+# fg color class (or None) and bold; the default style.
+_Style = tuple[str | None, bool]
+_RESET: _Style = (None, False)
 
-def _ansi_convert(text: str, classes: list[str]) -> tuple[str, list[str]]:
+
+def _apply_sgr(params: str, style: _Style) -> _Style:
+    """SGR is stateful: codes modify the current style, they don't
+    replace it. Unknown codes are ignored; 256/truecolor sequences
+    consume their arguments so e.g. 38;5;31 is not read as red."""
+    fg, bold = style
+    codes = (params or "0").split(";")
+    i = 0
+    while i < len(codes):
+        code = codes[i] or "0"
+        if code == "0":
+            fg, bold = _RESET
+        elif code == "1":
+            bold = True
+        elif code == "22":
+            bold = False
+        elif code == "39":
+            fg = None
+        elif code in _COLOR_CLASSES:
+            fg = _COLOR_CLASSES[code]
+        elif code in ("38", "48"):
+            # Extended color (unsupported): 38;5;n or 38;2;r;g;b.
+            is_rgb = i + 1 < len(codes) and codes[i + 1] == "2"
+            i += 4 if is_rgb else 2
+        i += 1
+    return fg, bold
+
+
+def _classes(style: _Style) -> str:
+    fg, bold = style
+    return " ".join(c for c in (fg, "ansi-bold" if bold else None) if c)
+
+
+def _ansi_convert(text: str, style: _Style) -> tuple[str, _Style]:
     """Convert SGR color/bold codes to spans; strip other sequences.
-    `classes` is the style carried in from the previous chunk; the
-    style left open at the end is returned for the next one."""
+    `style` carries in from the previous chunk/line; the style left
+    open at the end is returned for the next one."""
     text = _ANSI_OTHER_RE.sub("", text)
-    segments: list[tuple[str, list[str]]] = []
+    segments: list[tuple[str, _Style]] = []
     pos = 0
     for match in _ANSI_SGR_RE.finditer(text):
-        segments.append((text[pos : match.start()], classes))
+        segments.append((text[pos : match.start()], style))
         pos = match.end()
-        classes = [
-            _COLOR_CLASSES[code]
-            for code in (match.group(1) or "0").split(";")
-            if code in _COLOR_CLASSES
-        ]
-    segments.append((text[pos:], classes))
+        style = _apply_sgr(match.group(1), style)
+    segments.append((text[pos:], style))
     out = []
-    for segment, style in segments:
+    for segment, seg_style in segments:
         if not segment:
             continue
-        if style:
-            out.append(f'<span class="{" ".join(style)}">{html.escape(segment)}</span>')
-        else:
+        if seg_style == _RESET:
             out.append(html.escape(segment))
-    return "".join(out), classes
+        else:
+            out.append(
+                f'<span class="{_classes(seg_style)}">{html.escape(segment)}</span>'
+            )
+    return "".join(out), style
 
 
 def ansi_to_html(text: str) -> str:
-    return _ansi_convert(text, [])[0]
+    return _ansi_convert(text, _RESET)[0]
 
 
 class AnsiHtmlStream:
@@ -111,7 +144,7 @@ class AnsiHtmlStream:
     sequences split across chunk boundaries survive."""
 
     def __init__(self) -> None:
-        self._classes: list[str] = []
+        self._style = _RESET
         self._tail = ""
 
     def feed(self, text: str) -> str:
@@ -121,17 +154,20 @@ class AnsiHtmlStream:
         if partial:
             self._tail = text[partial.start() :]
             text = text[: partial.start()]
-        rendered, self._classes = _ansi_convert(text, self._classes)
+        rendered, self._style = _ansi_convert(text, self._style)
         return rendered
 
 
 def render_log_lines(text: str) -> str:
-    """Lines with id anchors for permalinks."""
+    """Lines with id anchors for permalinks. Style carries across
+    lines, matching what the live stream rendered."""
     lines = []
+    style = _RESET
     for i, line in enumerate(text.splitlines(), 1):
+        rendered, style = _ansi_convert(line, style)
         lines.append(
             f'<span class="logline" id="L{i}">'
-            f'<a class="lineno" href="#L{i}">{i}</a>{ansi_to_html(line)}</span>'
+            f'<a class="lineno" href="#L{i}">{i}</a>{rendered}</span>'
         )
     # .logline is display:block; a joining "\n" inside <pre> would
     # render as an extra blank line.
