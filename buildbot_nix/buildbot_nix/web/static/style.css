@@ -10,6 +10,7 @@
 	--bad: #c62828;
 	--warn: #e65100;
 	--run: #1565c0;
+	--queued: #b07d1f;
 	--accent: #5277c3;
 	--card: #f4f5f7;
 	--hover: rgb(130 170 255 / 6%);
@@ -28,6 +29,7 @@
 		--bad: #f28b82;
 		--warn: #fdd663;
 		--run: #8ab4f8;
+		--queued: #fdd663;
 		--accent: #7ca4e0;
 		--card: #1b2025;
 		--ansi-magenta: #ce93d8;
@@ -117,10 +119,12 @@ th {
 .cached_failure {
 	--status-color: var(--bad);
 }
-.pending,
 .evaluating,
 .building {
 	--status-color: var(--run);
+}
+.pending {
+	--status-color: var(--queued);
 }
 .cancelled,
 .skipped_local {
