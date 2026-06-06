@@ -117,7 +117,7 @@ def make_reporter(
 def test_context_names_unchanged() -> None:
     assert (
         attr_status_context("github", "acme/widget", "x86_64-linux.foo")
-        == "nix-build github:acme/widget#checks.x86_64-linux.foo"
+        == "buildbot/nix-build github:acme/widget#checks.x86_64-linux.foo"
     )
 
 
@@ -138,10 +138,10 @@ def test_phase_statuses_and_target_url() -> None:
     asyncio.run(run())
     contexts = [(p.context, p.state) for p in poster.posts]
     assert contexts == [
-        ("nix-eval", StatusState.pending),
-        ("nix-eval", StatusState.success),
-        ("nix-build", StatusState.pending),
-        ("nix-build", StatusState.success),
+        ("buildbot/nix-eval", StatusState.pending),
+        ("buildbot/nix-eval", StatusState.success),
+        ("buildbot/nix-build", StatusState.pending),
+        ("buildbot/nix-build", StatusState.success),
     ]
     assert all(
         p.target_url == "https://ci.test/projects/acme/widget/builds/42"
@@ -158,10 +158,12 @@ def test_per_attribute_failure_statuses_capped() -> None:
     ]
 
     asyncio.run(reporter.build_finished(EVENT, BUILD, "failed", 1, results))
-    failure_posts = [p for p in poster.posts if p.context.startswith("nix-build ")]
+    failure_posts = [
+        p for p in poster.posts if p.context.startswith("buildbot/nix-build ")
+    ]
     assert len(failure_posts) == 2  # capped at the limit
     # Combined nix-build context still reports the full picture.
-    combined = next(p for p in poster.posts if p.context == "nix-build")
+    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
     assert combined.state == StatusState.failure
     assert "4 of 4" in combined.description
 
@@ -219,7 +221,7 @@ def test_cancelled_attributes_recorded_as_failed_statuses() -> None:
     )
     context = attr_status_context("github", "acme/widget", "a")
     assert context in asyncio.run(store.get_failed("sha1"))
-    combined = next(p for p in poster.posts if p.context == "nix-build")
+    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
     assert combined.state == StatusState.error
 
 
@@ -249,7 +251,7 @@ def test_previously_failed_reposts_do_not_consume_budget() -> None:
 
     asyncio.run(run())
     failure_posts = {
-        p.context for p in poster.posts if p.context.startswith("nix-build ")
+        p.context for p in poster.posts if p.context.startswith("buildbot/nix-build ")
     }
     # a2 is reported: the re-posts did not exhaust the budget of 2.
     assert attr_status_context("github", "acme/widget", "a2") in failure_posts
@@ -270,7 +272,7 @@ def test_summary_counts_use_all_attribute_statuses() -> None:
             attr_statuses=all_statuses,
         )
     )
-    combined = next(p for p in poster.posts if p.context == "nix-build")
+    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
     assert combined.description == "100 attributes built"
 
 
@@ -291,7 +293,8 @@ def test_attr_prefix_follows_repo_configuration() -> None:
 
     asyncio.run(run())
     assert any(
-        p.context == "nix-build github:acme/widget#hydraJobs.foo" for p in poster.posts
+        p.context == "buildbot/nix-build github:acme/widget#hydraJobs.foo"
+        for p in poster.posts
     )
 
 

@@ -1,11 +1,11 @@
 """Commit status reporting.
 
-Combined per-phase contexts exactly as today — `nix-eval` (warning
-count appended to the description), `nix-build`, `nix-effects` — plus
-per-attribute failure statuses (`nix-build <forge>:<owner>/<repo>#
-checks.<attr>`) for failing/cancelled attributes, capped by
-failedBuildReportLimit (default 47). Context names are unchanged so
-existing branch protection rules keep working.
+Combined per-phase contexts keep their buildbot-era names —
+`buildbot/nix-eval` (warning count appended to the description) and
+`buildbot/nix-build` — so existing branch protection rules keep
+working. Per-attribute failure statuses (`buildbot/nix-build
+<forge>:<owner>/<repo>#checks.<attr>`) cover failing/cancelled
+attributes, capped by failedBuildReportLimit (default 47).
 
 Failed per-attribute statuses are persisted per revision
 (failed_statuses table, port of db/failed_status.py) so a later
@@ -179,7 +179,7 @@ class FailedStatusStore:
 def attr_status_context(
     forge: str, project_name: str, attr: str, prefix: str = "checks"
 ) -> str:
-    return f"nix-build {forge}:{project_name}#{prefix}.{attr}"
+    return f"buildbot/nix-build {forge}:{project_name}#{prefix}.{attr}"
 
 
 def eval_description(success: bool, warnings: list[str]) -> str:
@@ -243,7 +243,7 @@ class ForgeStatusReporter:
 
     async def build_started(self, event: ChangeEvent, build: BuildRecord) -> None:
         await self._post(
-            event, build, "nix-eval", StatusState.pending, "evaluating flake"
+            event, build, "buildbot/nix-eval", StatusState.pending, "evaluating flake"
         )
 
     async def eval_finished(
@@ -257,13 +257,17 @@ class ForgeStatusReporter:
         await self._post(
             event,
             build,
-            "nix-eval",
+            "buildbot/nix-eval",
             StatusState.success if success else StatusState.failure,
             eval_description(success, warnings),
         )
         if success:
             await self._post(
-                event, build, "nix-build", StatusState.pending, "building attributes"
+                event,
+                build,
+                "buildbot/nix-build",
+                StatusState.pending,
+                "building attributes",
             )
 
     async def build_finished(  # noqa: PLR0913
@@ -359,14 +363,19 @@ class ForgeStatusReporter:
                 if counts["failed"]
                 else (build.tree_hash and "build failed") or "merge conflict"
             )
-        await self._post(event, build, "nix-build", state, description or "failed")
+        await self._post(
+            event, build, "buildbot/nix-build", state, description or "failed"
+        )
 
     async def force_attrs_for(
         self, event: ChangeEvent, attr_prefix: str = "checks"
     ) -> set[str]:
         """Attrs whose failed status must be flipped: feed to the
         scheduler as force_attrs so already-built attrs still run."""
-        prefix = f"nix-build {event.project.forge}:{event.project.name}#{attr_prefix}."
+        prefix = (
+            f"buildbot/nix-build {event.project.forge}:"
+            f"{event.project.name}#{attr_prefix}."
+        )
         return {
             name.removeprefix(prefix)
             for name in await self.failed_statuses.get_failed(event.commit_sha)
