@@ -21,9 +21,9 @@
           {{ status_icon("pending", labelled=false) }}
           {{ counts.pending | default(0) }} queued
         </span>
-        <span class="summary-item muted">{{ project_count }} projects</span>
+        <span class="summary-item muted">{{ project_count }} repositories</span>
       </div>
-      <h2 class="section">Projects</h2>
+      <h2 class="section">Repositories</h2>
       <p class="filters">
         <input type="search"
                id="pipeline-filter"
@@ -34,7 +34,7 @@
                hx-select="#main"
                hx-target="#main"
                hx-swap="morph:outerHTML"
-               {% if toggleable is none or toggleable %} aria-label="filter projects or find repositories to enable" placeholder="filter projects · search to add new ones" {% else %} aria-label="filter projects" placeholder="filter projects" {% endif %}>
+               {% if toggleable is none or toggleable %} aria-label="filter repositories or find new ones to enable" placeholder="filter repositories · search to add new ones" {% else %} aria-label="filter repositories" placeholder="filter repositories" {% endif %}>
       </p>
       <div class="pipelines">
         {% for p in projects %}
@@ -97,11 +97,11 @@
           </div>
         {% else %}
           {% if q %}
-            <p class="muted">no matching projects</p>
+            <p class="muted">no matching repositories</p>
           {% elif toggleable is none or toggleable %}
-            <p class="muted">no projects enabled yet &mdash; search above to find your repositories</p>
+            <p class="muted">no repositories enabled yet &mdash; search above to find yours</p>
           {% else %}
-            <p class="muted">no projects enabled yet</p>
+            <p class="muted">no repositories enabled yet</p>
           {% endif %}
         {% endfor %}
       </div>

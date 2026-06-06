@@ -80,7 +80,7 @@ def test_attribute_log_prev_next_navigation(page: Page) -> None:
 def test_project_filter(page: Page) -> None:
     page.goto("/")
     page.fill("#pipeline-filter", "nope-no-such-project")
-    page.get_by_text("no matching projects").wait_for(timeout=15_000)
+    page.get_by_text("no matching repositories").wait_for(timeout=15_000)
     page.fill("#pipeline-filter", "widget")
     page.get_by_text("acme/widget").first.wait_for(timeout=15_000)
 
