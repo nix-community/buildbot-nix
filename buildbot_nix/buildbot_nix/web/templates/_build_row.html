@@ -3,7 +3,8 @@
 row_name = b["project_name"] if "project_name" in b else project.name %}
 <tr data-id="{{ b.id }}">
   <td>
-    <span class="status-icon {{ b.status }}" aria-hidden="true"></span><a href="/projects/{{ row_owner }}/{{ row_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
+    <span class="status-icon {{ b.status }}"
+          title="{{ b.status.replace('_', ' ') }}"><span class="visually-hidden">{{ b.status.replace('_', ' ') }}</span></span><a href="/projects/{{ row_owner }}/{{ row_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
   </td>
   {% if "project_name" in b %}<td>{{ repo_name(row_owner, row_name) }}</td>{% endif %}
   {% set row_project = b if "url" in b else project %}
@@ -13,9 +14,6 @@ row_name = b["project_name"] if "project_name" in b else project.name %}
     {% else %}
       <a href="{{ branch_url(row_project, b.branch) }}" rel="nofollow">{{ b.branch }}</a>
     {% endif %}
-  </td>
-  <td>
-    <span class="status {{ b.status }}">{{ b.status }}</span>
   </td>
   <td>
     <code>{{ b.commit_sha[:10] }}</code>
