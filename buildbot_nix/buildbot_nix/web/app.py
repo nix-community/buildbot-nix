@@ -161,7 +161,14 @@ class WebContext:
         return self.signer.user_from(request.cookies.get(SESSION_COOKIE))
 
     async def request_user(self, request: Request) -> User | None:
-        """Session cookie or personal API token (Authorization: Bearer)."""
+        """Session cookie or personal API token (Authorization: Bearer).
+        Cached per request: routes ask several times (authz checks,
+        visibility, toggleability) and token auth hits the database."""
+        if not hasattr(request.state, "bn_user"):
+            request.state.bn_user = await self._request_user(request)
+        return request.state.bn_user
+
+    async def _request_user(self, request: Request) -> User | None:
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer ") and self.token_store is not None:
             return await self.token_store.authenticate(
@@ -193,6 +200,11 @@ class WebContext:
         )
 
     async def _forge_token(self, request: Request) -> str | None:
+        if not hasattr(request.state, "bn_forge_token"):
+            request.state.bn_forge_token = await self._fetch_forge_token(request)
+        return request.state.bn_forge_token
+
+    async def _fetch_forge_token(self, request: Request) -> str | None:
         if self.signer is None or self.forge_tokens is None:
             return None
         session_id = self.signer.session_id_from(request.cookies.get(SESSION_COOKIE))
