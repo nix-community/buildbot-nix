@@ -28,7 +28,7 @@ block body %}
             <span class="status {{ h.status }}">{{ h.status.replace('_', ' ') }}</span>
           </td>
           <td>
-            <code>{{ h.commit_sha[:10] }}</code>
+            <a href="{{ commit_url(project, h.commit_sha) }}" rel="nofollow"><code>{{ h.commit_sha[:10] }}</code></a>
           </td>
           <td>
             <time datetime="{{ h.build_created_at.isoformat() }}"

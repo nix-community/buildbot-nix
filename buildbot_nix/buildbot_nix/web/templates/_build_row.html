@@ -16,7 +16,7 @@ row_name = b["project_name"] if "project_name" in b else project.name %}
     {% endif %}
   </td>
   <td>
-    <code>{{ b.commit_sha[:10] }}</code>
+    <a href="{{ commit_url(row_project, b.commit_sha) }}" rel="nofollow"><code>{{ b.commit_sha[:10] }}</code></a>
   </td>
   <td>
     <time datetime="{{ b.created_at.isoformat() }}" title="{{ b.created_at }}">{{ b.created_at | timeago }}</time>
