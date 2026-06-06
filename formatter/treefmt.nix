@@ -10,6 +10,8 @@
   settings.formatter.deno.excludes = [
     "buildbot_nix/buildbot_nix/web/templates/*"
     "buildbot_nix/buildbot_nix/web/static/*.css"
+    # Vendored third-party code stays byte-identical to upstream.
+    "buildbot_nix/buildbot_nix/web/static/vendor/*"
   ];
 
   # Jinja-aware HTML formatter + linter; config in buildbot_nix/pyproject.toml.

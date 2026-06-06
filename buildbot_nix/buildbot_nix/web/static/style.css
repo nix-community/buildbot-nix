@@ -366,26 +366,40 @@ pre.log {
 	color: var(--muted);
 	user-select: none;
 }
+/* Server render uses .ansi-<color>; the live stream goes through
+   ansi_up, which emits .ansi-<color>-fg. */
 .ansi-red,
-.ansi-bright-red {
+.ansi-bright-red,
+.ansi-red-fg,
+.ansi-bright-red-fg {
 	color: var(--bad);
 }
 .ansi-green,
-.ansi-bright-green {
+.ansi-bright-green,
+.ansi-green-fg,
+.ansi-bright-green-fg {
 	color: var(--ok);
 }
 .ansi-yellow,
-.ansi-bright-yellow {
+.ansi-bright-yellow,
+.ansi-yellow-fg,
+.ansi-bright-yellow-fg {
 	color: var(--warn);
 }
 .ansi-blue,
 .ansi-bright-blue,
 .ansi-cyan,
-.ansi-bright-cyan {
+.ansi-bright-cyan,
+.ansi-blue-fg,
+.ansi-bright-blue-fg,
+.ansi-cyan-fg,
+.ansi-bright-cyan-fg {
 	color: var(--run);
 }
 .ansi-magenta,
-.ansi-bright-magenta {
+.ansi-bright-magenta,
+.ansi-magenta-fg,
+.ansi-bright-magenta-fg {
 	color: #ab47bc;
 }
 .ansi-bold {

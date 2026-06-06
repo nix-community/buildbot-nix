@@ -1,12 +1,12 @@
 """FastAPI web frontend.
 
 Server-rendered Jinja2 with a small inline poller for live updates
-(htmx-style partial swaps without a JS build step), classless CSS with system-preference
+(fragment endpoints polled by a few lines of inline JS), classless CSS with system-preference
 dark mode. Per-project sequential build numbers in URLs; prev/next
 navigation between builds and per-attribute history; homepage
 recent-builds feed with project sidebar; substring search; attributes
 grouped by system with failed-first ordering and inline error
-excerpts; live updates while builds run (htmx polling fragments);
+excerpts; live updates while builds run (polled HTML fragments);
 global queue page with FIFO positions.
 
 Visibility filtering hooks (`visible_project_ids`) are wired by task
@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ..auth import is_admin  # noqa: TID252
@@ -284,7 +285,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     async def build_attributes_fragment(
         request: Request, owner: str, name: str, number: int
     ) -> HTMLResponse:
-        """htmx polling target for live updates while builds run."""
+        """Polled fragment target for live updates while builds run."""
         project = await ctx.project_or_404(owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
@@ -315,12 +316,6 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             return PlainTextResponse("database unavailable", status_code=503)
         return PlainTextResponse("ok")
 
-    @router.get("/static/style.css")
-    async def stylesheet() -> PlainTextResponse:
-        return PlainTextResponse(
-            (STATIC_DIR / "style.css").read_text(), media_type="text/css"
-        )
-
     return router
 
 
@@ -338,4 +333,5 @@ def create_app(
     app.include_router(create_log_router(ctx, registry))
     app.include_router(create_metrics_router(pool))
     app.include_router(create_api_router(ctx))
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app

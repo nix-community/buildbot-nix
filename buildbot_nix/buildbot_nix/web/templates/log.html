@@ -43,19 +43,25 @@ if (!location.hash) log.scrollTop = log.scrollHeight;
     </script>
   {% endif %}
   {% if live %}
-    <script>
+    <script type="module">
+import { AnsiUp } from "/static/vendor/ansi_up.js";
 const follow = document.getElementById('follow');
 /* Scroll only the log pane so the header stays usable; scrolling
    up pauses following, scrolling back to the bottom resumes it. */
 const atBottom = () =>
   log.scrollHeight - log.scrollTop - log.clientHeight < 4;
 log.addEventListener('scroll', () => { follow.checked = atBottom(); });
+/* ansi_up keeps SGR state across chunks (sequences may be split
+   between SSE events), escapes HTML, and drops unknown sequences. */
+let ansi = new AnsiUp();
+ansi.use_classes = true;
 const source = new EventSource(
   '/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}/stream');
 /* The stream replays full history on every (re)connect. */
-source.onopen = () => { log.textContent = ''; };
+source.onopen = () => { log.textContent = ''; ansi = new AnsiUp(); ansi.use_classes = true; };
 source.onmessage = (event) => {
-  log.textContent += event.data; // chunks carry their own newlines
+  // chunks carry their own newlines
+  log.insertAdjacentHTML('beforeend', ansi.ansi_to_html(event.data));
   if (follow.checked) log.scrollTop = log.scrollHeight;
 };
 source.addEventListener('done', () => source.close());
