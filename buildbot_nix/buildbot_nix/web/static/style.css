@@ -515,15 +515,25 @@ pre.log {
 		display: none;
 	}
 }
-.admin-projects {
-	list-style: none;
-	padding: 0;
+.pipeline-row {
+	display: flex;
+	align-items: stretch;
+	gap: 0.5rem;
 }
-.admin-projects li {
+.pipeline-row > .pipeline {
+	flex: 1;
+	min-width: 0;
+}
+.pipeline-row.disabled .pipeline {
+	opacity: 0.55;
+}
+.pipeline-row form {
 	display: flex;
 	align-items: center;
-	gap: 0.75rem;
-	padding: 0.25rem 0;
+}
+.toggle-btn {
+	font-size: 0.8rem;
+	color: var(--muted);
 }
 
 /* Shared page furniture */

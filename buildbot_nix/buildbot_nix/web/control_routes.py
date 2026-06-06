@@ -11,9 +11,10 @@ where the orchestrator lives.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Annotated, Protocol
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from ..auth import can_control_build, is_admin, same_origin  # noqa: TID252
@@ -117,7 +118,9 @@ def create_control_router(  # noqa: C901
         return _back(owner, name, number)
 
     @router.post("/admin/projects/{project_id}/toggle")
-    async def toggle_project(request: Request, project_id: int) -> RedirectResponse:
+    async def toggle_project(
+        request: Request, project_id: int, q: Annotated[str, Form()] = ""
+    ) -> RedirectResponse:
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
         if not is_admin(await ctx.request_user(request), authz):
@@ -127,6 +130,7 @@ def create_control_router(  # noqa: C901
             "WHERE id = $1",
             project_id,
         )
-        return RedirectResponse("/", status_code=303)
+        # Back to the dashboard with the project filter intact.
+        return RedirectResponse(f"/?q={quote(q)}" if q else "/", status_code=303)
 
     return router

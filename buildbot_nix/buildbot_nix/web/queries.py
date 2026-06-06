@@ -52,11 +52,19 @@ class WebQueries:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
 
-    async def projects(self, *, enabled_only: bool = True) -> list[dict[str, Any]]:
-        where = "WHERE enabled" if enabled_only else ""
+    async def projects(
+        self, *, enabled: bool | None = True, q: str | None = None
+    ) -> list[dict[str, Any]]:
         return _rows(
             await self.pool.fetch(
-                f"SELECT * FROM projects {where} ORDER BY owner, name"  # noqa: S608
+                """
+                SELECT * FROM projects
+                WHERE ($1::boolean IS NULL OR enabled = $1)
+                  AND ($2::text IS NULL OR owner || '/' || name ILIKE $2)
+                ORDER BY owner, name
+                """,
+                enabled,
+                f"%{_like_escape(q)}%" if q else None,
             )
         )
 

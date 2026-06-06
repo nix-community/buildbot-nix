@@ -216,17 +216,19 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         admin = ctx.visibility is not None and is_admin(
             ctx.current_user(request), ctx.visibility.authz
         )
-        all_projects = await ctx.queries.projects(enabled_only=False) if admin else None
         return ctx.render(
             "index.html",
             request=request,
             q=q,
+            admin=admin,
             projects=await ctx.queries.project_overview(
                 project_ids=visible, q=q or None
             ),
             counts=await ctx.queries.status_counts(project_ids=visible),
             project_count=await ctx.queries.project_count(project_ids=visible),
-            all_projects=all_projects,
+            disabled_projects=(
+                await ctx.queries.projects(enabled=False, q=q or None) if admin else []
+            ),
         )
 
     @router.get("/builds", response_class=HTMLResponse)

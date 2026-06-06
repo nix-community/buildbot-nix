@@ -164,13 +164,16 @@ def post(
     url: str,
     user: User | None = None,
     origin: str = "http://test",
+    data: dict[str, str] | None = None,
 ) -> httpx.Response:
     loop, client = harness
     cookies = {}
     if user is not None:
         cookies["buildbot_nix_session"] = SIGNER.session_for(user)
     headers = {"Origin": origin} if origin else {}
-    return loop.run_until_complete(client.post(url, cookies=cookies, headers=headers))
+    return loop.run_until_complete(
+        client.post(url, cookies=cookies, headers=headers, data=data)
+    )
 
 
 def test_anonymous_cannot_control(harness: tuple) -> None:
@@ -256,6 +259,11 @@ def test_admin_project_toggle(harness: tuple) -> None:
     assert post(harness, "/admin/projects/1/toggle", ROOT).status_code == 303
     after = loop.run_until_complete(enabled_state())
     assert after != before
+
+    # The dashboard filter survives a toggle.
+    response = post(harness, "/admin/projects/1/toggle", ROOT, data={"q": "wid get"})
+    assert response.status_code == 303
+    assert response.headers["location"] == "/?q=wid%20get"
 
 
 # --- personal API tokens ---------------------------------------------
