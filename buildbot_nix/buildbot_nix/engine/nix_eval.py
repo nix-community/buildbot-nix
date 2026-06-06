@@ -135,15 +135,32 @@ def build_sandbox_command(worktree_path: Path, settings: EvalSettings) -> list[s
         "/dev",
         "--tmpfs",
         "/tmp",  # noqa: S108
-        "--ro-bind",
-        "/nix/store",
-        "/nix/store",
-        "--ro-bind",
-        "/nix/var/nix/db",
-        "/nix/var/nix/db",
-        "--ro-bind",
-        str(settings.nix_daemon_socket),
-        str(settings.nix_daemon_socket),
+    ]
+    if settings.nix_daemon_socket.exists():
+        cmd += [
+            "--ro-bind",
+            "/nix/store",
+            "/nix/store",
+            "--ro-bind",
+            "/nix/var/nix/db",
+            "/nix/var/nix/db",
+            "--ro-bind",
+            str(settings.nix_daemon_socket),
+            str(settings.nix_daemon_socket),
+            # The db bind is read-only; always go through the daemon.
+            "--setenv",
+            "NIX_REMOTE",
+            "daemon",
+        ]
+    else:
+        # Single-user nix (no daemon): the evaluator writes the store
+        # directly, so /nix must be writable inside the sandbox.
+        cmd += [
+            "--bind",
+            "/nix",
+            "/nix",
+        ]
+    cmd += [
         "--bind",
         str(settings.gc_roots_dir),
         str(settings.gc_roots_dir),
@@ -153,10 +170,6 @@ def build_sandbox_command(worktree_path: Path, settings: EvalSettings) -> list[s
         "--setenv",
         "HOME",
         "/tmp",  # noqa: S108
-        # The db bind is read-only; always go through the daemon.
-        "--setenv",
-        "NIX_REMOTE",
-        "daemon",
         "--chdir",
         str(worktree_path),
     ]

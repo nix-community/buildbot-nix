@@ -91,7 +91,11 @@ def test_eval_command(tmp_path: Path) -> None:
 def test_sandbox_command_mounts(tmp_path: Path) -> None:
     netrc = tmp_path / "netrc"
     netrc.write_text("machine x login y password z\n")
-    settings = EvalSettings(gc_roots_dir=tmp_path / "gcroots", netrc_file=netrc)
+    socket = tmp_path / "daemon-socket"
+    socket.touch()
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", netrc_file=netrc, nix_daemon_socket=socket
+    )
     worktree = tmp_path / "wt"
     cmd = build_sandbox_command(worktree, settings)
     assert cmd[0] == "bwrap"
@@ -102,6 +106,20 @@ def test_sandbox_command_mounts(tmp_path: Path) -> None:
     assert f"--ro-bind {netrc} /tmp/.netrc" in joined
     # The credentials directory must never be mounted.
     assert "CREDENTIALS_DIRECTORY" not in joined
+
+
+def test_sandbox_skips_missing_daemon_socket(tmp_path: Path) -> None:
+    # Single-user nix installs have no daemon socket; the sandbox must
+    # not hard-bind it (bwrap aborts on missing source paths) and the
+    # evaluator must not be forced through the absent daemon.
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots",
+        nix_daemon_socket=tmp_path / "no-such-socket",
+    )
+    cmd = build_sandbox_command(tmp_path / "wt", settings)
+    joined = " ".join(cmd)
+    assert "no-such-socket" not in joined
+    assert "NIX_REMOTE" not in joined
 
 
 def test_full_command_composition(tmp_path: Path) -> None:
