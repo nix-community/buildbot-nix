@@ -273,9 +273,6 @@ def test_log_viewer_and_raw(client: WebClient, tmp_path: Path) -> None:
     raw = get(client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
     assert "build exploded" in raw.text
 
-    zst = get(client, "/projects/acme/widget/builds/2/logs/x86_64-linux.bad.zst")
-    assert zst.headers["content-type"] == "application/zstd"
-
     missing = get(client, "/projects/acme/widget/builds/2/logs/nope")
     assert missing.status_code == 404
 

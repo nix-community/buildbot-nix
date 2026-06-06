@@ -1,8 +1,7 @@
 """Log viewer, SSE streaming, and raw downloads.
 
 Logs live as frame-chunked zstd files on disk. Finished logs are
-decompressed for the viewer/raw text endpoints (or served as .zst
-as-is). Running attributes stream through the LogRegistry: the
+decompressed for the viewer/raw text endpoints. Running attributes stream through the LogRegistry: the
 executor's LogWriter fans out to any number of SSE subscribers.
 """
 
@@ -17,7 +16,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
-    Response,
     StreamingResponse,
 )
 
@@ -54,7 +52,7 @@ _ANSI_OTHER_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-ln-z]")
 
 def strip_ansi(text: str) -> str:
     """Plain-text consumers (curl, scripts, agents) want clean text;
-    the colored original stays available as .zst."""
+    the HTML viewer renders the colored original."""
     return _ANSI_OTHER_RE.sub("", _ANSI_SGR_RE.sub("", text))
 
 
@@ -226,16 +224,6 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         if build is None:
             raise HTTPException(status_code=404)
         return await _failure_summary(ctx, registry, build, tail)
-
-    @router.get("/projects/{owner}/{name}/builds/{number}/logs/{attr}.zst")
-    async def log_raw_zst(
-        request: Request, owner: str, name: str, number: int, attr: str
-    ) -> Response:
-        _, _, path = await _resolve(request, owner, name, number, attr)
-        if path is None or not path.exists():
-            raise HTTPException(status_code=404)
-        data = await asyncio.to_thread(path.read_bytes)
-        return Response(data, media_type="application/zstd")
 
     @router.get("/projects/{owner}/{name}/builds/{number}/logs/{attr}/stream")
     async def log_stream(
