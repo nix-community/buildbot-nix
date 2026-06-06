@@ -34,8 +34,7 @@
                hx-select="#main"
                hx-target="#main"
                hx-swap="morph:outerHTML"
-               aria-label="filter projects"
-               placeholder="filter projects">
+               {% if toggleable is none or toggleable %} aria-label="filter projects or find repositories to enable" placeholder="filter projects · search to add new ones" {% else %} aria-label="filter projects" placeholder="filter projects" {% endif %}>
       </p>
       <div class="pipelines">
         {% for p in projects %}
