@@ -4,7 +4,13 @@
 <main>
   <section class="content">
     <h2>{{ project.owner }}/{{ project.name }}
-      <small><a href="{{ project.url }}">repo</a> · default branch {{ project.default_branch }}</small>
+      <small>
+        {# Pull-based projects carry a local path, not a web URL. #}
+        {% if project.url.startswith("http") %}
+        <a href="{{ project.url }}">repo</a> ·
+        {% endif %}
+        default branch {{ project.default_branch }}
+      </small>
     </h2>
     <form method="get" class="filters">
       <select name="status">
