@@ -84,7 +84,12 @@
               </div>
             </a>
             {% if toggleable is none or p.id in toggleable %}
-              <form method="post" action="/admin/projects/{{ p.id }}/toggle">
+              <form method="post"
+                    action="/admin/projects/{{ p.id }}/toggle"
+                    hx-post="/admin/projects/{{ p.id }}/toggle"
+                    hx-select="#main"
+                    hx-target="#main"
+                    hx-swap="morph:outerHTML">
                 <input type="hidden" name="q" value="{{ q }}">
                 <button class="toggle-btn">disable</button>
               </form>
@@ -113,7 +118,12 @@
                   <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
                 {% endif %}
               </span>
-              <form method="post" action="/admin/projects/{{ p.id }}/toggle">
+              <form method="post"
+                    action="/admin/projects/{{ p.id }}/toggle"
+                    hx-post="/admin/projects/{{ p.id }}/toggle"
+                    hx-select="#main"
+                    hx-target="#main"
+                    hx-swap="morph:outerHTML">
                 <input type="hidden" name="q" value="{{ q }}">
                 <button class="toggle-btn">enable</button>
               </form>
