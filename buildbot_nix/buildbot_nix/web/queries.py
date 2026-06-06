@@ -328,7 +328,7 @@ class WebQueries:
         return _rows(
             await self.pool.fetch(
                 f"""
-                SELECT b.*, p.owner, p.name AS project_name,
+                SELECT b.*, p.owner, p.name AS project_name, p.forge, p.url,
                        row_number() OVER (ORDER BY b.id) AS queue_position
                 FROM builds b JOIN projects p ON p.id = b.project_id
                 WHERE b.status IN ('pending', 'evaluating', 'building')
