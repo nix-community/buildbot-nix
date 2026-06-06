@@ -19,7 +19,12 @@
   </tr>
   {% if a.error %}
   <tr data-attr="{{ a.attr | lower }}">
-    <td colspan="3"><pre class="error">{{ a.error | excerpt }}</pre></td>
+    <td colspan="3">
+      <details class="error">
+        <summary>{{ a.error | excerpt(160) }}</summary>
+        <pre class="error">{{ a.error }}</pre>
+      </details>
+    </td>
   </tr>
   {% endif %} {% endfor %}
 </table>

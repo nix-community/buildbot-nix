@@ -188,6 +188,21 @@ pre.error {
 pre.warning {
   border-left-color: var(--warn);
 }
+details.error summary {
+  cursor: pointer;
+  color: var(--bad);
+  font-family: monospace;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+details.error[open] summary {
+  margin-bottom: 0.3rem;
+}
+details.error pre.error {
+  margin: 0;
+}
 input[type="search"], input[type="text"], select {
   background: var(--card);
   color: var(--fg);
