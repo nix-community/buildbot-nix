@@ -30,9 +30,10 @@ FAILED_FIRST_ORDER = """
     CASE
         WHEN a.status IN ('failed', 'failed_eval', 'dependency_failed',
                           'cached_failure') THEN 0
-        WHEN a.status IN ('pending', 'building') THEN 1
-        WHEN a.status = 'cancelled' THEN 2
-        ELSE 3
+        WHEN a.status = 'building' THEN 1
+        WHEN a.status = 'pending' THEN 2
+        WHEN a.status = 'cancelled' THEN 3
+        ELSE 4
     END
 """
 
@@ -316,7 +317,8 @@ class WebQueries:
                 FROM builds b JOIN projects p ON p.id = b.project_id
                 WHERE b.status IN ('pending', 'evaluating', 'building')
                 {project_filter}
-                ORDER BY b.id
+                -- Active builds first; queue_position stays FIFO.
+                ORDER BY b.status = 'pending', b.id
                 """,  # noqa: S608
                 *args,
             )

@@ -451,6 +451,59 @@ def test_api_projects_and_builds(client: WebClient) -> None:
     queue = get(client, "/api/queue").json()
     assert [b["number"] for b in queue] == [3]
 
+
+def test_attributes_sort_building_before_pending(client: WebClient) -> None:
+    seeded = ("a-pending", "b-building", "c-failed")
+
+    async def run() -> list[str]:
+        ctx = client.app.state.web_context
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 3")
+        await ctx.pool.execute(
+            """
+            INSERT INTO build_attributes (build_id, attr, system, status)
+            VALUES ($1, 'a-pending', 'x86_64-linux', 'pending'),
+                   ($1, 'b-building', 'x86_64-linux', 'building'),
+                   ($1, 'c-failed', 'x86_64-linux', 'failed')
+            """,
+            build_id,
+        )
+        try:
+            rows = await ctx.queries.attributes(build_id)
+            return [r["attr"] for r in rows if r["attr"] in seeded]
+        finally:
+            await ctx.pool.execute(
+                "DELETE FROM build_attributes WHERE build_id = $1 AND attr = ANY($2)",
+                build_id,
+                seeded,
+            )
+
+    order = client.loop.run_until_complete(run())
+    assert order == ["c-failed", "b-building", "a-pending"]
+
+
+def test_queue_sorts_active_before_pending(client: WebClient) -> None:
+    async def run() -> list[int]:
+        ctx = client.app.state.web_context
+        project_id = await ctx.pool.fetchval(
+            "SELECT id FROM projects WHERE name = 'widget'"
+        )
+        await ctx.pool.execute(
+            """
+            INSERT INTO builds (project_id, number, commit_sha, branch, status)
+            VALUES ($1, 90, 'q1', 'main', 'pending'),
+                   ($1, 91, 'q2', 'main', 'building')
+            """,
+            project_id,
+        )
+        try:
+            return [b["number"] for b in await ctx.queries.queue()]
+        finally:
+            await ctx.pool.execute("DELETE FROM builds WHERE number IN (90, 91)")
+
+    # Build 3 is evaluating; both active builds come before the
+    # earlier-submitted pending one.
+    assert client.loop.run_until_complete(run()) == [3, 91, 90]
+
     assert get(client, "/api/projects/acme/nope").status_code == 404
 
 
