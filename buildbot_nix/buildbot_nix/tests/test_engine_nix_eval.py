@@ -75,6 +75,9 @@ def test_eval_command(tmp_path: Path) -> None:
     assert cmd[cmd.index("--workers") + 1] == "4"
     assert cmd[cmd.index("--max-memory-size") + 1] == "1024"
     assert cmd[cmd.index("--flake") + 1] == ".#checks"
+    # Flakes and nix-command must be opted-in for hosts where the
+    # system nix.conf hasn't enabled them yet.
+    assert "nix-command flakes" in cmd
     assert "--show-trace" not in cmd
     assert "--reference-lock-file" not in cmd
 

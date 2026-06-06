@@ -80,6 +80,12 @@ def build_eval_command(
     flake = f"{branch_config.flake_dir}#{branch_config.attribute}"
     return [
         "nix-eval-jobs",
+        # The engine drives nix entirely through flakes; on hosts where
+        # the system nix.conf hasn't enabled them (single-user installs,
+        # containers) the eval would crash on the first --flake.
+        "--option",
+        "extra-experimental-features",
+        "nix-command flakes",
         "--option",
         "eval-cache",
         "false",
