@@ -17,7 +17,7 @@ import logging
 import shutil
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from . import gcroots, outputs
@@ -36,6 +36,7 @@ from .effects import (
     run_effect,
     should_run_effects,
 )
+from .events import ChangeEvent, NullStatusReporter, ProjectInfo, StatusReporter
 from .executor import LogWriter
 from .gitrepo import GitError, MergeConflictError, run_git
 from .memory import calculate_eval_workers
@@ -68,89 +69,6 @@ if TYPE_CHECKING:
     OutputWriter = Callable[[Path, str, str, str, str, str], Path]
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class ProjectInfo:
-    """The engine-side view of an enabled project."""
-
-    id: int  # database id
-    key: str  # e.g. "github/owner/repo" (clone directory key)
-    name: str  # "owner/repo"
-    owner: str
-    repo: str
-    forge: str  # "github" | "gitea"
-    clone_url: str
-    default_branch: str
-
-
-@dataclass(frozen=True)
-class ChangeEvent:
-    """A push or pull-request event from a forge or poller."""
-
-    project: ProjectInfo
-    branch: str
-    commit_sha: str
-    # PR-only fields; base_sha is the base branch head to merge into.
-    pr_number: int | None = None
-    pr_author: str | None = None
-    base_sha: str | None = None
-    commit_message: str = ""
-
-
-class StatusReporter(Protocol):
-    """Receives lifecycle events; forge integration implements this."""
-
-    async def build_started(self, event: ChangeEvent, build: BuildRecord) -> None: ...
-
-    async def eval_finished(
-        self,
-        event: ChangeEvent,
-        build: BuildRecord,
-        *,
-        success: bool,
-        warnings: list[str],
-    ) -> None: ...
-
-    async def build_finished(  # noqa: PLR0913
-        self,
-        event: ChangeEvent,
-        build: BuildRecord,
-        status: str,
-        generation: int,
-        results: list[AttributeResult],
-        *,
-        attr_statuses: dict[str, str] | None = None,
-        attr_prefix: str = "checks",
-    ) -> None: ...
-
-
-class NullStatusReporter:
-    async def build_started(self, event: ChangeEvent, build: BuildRecord) -> None:
-        pass
-
-    async def eval_finished(
-        self,
-        event: ChangeEvent,
-        build: BuildRecord,
-        *,
-        success: bool,
-        warnings: list[str],
-    ) -> None:
-        pass
-
-    async def build_finished(  # noqa: PLR0913
-        self,
-        event: ChangeEvent,
-        build: BuildRecord,
-        status: str,
-        generation: int,
-        results: list[AttributeResult],
-        *,
-        attr_statuses: dict[str, str] | None = None,
-        attr_prefix: str = "checks",
-    ) -> None:
-        pass
 
 
 @dataclass

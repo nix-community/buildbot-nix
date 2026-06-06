@@ -34,8 +34,8 @@ if TYPE_CHECKING:
     import asyncpg
 
     from .db import BuildRecord
+    from .events import ChangeEvent
     from .forge import GiteaClient, GitHubAppClient
-    from .orchestrator import ChangeEvent
     from .scheduler import AttributeResult
 
 logger = logging.getLogger(__name__)

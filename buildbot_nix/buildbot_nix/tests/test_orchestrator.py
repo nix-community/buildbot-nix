@@ -20,16 +20,13 @@ import pytest
 from buildbot_nix import orchestrator as orch_mod
 from buildbot_nix.config import EngineConfig
 from buildbot_nix.db import BuildDB, BuildStatus
+from buildbot_nix.events import ChangeEvent, ProjectInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
 from buildbot_nix.memory import calculate_eval_workers
 from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.nix_eval import EvalError, EvalResult
-from buildbot_nix.orchestrator import (
-    ChangeEvent,
-    Orchestrator,
-    ProjectInfo,
-)
+from buildbot_nix.orchestrator import Orchestrator
 from buildbot_nix.scheduler import (
     AttributeResult,
     AttributeStatus,

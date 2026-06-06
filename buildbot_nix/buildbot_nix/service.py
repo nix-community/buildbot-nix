@@ -31,6 +31,7 @@ from .auth import (
 from .config import ConfigError, read_secret_file
 from .db import BuildDB, BuildStatus
 from .effects import EffectsContext, resolve_effects_secret
+from .events import ChangeEvent, ProjectInfo
 from .executor import BuildSettings, FairScheduler, NixBuildExecutor
 from .failed_builds import PostgresFailedBuildCache
 from .forge import (
@@ -50,7 +51,7 @@ from .gitrepo import (
 )
 from .migrations import apply_migrations
 from .nix_eval import CgroupLimiter, EvalRunner
-from .orchestrator import ChangeEvent, Orchestrator, ProjectInfo
+from .orchestrator import Orchestrator
 from .polling import PolledRepository, PollingService
 from .projects import ProjectStore
 from .reconcile import gitea_heads, github_heads, reconcile_project

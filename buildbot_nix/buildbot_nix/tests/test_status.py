@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 import httpx
 
 from buildbot_nix.db import BuildRecord
+from buildbot_nix.events import ChangeEvent, ProjectInfo
 from buildbot_nix.models import NixEvalJobError
-from buildbot_nix.orchestrator import ChangeEvent, ProjectInfo
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 from buildbot_nix.status import (
     ForgeStatusReporter,
