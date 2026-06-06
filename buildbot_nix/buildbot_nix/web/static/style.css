@@ -141,8 +141,12 @@ td.attr-duration {
 .dot.pending, .dot.evaluating, .dot.building {
   background: var(--run);
 }
-.dot.building {
+.dot.building, .dot.evaluating {
   animation: pulse 1.2s ease-in-out infinite;
+}
+h2 .dot {
+  width: 0.8rem;
+  height: 0.8rem;
 }
 @keyframes pulse {
   50% {

@@ -180,6 +180,11 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         request: Request, owner: str, name: str, number: int, attr: str
     ) -> HTMLResponse:
         project, build, path = await _resolve(request, owner, name, number, attr)
+        attr_status = await ctx.pool.fetchval(
+            "SELECT status FROM build_attributes WHERE build_id = $1 AND attr = $2",
+            build["id"],
+            attr,
+        )
         writer = registry.get(build["id"], attr)
         live = writer is not None
         content = ""
@@ -197,12 +202,7 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         else:
             # The build page links queued attributes before any log
             # exists; show a waiting page instead of a 404.
-            status = await ctx.pool.fetchval(
-                "SELECT status FROM build_attributes WHERE build_id = $1 AND attr = $2",
-                build["id"],
-                attr,
-            )
-            if status not in ("pending", "building"):
+            if attr_status not in ("pending", "building"):
                 raise HTTPException(status_code=404)
             waiting = True
         prev_number, next_number = await ctx.queries.attribute_neighbors(
@@ -213,6 +213,7 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             request=request,
             project=project,
             build=build,
+            attr_status=attr_status,
             attr=attr,
             content=content,
             live=live,
