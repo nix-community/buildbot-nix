@@ -20,7 +20,7 @@ import zstandard
 from buildbot_nix.executor import LogWriter
 from buildbot_nix.web.app import create_app, timeago
 from buildbot_nix.web.events import EventBroker
-from buildbot_nix.web.logs import ansi_to_html, render_log_lines
+from buildbot_nix.web.logs import AnsiHtmlStream, ansi_to_html, render_log_lines
 
 from .e2e.support import ephemeral_postgres, seed
 
@@ -256,6 +256,16 @@ def test_ansi_to_html() -> None:
     assert "\n" not in lines
 
 
+def test_ansi_stream_state_across_chunks() -> None:
+    stream = AnsiHtmlStream()
+    # Escape sequence split between chunks.
+    assert stream.feed("a\x1b[") == "a"
+    assert stream.feed("31mred") == '<span class="ansi-red">red</span>'
+    # The open color carries into the next chunk.
+    assert stream.feed("still red") == '<span class="ansi-red">still red</span>'
+    assert stream.feed("\x1b[0mplain") == "plain"
+
+
 def seed_log(client: WebClient, tmp_path: Path) -> None:
     async def run() -> None:
         ctx = client.app.state.web_context
@@ -412,7 +422,8 @@ def test_live_log_history_before_completion(client: WebClient, tmp_path: Path) -
 
     raw, viewer, stream = client.loop.run_until_complete(run())
     assert "early output" in raw
-    assert "early output" in viewer
+    # The live viewer renders no snapshot; the stream replays history.
+    assert "const LIVE = true" in viewer
     assert "early output" in stream
     assert "late output" in stream
     assert "event: done" in stream

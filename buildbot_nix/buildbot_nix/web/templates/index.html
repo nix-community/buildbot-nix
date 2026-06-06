@@ -11,7 +11,17 @@
         hx-swap="morph:outerHTML"
         hx-trigger="sse:message delay:300ms">
     <section class="content dashboard">
-      {% include "_summary.html" %}
+      <div class="summary-strip">
+        <span class="summary-item">
+          <span class="dot building" aria-hidden="true"></span>
+          {{ (counts.building | default(0) ) + (counts.evaluating | default(0)) }} running
+        </span>
+        <span class="summary-item">
+          <span class="dot pending" aria-hidden="true"></span>
+          {{ counts.pending | default(0) }} queued
+        </span>
+        <span class="summary-item muted">{{ project_count }} projects</span>
+      </div>
       <h2 class="section">Projects</h2>
       <p class="filters">
         <input type="search"
@@ -26,7 +36,56 @@
                aria-label="filter projects"
                placeholder="filter projects">
       </p>
-      {% include "_pipelines.html" %}
+      <div class="pipelines">
+        {% for p in projects %}
+          {% set max_secs = p.history | map(attribute='secs') | select | max | default(1, true) %}
+          <a class="pipeline{% if p.last_status %} {{ p.last_status }}{% endif %}"
+             href="/projects/{{ p.owner }}/{{ p.name }}">
+            <span class="dot {{ p.last_status or '' }}" aria-hidden="true"></span>
+            {% if p.last_status %}
+              <span class="visually-hidden">{{ p.last_status.replace('_', ' ') }}</span>
+            {% endif %}
+            <div class="pipeline-info">
+              <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
+              {% if p.last_number %}
+                <span class="pipeline-meta muted">
+                  #{{ p.last_number }} · {{ p.last_branch }}
+                  {% if p.last_created_at %}· {{ p.last_created_at | timeago }}{% endif %}
+                </span>
+              {% else %}
+                <span class="pipeline-meta muted">no builds yet</span>
+              {% endif %}
+            </div>
+            <div class="pipeline-spark" aria-hidden="true">
+              {% for h in p.history %}
+                {% set bar_title = "#%s %s" | format(h.number, h.status) %}
+                {% if h.secs %}
+                  {% set bar_title = bar_title ~ " · " ~ (h.secs | duration_secs) %}
+                {% endif %}
+                <i class="spark-bar {{ h.status }}"
+                   style="height: {{ [100 * (h.secs or 0) / max_secs, 15] | max | round | int }}%"
+                   title="{{ bar_title }}"></i>
+              {% endfor %}
+            </div>
+            <div class="pipeline-metric">
+              <b>{{ p.avg_secs | duration_secs }}</b>
+              <span class="muted">speed</span>
+            </div>
+            <div class="pipeline-metric">
+              <b>
+                {% if p.pass_rate is not none %}
+                  {{ (100 * p.pass_rate) | round | int }}%
+                {% else %}
+                  —
+                {% endif %}
+              </b>
+              <span class="muted">reliability</span>
+            </div>
+          </a>
+        {% else %}
+          <p class="muted">no matching projects</p>
+        {% endfor %}
+      </div>
       {% if all_projects %}
         <h2 class="section">Administration</h2>
         <ul class="admin-projects">

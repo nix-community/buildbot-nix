@@ -48,6 +48,8 @@ class LogRegistry:
 
 _ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSI_OTHER_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-ln-z]")
+# An escape sequence cut off at the end of a chunk.
+_ANSI_PARTIAL_RE = re.compile(r"\x1b(\[[0-9;?]*)?\Z")
 
 
 def strip_ansi(text: str) -> str:
@@ -73,30 +75,54 @@ _COLOR_CLASSES = {
 }
 
 
-def ansi_to_html(text: str) -> str:
-    """Convert SGR color/bold codes to spans; strip other sequences."""
+def _ansi_convert(text: str, classes: list[str]) -> tuple[str, list[str]]:
+    """Convert SGR color/bold codes to spans; strip other sequences.
+    `classes` is the style carried in from the previous chunk; the
+    style left open at the end is returned for the next one."""
     text = _ANSI_OTHER_RE.sub("", text)
-    out: list[str] = []
-    open_span = False
+    segments: list[tuple[str, list[str]]] = []
     pos = 0
     for match in _ANSI_SGR_RE.finditer(text):
-        out.append(html.escape(text[pos : match.start()]))
+        segments.append((text[pos : match.start()], classes))
         pos = match.end()
-        if open_span:
-            out.append("</span>")
-            open_span = False
         classes = [
             _COLOR_CLASSES[code]
             for code in (match.group(1) or "0").split(";")
             if code in _COLOR_CLASSES
         ]
-        if classes:
-            out.append(f'<span class="{" ".join(classes)}">')
-            open_span = True
-    out.append(html.escape(text[pos:]))
-    if open_span:
-        out.append("</span>")
-    return "".join(out)
+    segments.append((text[pos:], classes))
+    out = []
+    for segment, style in segments:
+        if not segment:
+            continue
+        if style:
+            out.append(f'<span class="{" ".join(style)}">{html.escape(segment)}</span>')
+        else:
+            out.append(html.escape(segment))
+    return "".join(out), classes
+
+
+def ansi_to_html(text: str) -> str:
+    return _ansi_convert(text, [])[0]
+
+
+class AnsiHtmlStream:
+    """Chunked variant for live streams: SGR state and escape
+    sequences split across chunk boundaries survive."""
+
+    def __init__(self) -> None:
+        self._classes: list[str] = []
+        self._tail = ""
+
+    def feed(self, text: str) -> str:
+        text = self._tail + text
+        self._tail = ""
+        partial = _ANSI_PARTIAL_RE.search(text)
+        if partial:
+            self._tail = text[partial.start() :]
+            text = text[: partial.start()]
+        rendered, self._classes = _ansi_convert(text, self._classes)
+        return rendered
 
 
 def render_log_lines(text: str) -> str:
@@ -249,26 +275,23 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             build["id"],
             attr,
         )
-        writer = registry.get(build["id"], attr)
-        live = writer is not None
+        # Live pages render no snapshot: the stream replays full
+        # history on connect, the client would throw it away.
+        live = registry.get(build["id"], attr) is not None
         content = ""
         waiting = False
-        if writer is not None:
-            data = await writer.snapshot()
-            content = await asyncio.to_thread(
-                render_log_lines, data.decode(errors="replace")
-            )
-        elif path is not None and path.exists():
-            data = await asyncio.to_thread(read_log, path)
-            content = await asyncio.to_thread(
-                render_log_lines, data.decode(errors="replace")
-            )
-        else:
-            # The build page links queued attributes before any log
-            # exists; show a waiting page instead of a 404.
-            if attr_status not in ("pending", "building"):
+        if not live:
+            if path is not None and path.exists():
+                data = await asyncio.to_thread(read_log, path)
+                content = await asyncio.to_thread(
+                    render_log_lines, data.decode(errors="replace")
+                )
+            elif attr_status in ("pending", "building"):
+                # The build page links queued attributes before any
+                # log exists; show a waiting page instead of a 404.
+                waiting = True
+            else:
                 raise HTTPException(status_code=404)
-            waiting = True
         prev_number, next_number = await ctx.queries.attribute_neighbors(
             project["id"], attr, number
         )
@@ -292,7 +315,10 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
 async def _stream_events(
     writer: LogWriter | None, path: Path | None
 ) -> AsyncGenerator[str, None]:
-    """History first, then live chunks (if a writer is running)."""
+    """History first, then live chunks (if a writer is running);
+    everything rendered to HTML server-side so the client just
+    appends."""
+    ansi = AnsiHtmlStream()
     if writer is not None:
         history_bytes, queue = await writer.subscribe_with_history()
         history = history_bytes.decode(errors="replace")
@@ -303,7 +329,7 @@ async def _stream_events(
             data = await asyncio.to_thread(read_log, path)
             history = data.decode(errors="replace")
     if history:
-        yield _sse(history)
+        yield _sse(ansi.feed(history))
     if queue is None:
         yield "event: done\ndata: \n\n"
         return
@@ -317,7 +343,7 @@ async def _stream_events(
             if chunk is None:
                 yield "event: done\ndata: \n\n"
                 return
-            yield _sse(chunk.decode(errors="replace"))
+            yield _sse(ansi.feed(chunk.decode(errors="replace")))
     finally:
         if writer is not None:
             writer.unsubscribe(queue)

@@ -52,76 +52,59 @@
       {% else %}
         <pre class="log" id="log">{{ content | safe }}</pre>
       {% endif %}
-      {% if not live and attr_status in ('pending', 'building') %}
-        {# Queued or just (re)started: the log shown is stale or empty.
-           Reload until the live stream is available; SSE alone could
-           miss an event sent before the connection opened. #}
-        <script>setTimeout(() => location.reload(), 2000);</script>
-      {% endif %}
-      <script>
-        /* Status changes for this attribute re-render the page:
-           header dot, controls, and (once finished) line anchors. */
-        const events = new EventSource("/events?build={{ build.id }}");
-        events.onmessage = (ev) => {
-          let e;
-          try { e = JSON.parse(ev.data); } catch { return; }
-          if (e.attr !== {{ attr | tojson }}) return;
-          {% if live %}
-            if (!["pending", "building"].includes(e.status)) location.reload();
-          {% else %}
-            location.reload();
-          {% endif %}
-        };
-      </script>
     </section>
   </main>
-  {% if not waiting %}
-    <script>
-const log = document.getElementById('log');
-/* Failures sit at the end; start there unless a line is linked. */
-if (log && !location.hash) log.scrollTop = log.scrollHeight;
-    </script>
-  {% endif %}
-  {% if live %}
-    <script type="module">
-import { AnsiUp } from "/static/vendor/ansi_up.js";
-const follow = document.getElementById('follow');
-/* Scroll only the log pane so the header stays usable; scrolling
-   up pauses following, scrolling back to the bottom resumes it. */
-const atBottom = () =>
-  log.scrollHeight - log.scrollTop - log.clientHeight < 4;
-log.addEventListener('scroll', () => { follow.checked = atBottom(); });
-/* ansi_up keeps SGR state across chunks (sequences may be split
-   between SSE events), escapes HTML, and drops unknown sequences. */
-let ansi = new AnsiUp();
-ansi.use_classes = true;
-const source = new EventSource(
-  '/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}/stream');
-/* The stream replays full history on every (re)connect. */
-source.onopen = () => {
-  errors = 0;
-  log.textContent = '';
-  ansi = new AnsiUp();
-  ansi.use_classes = true;
-};
-/* EventSource reconnects every ~1s forever; if the server stays
-   gone (engine restart), give up and let a reload render the
-   finished log server-side. */
-let errors = 0;
-source.onerror = () => {
-  if (++errors >= 5) {
-    source.close();
-    setTimeout(() => location.reload(), 3000);
-  }
-};
-source.onmessage = (event) => {
-  // chunks carry their own newlines
-  log.insertAdjacentHTML('beforeend', ansi.ansi_to_html(event.data));
-  if (follow.checked) log.scrollTop = log.scrollHeight;
-};
-/* The terminal status event reloads the page; just stop the dead
-   stream from reconnecting. */
-source.addEventListener('done', () => source.close());
-    </script>
-  {% endif %}
+  <script>
+    const LIVE = {{ live | tojson }};
+    const RUNNING = {{ (attr_status in ("pending", "building")) | tojson }};
+    const log = document.getElementById("log");
+    /* Failures sit at the end; start there unless a line is linked. */
+    if (log && !location.hash) log.scrollTop = log.scrollHeight;
+    /* Queued or just (re)started with no stream yet: reload until it
+       exists. Polling, not events: a status event sent before the
+       EventSource below connects would be lost. */
+    if (!LIVE && RUNNING) setTimeout(() => location.reload(), 2000);
+    /* Status changes for this attribute re-render the page: header
+       dot, controls, and (once finished) line anchors. */
+    const events = new EventSource("/events?build={{ build.id }}");
+    events.onmessage = (ev) => {
+      let e;
+      try { e = JSON.parse(ev.data); } catch { return; }
+      if (e.attr !== {{ attr | tojson }}) return;
+      if (!LIVE || !["pending", "building"].includes(e.status)) location.reload();
+    };
+    if (LIVE) {
+      const follow = document.getElementById("follow");
+      /* Scroll only the log pane so the header stays usable; scrolling
+         up pauses following, scrolling back to the bottom resumes it. */
+      const atBottom = () =>
+        log.scrollHeight - log.scrollTop - log.clientHeight < 4;
+      log.addEventListener("scroll", () => { follow.checked = atBottom(); });
+      const source = new EventSource(
+        "/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}/stream");
+      /* The stream replays full history on every (re)connect. */
+      let errors = 0;
+      source.onopen = () => {
+        errors = 0;
+        log.textContent = "";
+      };
+      /* EventSource reconnects every ~1s forever; if the server stays
+         gone (engine restart), give up and let a reload render the
+         finished log server-side. */
+      source.onerror = () => {
+        if (++errors >= 5) {
+          source.close();
+          setTimeout(() => location.reload(), 3000);
+        }
+      };
+      source.onmessage = (event) => {
+        // server-rendered HTML chunks, newlines included
+        log.insertAdjacentHTML("beforeend", event.data);
+        if (follow.checked) log.scrollTop = log.scrollHeight;
+      };
+      /* The terminal status event reloads the page; just stop the
+         dead stream from reconnecting. */
+      source.addEventListener("done", () => source.close());
+    }
+  </script>
 {% endblock body %}
