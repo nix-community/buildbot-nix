@@ -2,54 +2,66 @@
 
 ## Unreleased — standalone CI engine
 
-buildbot-nix no longer runs on top of Buildbot. The master/worker pair is
-replaced by one asyncio service that handles forge webhooks, nix-eval-jobs
-evaluation, builds through the local nix daemon, commit statuses,
-hercules-ci-style effects, and its own web frontend with JSON API, SSE live
-logs, and Prometheus metrics.
+buildbot-nix no longer runs on top of Buildbot. The old master/worker pair is
+now a single asyncio service that does everything itself: forge webhooks,
+evaluation with nix-eval-jobs, builds through the local nix daemon, commit
+statuses, hercules-ci-style effects, and its own web UI with a JSON API, live
+logs over SSE, and Prometheus metrics.
 
-### Migration
+### What you need to do when upgrading
 
-- Module: `services.buildbot-nix.master.*` options rename automatically to
-  `services.buildbot-nix.*` with deprecation warnings; update at your
-  convenience. `nixosModules.buildbot-master` and `nixosModules.buildbot-worker`
-  alias the new module. Options without an engine equivalent (workers,
-  oauth2-proxy mode, dbUrl, Gitea webhook secret) raise errors with migration
-  hints.
-- Workers are gone: delete `workersFile`, worker passwords, and `localWorkers`.
-  Builds run through the nix daemon and scale via nix remote builders.
-- Database: PostgreSQL only, fresh schema with plain SQL migrations. Build
-  history does not migrate. A local PostgreSQL over the unix socket is
-  provisioned by default; remote databases use `database.url` or
-  `database.urlFile`.
-- Authentication: `httpbasicauth` and the oauth2-proxy `accessMode.fullyPrivate`
-  deployment are removed. The built-in GitHub/Gitea/OIDC login hides private
-  repositories from unauthorized users. GitHub token mode is removed; use a
-  GitHub App.
-- Webhook endpoints keep their legacy aliases (`/change_hook/github`,
-  `/change_hook/gitea`). Commit status context names lose the buildbot-era
-  `buildbot/` prefix (e.g. `buildbot/nix-build ...` becomes `nix-build ...`);
-  update branch protection rules that require the old contexts.
-- `buildbot-nix.toml` per-repository configuration is unchanged.
-- `postBuildSteps` keep the `interpolate` placeholders. Available properties:
-  `attr`, `out_path`, `drv_path`, `system`, `project`, `branch`, `revision`,
-  `pr_number`, `default_branch`. PR builds no longer report `refs/pull/N/merge`
-  branches; use `%(prop:pr_number)s` instead of parsing the branch.
-  `%(secret:NAME)s` now reads systemd credentials of the `buildbot-nix` unit:
+**NixOS module.** Your existing `services.buildbot-nix.master.*` config keeps
+working: options rename to `services.buildbot-nix.*` automatically and print
+deprecation warnings. `nixosModules.buildbot-master` and
+`nixosModules.buildbot-worker` are aliases for the new module. Options that have
+no equivalent anymore (workers, oauth2-proxy mode, `dbUrl`, the Gitea webhook
+secret) fail the build with a hint on what to do instead.
+
+**Workers are gone.** Delete `workersFile`, worker passwords and `localWorkers`.
+Builds go through the nix daemon and scale with ordinary nix remote builders.
+
+**Database.** PostgreSQL only, with a fresh schema and plain SQL migrations.
+Build history does not carry over. By default the module provisions a local
+PostgreSQL over the unix socket; for a remote database set `database.url` or
+`database.urlFile`.
+
+**Authentication.** `httpbasicauth` and the oauth2-proxy
+`accessMode.fullyPrivate` setup are gone. The built-in GitHub/Gitea/OIDC login
+covers the same need: private repositories are hidden from anyone not authorized
+to see them. GitHub token mode is also gone; use a GitHub App.
+
+**Commit statuses.** Context names lose the `buildbot/` prefix —
+`buildbot/nix-build ...` becomes `nix-build ...`. Branch protection rules that
+require the old contexts need updating. Statuses link to the new web UI.
+
+**Webhooks.** Nothing to do: the old endpoints (`/change_hook/github`,
+`/change_hook/gitea`) still work as aliases.
+
+**Per-repository config.** `buildbot-nix.toml` is unchanged.
+
+**Post-build steps.** `interpolate` placeholders still work. Properties: `attr`,
+`out_path`, `drv_path`, `system`, `project`, `branch`, `revision`, `pr_number`,
+`default_branch`. Two changes:
+
+- PR builds no longer run under a `refs/pull/N/merge` branch — use
+  `%(prop:pr_number)s` instead of parsing the branch name.
+- `%(secret:NAME)s` reads systemd credentials of the `buildbot-nix` unit, so
   move `LoadCredential` entries from `systemd.services.buildbot-master` to
   `systemd.services.buildbot-nix`.
-- Customizations through `services.buildbot-master`/buildbot APIs (e.g.
-  `extraConfig`, manhole, `pythonPackages`) have no equivalent: there is no
-  buildbot underneath anymore.
-- Commit statuses link to the new web UI; the JSON API moves to `/api/*` with an
-  OpenAPI schema at `/openapi.json`.
 
-### Improvements
+**Buildbot customizations.** Anything that reached into Buildbot itself —
+`services.buildbot-master.extraConfig`, the manhole, `pythonPackages` — has no
+equivalent.
 
-- Build identity is the post-merge tree hash: identical trees across
-  branches/PRs reuse results instead of rebuilding.
-- Crash recovery: unfinished builds resume from stored eval results after a
-  restart, without re-evaluation.
+**API.** The JSON API moves to `/api/*`, with an OpenAPI schema at
+`/openapi.json`.
+
+### What you get
+
+- Builds are keyed by the post-merge tree hash: identical trees across branches
+  and PRs reuse results instead of rebuilding.
+- Crash recovery: after a restart, unfinished builds resume from their stored
+  eval results without re-evaluating.
 - Evaluation runs in a bwrap sandbox with a kernel-enforced memory cap
   (delegated cgroup v2 subtree).
 - Per-user API tokens for scripted access.
