@@ -14,6 +14,7 @@ Visibility filtering hooks (`visible_project_ids`) are wired by task
 
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -48,6 +49,27 @@ if TYPE_CHECKING:
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+class _CachedStaticFiles(StaticFiles):
+    """Static assets are immutable: their URLs carry a content hash
+    (static_v), so caches may keep them forever."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
+def _static_version() -> str:
+    """Content hash over the static assets; bound into asset URLs so
+    browser caches roll over on deploy."""
+    digest = hashlib.sha256()
+    for f in sorted(STATIC_DIR.rglob("*")):
+        if f.is_file():
+            digest.update(f.read_bytes())
+    return digest.hexdigest()[:12]
+
 
 RUNNING_STATUSES = ("pending", "evaluating", "building")
 # Upper bound for live row refreshes of deep-scrolled tables.
@@ -121,6 +143,7 @@ def make_env() -> Environment:
         loader=FileSystemLoader(TEMPLATES_DIR),
         autoescape=select_autoescape(["html"]),
     )
+    env.globals["static_v"] = _static_version()
     env.filters["timeago"] = timeago
     env.filters["duration"] = duration
     env.filters["duration_secs"] = duration_secs
@@ -447,5 +470,5 @@ def create_app(
     app.include_router(create_log_router(ctx, registry))
     app.include_router(create_metrics_router(pool))
     app.include_router(create_api_router(ctx))
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", _CachedStaticFiles(directory=STATIC_DIR), name="static")
     return app

@@ -11,7 +11,7 @@
         buildbot-nix
       {% endblock title %}
     </title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
   </head>
   <body {% block bodyattrs %}{% endblock bodyattrs %}>
     <a class="skip-link" href="#main">skip to content</a>
@@ -50,9 +50,9 @@
     </header>
     {% block body %}
     {% endblock body %}
-    <script src="/static/vendor/htmx.min.js"></script>
-    <script src="/static/vendor/sse.min.js"></script>
-    <script src="/static/vendor/idiomorph-ext.min.js"></script>
+    <script src="/static/vendor/htmx.min.js?v={{ static_v }}"></script>
+    <script src="/static/vendor/sse.min.js?v={{ static_v }}"></script>
+    <script src="/static/vendor/idiomorph-ext.min.js?v={{ static_v }}"></script>
     <script>
       /* Attribute filter: client-side, the build page renders all
          attributes. Re-applied after htmx swaps in fresh rows. */

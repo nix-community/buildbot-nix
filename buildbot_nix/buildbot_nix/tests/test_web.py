@@ -231,6 +231,15 @@ def test_metrics_are_gauges(client: WebClient) -> None:
     assert "counter" not in text
 
 
+def test_static_urls_carry_content_version(client: WebClient) -> None:
+    page = get(client, "/").text
+    m = re.search(r"/static/style\.css\?v=([0-9a-f]{12})", page)
+    assert m
+    response = get(client, f"/static/style.css?v={m.group(1)}")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
 def test_health_and_static(client: WebClient) -> None:
     assert get(client, "/health").text == "ok"
     css = get(client, "/static/style.css")
