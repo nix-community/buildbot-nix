@@ -93,22 +93,24 @@
         {% else %}
           <p class="muted">no matching projects</p>
         {% endfor %}
-        {% for p in disabled_projects %}
-          <div class="pipeline-row disabled">
-            <span class="pipeline">
-              <span class="dot" aria-hidden="true"></span>
-              <div class="pipeline-info">
-                <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
-                <span class="pipeline-meta muted">disabled</span>
-              </div>
-            </span>
-            <form method="post" action="/admin/projects/{{ p.id }}/toggle">
-              <input type="hidden" name="q" value="{{ q }}">
-              <button class="toggle-btn">enable</button>
-            </form>
-          </div>
-        {% endfor %}
       </div>
+      {% if disabled_projects %}
+        <details class="disabled-projects" {% if q %}open{% endif %}>
+          <summary class="muted">{{ disabled_projects | length }} disabled projects</summary>
+          {% for p in disabled_projects %}
+            <div class="pipeline-row disabled">
+              <span class="pipeline">
+                <span class="dot" aria-hidden="true"></span>
+                <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
+              </span>
+              <form method="post" action="/admin/projects/{{ p.id }}/toggle">
+                <input type="hidden" name="q" value="{{ q }}">
+                <button class="toggle-btn">enable</button>
+              </form>
+            </div>
+          {% endfor %}
+        </details>
+      {% endif %}
     </section>
   </main>
 {% endblock body %}
