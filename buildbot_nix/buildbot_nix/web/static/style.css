@@ -175,9 +175,9 @@ td.attr-name a {
 td.attr-status,
 td.attr-duration {
 	white-space: nowrap;
-	text-align: right;
 }
 td.attr-duration {
+	text-align: right;
 	color: var(--muted);
 	font-variant-numeric: tabular-nums;
 }

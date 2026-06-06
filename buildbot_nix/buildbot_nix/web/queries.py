@@ -261,7 +261,7 @@ class WebQueries:
         return prev_number, next_number
 
     async def attributes(self, build_id: int) -> list[dict[str, Any]]:
-        """Attributes grouped client-side by system, failed first."""
+        """Attributes, failed first, then by name."""
         return _rows(
             await self.pool.fetch(
                 f"""
@@ -269,7 +269,7 @@ class WebQueries:
                 FROM build_attributes a
                 LEFT JOIN logs l ON l.attribute_id = a.id
                 WHERE a.build_id = $1
-                ORDER BY {FAILED_FIRST_ORDER}, a.system, a.attr
+                ORDER BY {FAILED_FIRST_ORDER}, a.attr
                 """,  # noqa: S608
                 build_id,
             )

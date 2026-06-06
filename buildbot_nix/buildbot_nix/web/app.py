@@ -111,15 +111,6 @@ def excerpt(text: str | None, limit: int = 600) -> str:
     return text if len(text) <= limit else text[:limit] + " …"
 
 
-def group_by_system(
-    attributes: list[dict[str, Any]],
-) -> dict[str, list[dict[str, Any]]]:
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for attr in attributes:
-        groups.setdefault(attr.get("system") or "unknown", []).append(attr)
-    return groups
-
-
 def repo_name(owner: str, name: str) -> str:
     """Display name: hide the synthetic pull_based owner segment."""
     return name if owner == "pull_based" else f"{owner}/{name}"
@@ -138,7 +129,6 @@ def make_env() -> Environment:
     env.globals["repo_name"] = repo_name
     env.globals["pr_url"] = pr_url
     env.globals["branch_url"] = branch_url
-    env.globals["group_by_system"] = group_by_system
     env.globals["RUNNING_STATUSES"] = RUNNING_STATUSES
     # Header login links; the service composition fills this in.
     env.globals["login_providers"] = []

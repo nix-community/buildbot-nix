@@ -1,19 +1,17 @@
-{% for system, attrs in group_by_system(attributes).items() %}
-  <h3>{{ system }}</h3>
+{% if attributes %}
   <table class="attrs">
-    <caption class="visually-hidden">{{ system }} attributes</caption>
-    {% for a in attrs %}
+    <caption class="visually-hidden">attributes</caption>
+    {% for a in attributes %}
       <tr data-attr="{{ a.attr | lower }}">
+        <td class="attr-status">
+          <span class="status {{ a.status }}">{{ a.status.replace('_', ' ') }}</span>
+        </td>
         <td class="attr-name">
-          <span class="dot {{ a.status }}" aria-hidden="true"></span>
-          {% if a.log_path or a.status in ('pending', 'building') %}
+          {% if a.log_path or a.status in RUNNING_STATUSES %}
             <a href="/projects/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ a.attr }}"><code>{{ a.attr }}</code></a>
           {% else %}
             <code>{{ a.attr }}</code>
           {% endif %}
-        </td>
-        <td class="attr-status">
-          <span class="status {{ a.status }}">{{ a.status.replace('_', ' ') }}</span>
         </td>
         <td class="attr-duration">{{ a | duration }}</td>
       </tr>
@@ -31,4 +29,4 @@
   </table>
 {% else %}
   <p class="muted">no attributes (yet)</p>
-{% endfor %}
+{% endif %}
