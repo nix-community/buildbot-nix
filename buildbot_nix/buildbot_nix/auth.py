@@ -377,6 +377,12 @@ async def oidc_provider(  # noqa: PLR0913
     response.raise_for_status()
     doc = response.json()
     issuer = doc["issuer"].removeprefix("https://").rstrip("/")
+    # Absent means client_secret_basic per OIDC discovery spec; only
+    # fall back to body credentials if basic is explicitly not offered.
+    methods = doc.get("token_endpoint_auth_methods_supported")
+    client_auth: Literal["body", "basic"] = "basic"
+    if methods is not None and "client_secret_basic" not in methods:
+        client_auth = "body"
     return OAuthProvider(
         name="oidc",
         authorize_url=doc["authorization_endpoint"],
@@ -385,7 +391,7 @@ async def oidc_provider(  # noqa: PLR0913
         client_id=client_id,
         client_secret=client_secret,
         scope=" ".join(scope),
-        client_auth="basic",
+        client_auth=client_auth,
         username_field=username_claim,
         # Standard OIDC claim for the profile picture.
         avatar_field="picture",

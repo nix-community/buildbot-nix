@@ -370,3 +370,38 @@ def test_oidc_exchange_uses_basic_auth() -> None:
     expected = base64.b64encode(b"cid:cs").decode()
     assert seen["authorization"] == f"Basic {expected}"
     assert "client_secret" not in seen["body"]
+
+
+def test_oidc_provider_honors_advertised_auth_methods() -> None:
+    """A provider that only offers client_secret_post (e.g. older
+    PocketID) gets body credentials; everyone else gets basic."""
+
+    def discovery(methods: list[str] | None) -> httpx.MockTransport:
+        doc: dict[str, object] = {
+            "issuer": "https://id.example.com",
+            "authorization_endpoint": "https://id.example.com/auth",
+            "token_endpoint": "https://id.example.com/token",
+            "userinfo_endpoint": "https://id.example.com/userinfo",
+        }
+        if methods is not None:
+            doc["token_endpoint_auth_methods_supported"] = methods
+        return httpx.MockTransport(lambda _request: httpx.Response(200, json=doc))
+
+    def provider_for(methods: list[str] | None) -> OAuthProvider:
+        return asyncio.run(
+            oidc_provider(
+                httpx.AsyncClient(transport=discovery(methods)),
+                "https://id.example.com/.well-known/openid-configuration",
+                "cid",
+                "cs",
+                ["openid"],
+            )
+        )
+
+    assert provider_for(["client_secret_post"]).client_auth == "body"
+    assert (
+        provider_for(["client_secret_basic", "client_secret_post"]).client_auth
+        == "basic"
+    )
+    # Absent means client_secret_basic per OIDC discovery spec.
+    assert provider_for(None).client_auth == "basic"
