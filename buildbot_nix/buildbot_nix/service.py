@@ -134,9 +134,6 @@ class CIService:
     # keeps weak references, so an unreferenced running build could be
     # garbage-collected mid-flight.
     _tasks: set[asyncio.Task] = field(default_factory=set)
-    # Per-build serialization of reruns; the cancel_events guard alone
-    # is racy (it is only set once a rerun reaches _build_attributes).
-    _rerun_locks: dict[int, asyncio.Lock] = field(default_factory=dict)
     # Discovery must not run concurrently (upserts, webhook
     # registration); the timestamp debounces the UI refresh button,
     # which any logged-in user can press.
@@ -258,7 +255,7 @@ class CIService:
             await self._restart(payload["build_id"], payload.get("attr"))
         elif item.kind == "rerun":
             # Crash recovery: resume pending attributes, no reset.
-            await self._locked_rerun(payload["build_id"])
+            await self._rerun(payload["build_id"])
         elif item.kind == "effects":
             await self._restart_effects(payload["build_id"])
         elif item.kind == "scheduled":
@@ -331,51 +328,45 @@ class CIService:
             "started_at = NULL, finished_at = NULL WHERE id = $1",
             build_id,
         )
-        await self._locked_rerun(build_id)
+        await self._rerun(build_id)
 
-    async def _locked_rerun(self, build_id: int) -> None:
-        lock = self._rerun_locks.setdefault(build_id, asyncio.Lock())
-        async with lock:
-            build = await self.orchestrator.db.get_build(build_id)
-            if build is None:
-                return
-            project = await self.repo_store.by_id(build.project_id)
-            if project is None:
-                return
-            info = repo_info(project)
-            credentials = await self._credentials_provider(info.forge).get(
-                info.clone_url
+    async def _rerun(self, build_id: int) -> None:
+        # Serialized by the work queue's per-build dedup key.
+        build = await self.orchestrator.db.get_build(build_id)
+        if build is None:
+            return
+        project = await self.repo_store.by_id(build.project_id)
+        if project is None:
+            return
+        info = repo_info(project)
+        credentials = await self._credentials_provider(info.forge).get(info.clone_url)
+        results = await find_unfinished_builds(self.pool, build_id=build_id)
+        resumable = results[0] if results else None
+        if resumable is None:
+            return
+        pending_count = await self.pool.fetchval(
+            "SELECT count(*) FROM build_attributes "
+            "WHERE build_id = $1 AND status = 'pending'",
+            build_id,
+        )
+        if resumable.has_attributes and len(resumable.pending_jobs) == pending_count:
+            await self.orchestrator.rerun_pending_attributes(
+                info, build, resumable.pending_jobs, credentials
             )
-            results = await find_unfinished_builds(self.pool, build_id=build_id)
-            resumable = results[0] if results else None
-            if resumable is None:
-                return
-            pending_count = await self.pool.fetchval(
-                "SELECT count(*) FROM build_attributes "
-                "WHERE build_id = $1 AND status = 'pending'",
+            return
+        # No resumable eval results (no attribute rows, or pending
+        # rows without drv_path): an empty rerun would aggregate to
+        # "succeeded" without building anything; re-evaluate instead.
+        try:
+            await self._reeval(info, build, credentials)
+        except Exception:
+            logger.exception("re-evaluation failed", extra={"build_id": build_id})
+            await self.orchestrator.db.set_build_status(
                 build_id,
+                BuildStatus.FAILED,
+                error="re-evaluation failed; see service logs",
             )
-            if (
-                resumable.has_attributes
-                and len(resumable.pending_jobs) == pending_count
-            ):
-                await self.orchestrator.rerun_pending_attributes(
-                    info, build, resumable.pending_jobs, credentials
-                )
-                return
-            # No resumable eval results (no attribute rows, or pending
-            # rows without drv_path): an empty rerun would aggregate to
-            # "succeeded" without building anything; re-evaluate instead.
-            try:
-                await self._reeval(info, build, credentials)
-            except Exception:
-                logger.exception("re-evaluation failed", extra={"build_id": build_id})
-                await self.orchestrator.db.set_build_status(
-                    build_id,
-                    BuildStatus.FAILED,
-                    error="re-evaluation failed; see service logs",
-                )
-                await self._report_interrupted(resumable)
+            await self._report_interrupted(resumable)
 
     async def _reeval(
         self,
