@@ -1,27 +1,29 @@
 {% from "_macros.html" import status_icon, ref_link, ago %}
 {% if queue %}
   <h2 class="section">Queue</h2>
-  <table class="builds">
-    <caption class="visually-hidden">waiting and running builds</caption>
-    <tr>
-      <th scope="col">pos</th>
-      <th scope="col">project</th>
-      <th scope="col">#</th>
-      <th scope="col">ref</th>
-      <th scope="col">waiting</th>
-    </tr>
-    {% for b in queue %}
+  <div class="table-scroll">
+    <table class="builds">
+      <caption class="visually-hidden">waiting and running builds</caption>
       <tr>
-        <td>
-          <span class="queue-pos">{{ b.queue_position }}</span>
-        </td>
-        <td>{{ repo_name(b.owner, b.project_name) }}</td>
-        <td>
-          {{ status_icon(b.status) }}<a href="{{ build_path(b, b.number) }}">#{{ b.number }}</a>
-        </td>
-        <td>{{ ref_link(b, b) }}</td>
-        <td>{{ ago(b.created_at) }}</td>
+        <th scope="col">pos</th>
+        <th scope="col">project</th>
+        <th scope="col">#</th>
+        <th scope="col">ref</th>
+        <th scope="col">waiting</th>
       </tr>
-    {% endfor %}
-  </table>
+      {% for b in queue %}
+        <tr>
+          <td>
+            <span class="queue-pos">{{ b.queue_position }}</span>
+          </td>
+          <td>{{ repo_name(b.owner, b.project_name) }}</td>
+          <td>
+            {{ status_icon(b.status) }}<a href="{{ build_path(b, b.number) }}">#{{ b.number }}</a>
+          </td>
+          <td>{{ ref_link(b, b) }}</td>
+          <td>{{ ago(b.created_at) }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
 {% endif %}

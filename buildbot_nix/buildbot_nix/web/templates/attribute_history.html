@@ -11,30 +11,32 @@ block body %}
       <code>{{ attr }}</code>
       <small>in <a href="{{ repo_path(project) }}">{{ repo_name(project.owner, project.name) }}</a></small>
     </h2>
-    <table class="builds">
-      <tr>
-        <th scope="col">build</th>
-        <th scope="col">branch</th>
-        <th scope="col">status</th>
-        <th scope="col">commit</th>
-        <th scope="col">when</th>
-      </tr>
-      {% for h in history %}
+    <div class="table-scroll">
+      <table class="builds">
         <tr>
-          <td>
-            <a href="{{ build_path(project, h.build_number) }}">#{{ h.build_number }}</a>
-          </td>
-          <td>{{ h.branch }}</td>
-          <td>{{ status_pill(h.status) }}</td>
-          <td>{{ commit_link(project, h.commit_sha) }}</td>
-          <td>{{ ago(h.build_created_at) }}</td>
+          <th scope="col">build</th>
+          <th scope="col">branch</th>
+          <th scope="col">status</th>
+          <th scope="col">commit</th>
+          <th scope="col">when</th>
         </tr>
-      {% else %}
-        <tr>
-          <td colspan="5" class="empty-state">no history</td>
-        </tr>
-      {% endfor %}
-    </table>
+        {% for h in history %}
+          <tr>
+            <td>
+              <a href="{{ build_path(project, h.build_number) }}">#{{ h.build_number }}</a>
+            </td>
+            <td>{{ h.branch }}</td>
+            <td>{{ status_pill(h.status) }}</td>
+            <td>{{ commit_link(project, h.commit_sha) }}</td>
+            <td>{{ ago(h.build_created_at) }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="5" class="empty-state">no history</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
   </section>
 </main>
 {% endblock body %}

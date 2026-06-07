@@ -12,25 +12,27 @@
            hx-trigger="sse:message delay:300ms"
            hx-swap="morph:innerHTML">{% include "_queue.html" %}</div>
       <h2 class="section">Recent activity</h2>
-      <table class="builds" id="activity">
-        <thead>
-          <tr>
-            <th scope="col">#</th>
-            <th scope="col">project</th>
-            <th scope="col">ref</th>
-            <th scope="col">commit</th>
-            <th scope="col">when</th>
-            <th scope="col">took</th>
-          </tr>
-        </thead>
-        <tbody id="feed"
-               hx-get="/builds/rows"
-               hx-trigger="sse:message delay:300ms"
-               hx-swap="morph:innerHTML"
-               hx-vals='js:{limit: document.querySelectorAll("#feed tr[data-id]").length}'>
-          {% include "_build_rows.html" %}
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="builds" id="activity">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">project</th>
+              <th scope="col">ref</th>
+              <th scope="col">commit</th>
+              <th scope="col">when</th>
+              <th scope="col">took</th>
+            </tr>
+          </thead>
+          <tbody id="feed"
+                 hx-get="/builds/rows"
+                 hx-trigger="sse:message delay:300ms"
+                 hx-swap="morph:innerHTML"
+                 hx-vals='js:{limit: document.querySelectorAll("#feed tr[data-id]").length}'>
+            {% include "_build_rows.html" %}
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 {% endblock body %}

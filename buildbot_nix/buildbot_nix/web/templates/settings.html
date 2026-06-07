@@ -29,32 +29,34 @@
                aria-label="expires in days (optional)">
         <button>generate token</button>
       </form>
-      <table class="builds">
-        <tr>
-          <th scope="col">name</th>
-          <th scope="col">created</th>
-          <th scope="col">expires</th>
-          <th scope="col"></th>
-        </tr>
-        {% for t in tokens %}
+      <div class="table-scroll">
+        <table class="builds">
           <tr>
-            <td>{{ t.name }}</td>
-            <td>
-              <time datetime="{{ t.created_at.isoformat() }}" title="{{ t.created_at }}">{{ t.created_at | timeago }}</time>
-            </td>
-            <td>{{ t.expires_at or "never" }}</td>
-            <td>
-              <form method="post" action="/settings/tokens/{{ t.id }}/revoke">
-                <button>revoke</button>
-              </form>
-            </td>
+            <th scope="col">name</th>
+            <th scope="col">created</th>
+            <th scope="col">expires</th>
+            <th scope="col"></th>
           </tr>
-        {% else %}
-          <tr>
-            <td colspan="4" class="empty-state">no tokens</td>
-          </tr>
-        {% endfor %}
-      </table>
+          {% for t in tokens %}
+            <tr>
+              <td>{{ t.name }}</td>
+              <td>
+                <time datetime="{{ t.created_at.isoformat() }}" title="{{ t.created_at }}">{{ t.created_at | timeago }}</time>
+              </td>
+              <td>{{ t.expires_at or "never" }}</td>
+              <td>
+                <form method="post" action="/settings/tokens/{{ t.id }}/revoke">
+                  <button>revoke</button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="4" class="empty-state">no tokens</td>
+            </tr>
+          {% endfor %}
+        </table>
+      </div>
     </section>
   </main>
 {% endblock body %}

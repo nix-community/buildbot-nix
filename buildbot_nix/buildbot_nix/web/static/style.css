@@ -728,11 +728,8 @@ table td.empty-state {
 	align-self: center;
 }
 
-/* Narrow screens: tables keep their columns and scroll sideways
-   instead of overflowing the page. */
-@media (max-width: 40rem) {
-	main table {
-		display: block;
-		overflow-x: auto;
-	}
+/* Wide tables scroll sideways inside a wrapper; display: block on
+   the table itself would strip its screen-reader role. */
+.table-scroll {
+	overflow-x: auto;
 }

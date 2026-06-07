@@ -31,26 +31,28 @@
         <button>filter</button>
       </form>
       {% set rows_url = repo_path(project) ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
-      <table class="builds">
-        <thead>
-          <tr>
-            <th scope="col">#</th>
-            <th scope="col">ref</th>
-            <th scope="col">commit</th>
-            <th scope="col">when</th>
-            <th scope="col">took</th>
-          </tr>
-        </thead>
-        <tbody id="feed"
-               hx-get="{{ rows_url }}"
-               hx-trigger="sse:message delay:300ms"
-               hx-swap="morph:innerHTML"
-               hx-vals='js:{limit: document.querySelectorAll("#feed tr[data-id]").length}'>
-          {% with builds = builds["items"], has_more = builds.has_next, more_url = rows_url %}
-            {% include "_build_rows.html" %}
-          {% endwith %}
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="builds">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">ref</th>
+              <th scope="col">commit</th>
+              <th scope="col">when</th>
+              <th scope="col">took</th>
+            </tr>
+          </thead>
+          <tbody id="feed"
+                 hx-get="{{ rows_url }}"
+                 hx-trigger="sse:message delay:300ms"
+                 hx-swap="morph:innerHTML"
+                 hx-vals='js:{limit: document.querySelectorAll("#feed tr[data-id]").length}'>
+            {% with builds = builds["items"], has_more = builds.has_next, more_url = rows_url %}
+              {% include "_build_rows.html" %}
+            {% endwith %}
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 {% endblock body %}
