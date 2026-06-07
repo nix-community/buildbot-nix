@@ -265,7 +265,16 @@ class EngineService:
             # No resumable eval results (no attribute rows, or pending
             # rows without drv_path): an empty rerun would aggregate to
             # "succeeded" without building anything; re-evaluate instead.
-            await self._reeval(info, build, credentials)
+            try:
+                await self._reeval(info, build, credentials)
+            except Exception:
+                logger.exception("re-evaluation failed", extra={"build_id": build_id})
+                await self.orchestrator.db.set_build_status(
+                    build_id,
+                    BuildStatus.FAILED,
+                    error="re-evaluation failed; see service logs",
+                )
+                await self._report_interrupted(resumable)
 
     async def _reeval(
         self,

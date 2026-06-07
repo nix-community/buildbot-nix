@@ -31,7 +31,6 @@ from typing import TYPE_CHECKING
 
 import asyncpg
 
-from .db import BuildStatus
 from .models import CacheStatus, NixEvalJobSuccess
 from .scheduler import AttributeResult, AttributeStatus
 
@@ -159,21 +158,6 @@ async def find_unfinished_builds(
             )
         )
     return builds
-
-
-async def fail_interrupted_eval(db: BuildDB, resumable: ResumableBuild) -> bool:
-    """Builds killed during evaluation have no attribute rows and cannot
-    resume without a re-eval; mark them failed instead of letting an
-    empty rerun aggregate to success."""
-    if resumable.has_attributes:
-        return False
-    await db.set_build_status(
-        resumable.build_id,
-        BuildStatus.FAILED,
-        error="evaluation was interrupted by a service restart; "
-        "trigger a rebuild to re-evaluate",
-    )
-    return True
 
 
 async def check_store_paths(paths: list[str]) -> set[str]:

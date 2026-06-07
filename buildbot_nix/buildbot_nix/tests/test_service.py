@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from buildbot_nix.bootstrap import build_service
+from buildbot_nix.bootstrap import _startup, build_service
 from buildbot_nix.config import (
     EngineConfig,
     PullBasedConfig,
@@ -486,6 +486,99 @@ def test_topic_does_not_hard_filter_discovery(
             )
             assert row is not None
             assert row["name"] == "untagged"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_startup_reevaluates_interrupted_eval(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """A build interrupted mid-eval (no attribute rows) re-evaluates at
+    startup instead of being marked failed."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await pool.fetchval(
+                "INSERT INTO builds (project_id, number, branch, commit_sha, "
+                "status) VALUES ($1, 1, 'main', $2, 'evaluating') RETURNING id",
+                project_id,
+                sha,
+            )
+
+            reevals: list[int] = []
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                reevals.append(build.id)
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            await _startup(service)
+            await asyncio.gather(*service._tasks)  # noqa: SLF001
+
+            # The shared database may hold other tests' unfinished builds.
+            assert build_id in reevals
+            status = await pool.fetchval(
+                "SELECT status FROM builds WHERE id = $1", build_id
+            )
+            assert status != "failed"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_reeval_failure_marks_build_failed(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """A failed re-eval marks the build failed instead of leaving it
+    pending."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await pool.fetchval(
+                "INSERT INTO builds (project_id, number, branch, commit_sha, "
+                "status, error) VALUES ($1, 1, 'main', $2, 'failed', 'boom') "
+                "RETURNING id",
+                project_id,
+                sha,
+            )
+
+            async def broken_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                msg = "eval exploded"
+                raise RuntimeError(msg)
+
+            service.orchestrator.run_build = broken_run_build  # type: ignore[method-assign]
+            await service.restart_build(build_id)
+            await asyncio.gather(*service._tasks, return_exceptions=True)  # noqa: SLF001
+
+            row = await pool.fetchrow(
+                "SELECT status, error FROM builds WHERE id = $1", build_id
+            )
+            assert row["status"] == "failed"
+            assert "re-evaluation" in row["error"]
         finally:
             await pool.close()
 

@@ -16,7 +16,8 @@
         {% set running = (counts.building | default(0)) + (counts.evaluating | default(0)) %}
         <span class="summary-item">
           {# Only pulse the icon while builds are actually running. #}
-          <span class="status-icon building{% if running == 0 %} idle{% endif %}" aria-hidden="true"></span>
+          <span class="status-icon building{% if running == 0 %} idle{% endif %}"
+                aria-hidden="true"></span>
           {{ running }} running
         </span>
         <span class="summary-item">

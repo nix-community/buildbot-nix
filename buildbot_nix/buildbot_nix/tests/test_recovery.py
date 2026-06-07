@@ -21,7 +21,6 @@ from buildbot_nix.recovery import (
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
     db_retry,
-    fail_interrupted_eval,
     find_unfinished_builds,
     settle_already_built,
 )
@@ -233,30 +232,6 @@ def test_orphan_log_dirs(tmp_path: Path) -> None:
     assert (tmp_path / "logs" / "42").exists()
     assert not (tmp_path / "logs" / "43").exists()
     assert (tmp_path / "logs" / "not-a-build").exists()  # ignored
-
-
-def test_eval_interrupted_build_fails_instead_of_resuming(postgres_dsn: str) -> None:
-    # Killed during evaluation: no attribute rows exist, so the build
-    # cannot resume without a re-eval and must not aggregate to success.
-    async def run() -> None:
-        pool = await asyncpg.create_pool(postgres_dsn)
-        try:
-            db = BuildDB(pool)
-            build_id = await make_build(pool, "interrupted-eval")
-            resumable = next(
-                r for r in await find_unfinished_builds(pool) if r.build_id == build_id
-            )
-            assert not resumable.has_attributes
-            assert await fail_interrupted_eval(db, resumable)
-            row = await pool.fetchrow(
-                "SELECT status, error FROM builds WHERE id = $1", build_id
-            )
-            assert row["status"] == "failed"
-            assert "interrupted" in row["error"]
-        finally:
-            await pool.close()
-
-    asyncio.run(run())
 
 
 def test_resume_includes_interrupted_building_attributes(postgres_dsn: str) -> None:
