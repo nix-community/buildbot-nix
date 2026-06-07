@@ -15,25 +15,12 @@ from buildbot_nix.executor import (
     LogWriter,
     NixBuildExecutor,
 )
-from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.scheduler import BuildOutcome
+
+from .support import mk_job
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-def mk_job() -> NixEvalJobSuccess:
-    return NixEvalJobSuccess(
-        attr="foo",
-        attr_path=["foo"],
-        cache_status=CacheStatus.not_built,
-        needed_builds=[],
-        needed_substitutes=[],
-        drv_path="/nix/store/foo.drv",
-        name="foo",
-        outputs={"out": "/nix/store/foo-out"},
-        system="x86_64-linux",
-    )
 
 
 def test_cancel_during_retry_window(tmp_path: Path) -> None:

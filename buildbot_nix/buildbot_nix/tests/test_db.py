@@ -18,8 +18,9 @@ import pytest
 from buildbot_nix.db import BuildDB
 from buildbot_nix.failed_builds import PostgresFailedBuildCache
 from buildbot_nix.migrations import apply_migrations, load_migrations
-from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
+
+from .support import mk_job
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -278,20 +279,6 @@ async def _mk_project(pool: asyncpg.Pool, name: str) -> int:
     )
 
 
-def _job(attr: str, out: str | None = None) -> NixEvalJobSuccess:
-    return NixEvalJobSuccess(
-        attr=attr,
-        attr_path=[attr],
-        cache_status=CacheStatus.not_built,
-        needed_builds=[],
-        needed_substitutes=[],
-        drv_path=f"/nix/store/{attr}.drv",
-        name=attr,
-        outputs={"out": out or f"/nix/store/{attr}-out"},
-        system="x86_64-linux",
-    )
-
-
 def test_get_or_create_build_concurrent_no_duplicates(migrated_dsn: str) -> None:
     # SELECT-then-INSERT must be serialized: there is no unique
     # constraint on (project_id, tree_hash), so without locking two
@@ -389,7 +376,7 @@ def test_complete_attribute_replaces_log_row(migrated_dsn: str) -> None:
             project_id = await _mk_project(pool, "log-dup")
             db = BuildDB(pool)
             build, _ = await db.get_or_create_build(project_id, "tree-l", "sha", "main")
-            job = _job("foo")
+            job = mk_job("foo")
             for size in (10, 20):
                 await db.complete_attribute(
                     build.id,
@@ -431,7 +418,7 @@ def test_record_attributes_persists_pending_rows_with_outputs(
             build, _ = await db.get_or_create_build(
                 project_id, "tree-ra", "sha", "main"
             )
-            await db.record_attributes(build.id, [_job("a"), _job("b")])
+            await db.record_attributes(build.id, [mk_job("a"), mk_job("b")])
             rows = {
                 r["attr"]: r
                 for r in await pool.fetch(
@@ -449,11 +436,11 @@ def test_record_attributes_persists_pending_rows_with_outputs(
                 AttributeResult(
                     attr="a",
                     status=AttributeStatus.succeeded,
-                    job=_job("a"),
+                    job=mk_job("a"),
                     out_path="/nix/store/a-out",
                 ),
             )
-            await db.record_attributes(build.id, [_job("a")])
+            await db.record_attributes(build.id, [mk_job("a")])
             status = await pool.fetchval(
                 "SELECT status FROM build_attributes "
                 "WHERE build_id = $1 AND attr = 'a'",
@@ -475,7 +462,7 @@ def test_mark_attribute_building_sets_status_and_started_at(
             project_id = await _mk_project(pool, "building-status")
             db = BuildDB(pool)
             build, _ = await db.get_or_create_build(project_id, "tree-b", "sha", "main")
-            job = _job("foo")
+            job = mk_job("foo")
             await db.record_attributes(build.id, [job])
             await db.mark_attribute_building(build.id, "foo", job.system, job.drv_path)
             row = await pool.fetchrow(

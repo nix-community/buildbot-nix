@@ -24,25 +24,12 @@ from buildbot_nix.executor import (
     read_log,
     render_log_event,
 )
-from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.scheduler import BuildOutcome
+
+from .support import mk_job
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-def mk_job(attr: str = "foo") -> NixEvalJobSuccess:
-    return NixEvalJobSuccess(
-        attr=attr,
-        attr_path=[attr],
-        cache_status=CacheStatus.not_built,
-        needed_builds=[],
-        needed_substitutes=[],
-        drv_path=f"/nix/store/{attr}.drv",
-        name=attr,
-        outputs={"out": f"/nix/store/{attr}-out"},
-        system="x86_64-linux",
-    )
 
 
 # --- FairScheduler ---------------------------------------------------------

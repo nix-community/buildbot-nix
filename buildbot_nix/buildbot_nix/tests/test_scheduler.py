@@ -23,29 +23,9 @@ from buildbot_nix.scheduler import (
     sort_jobs_by_closures,
 )
 
+from .support import mk_job
+
 SYSTEM = "x86_64-linux"
-
-
-def mk_job(
-    attr: str,
-    *,
-    deps: list[str] | None = None,
-    cache_status: CacheStatus = CacheStatus.not_built,
-    system: str = SYSTEM,
-    out: str | None = None,
-) -> NixEvalJobSuccess:
-    drv = f"/nix/store/{attr}.drv"
-    return NixEvalJobSuccess(
-        attr=attr,
-        attr_path=attr.split("."),
-        cache_status=cache_status,
-        needed_builds=[drv, *(f"/nix/store/{d}.drv" for d in (deps or []))],
-        needed_substitutes=[],
-        drv_path=drv,
-        name=attr,
-        outputs={"out": out or f"/nix/store/{attr}-out"},
-        system=system,
-    )
 
 
 class FakeExecutor:

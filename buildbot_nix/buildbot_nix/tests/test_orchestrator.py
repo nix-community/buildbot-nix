@@ -24,7 +24,6 @@ from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
 from buildbot_nix.memory import calculate_eval_workers
 from buildbot_nix.migrations import apply_migrations
-from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.nix_eval import EvalError, EvalResult
 from buildbot_nix.orchestrator import Orchestrator
 from buildbot_nix.scheduler import (
@@ -33,10 +32,13 @@ from buildbot_nix.scheduler import (
     BuildOutcome,
 )
 
+from .support import mk_job
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from buildbot_nix.db import BuildRecord
+    from buildbot_nix.models import NixEvalJobSuccess
 
 pytestmark = pytest.mark.skipif(
     shutil.which("initdb") is None or shutil.which("git") is None,
@@ -111,20 +113,6 @@ def upstream(tmp_path: Path) -> Path:
 
 
 # --- fakes --------------------------------------------------------------------
-
-
-def mk_job(attr: str, system: str = "x86_64-linux") -> NixEvalJobSuccess:
-    return NixEvalJobSuccess(
-        attr=attr,
-        attr_path=[attr],
-        cache_status=CacheStatus.not_built,
-        needed_builds=[],
-        needed_substitutes=[],
-        drv_path=f"/nix/store/{attr}.drv",
-        name=attr,
-        outputs={"out": f"/nix/store/{attr}-out"},
-        system=system,
-    )
 
 
 @dataclass
@@ -991,7 +979,7 @@ def test_unsupported_system_attr_does_not_block_aggregation(
 
     async def run() -> None:
         add_commit(upstream, "sys")
-        jobs = [mk_job("a"), mk_job("other", "riscv64-linux")]
+        jobs = [mk_job("a"), mk_job("other", system="riscv64-linux")]
         build, _, pool = await run_event(
             postgres_dsn, tmp_path, upstream, FakeEvalRunner(jobs), FakeExecutor()
         )

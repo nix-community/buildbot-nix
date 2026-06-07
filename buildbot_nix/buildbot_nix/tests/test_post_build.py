@@ -10,13 +10,14 @@ import pytest
 
 from buildbot_nix.config import Interpolate, PostBuildStep
 from buildbot_nix.events import ChangeEvent, RepoInfo
-from buildbot_nix.models import CacheStatus, NixEvalJobSuccess
 from buildbot_nix.post_build import (
     InterpolationError,
     build_props,
     interpolate,
     run_post_build_steps,
 )
+
+from .support import mk_job
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -40,17 +41,7 @@ def test_build_props_exposes_change_context() -> None:
         commit_sha="deadbeef",
         pr_number=42,
     )
-    job = NixEvalJobSuccess(
-        attr="foo",
-        attr_path=["foo"],
-        cache_status=CacheStatus.not_built,
-        needed_builds=[],
-        needed_substitutes=[],
-        drv_path="/nix/store/foo.drv",
-        name="foo",
-        outputs={"out": "/nix/store/foo-out"},
-        system="x86_64-linux",
-    )
+    job = mk_job()
     props = build_props(event, job)
     assert props["project"] == "acme/proj"
     assert props["branch"] == "feature"
