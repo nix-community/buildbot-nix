@@ -13,9 +13,11 @@
         hx-trigger="sse:message delay:300ms">
     <section class="content dashboard">
       <div class="summary-strip">
+        {% set running = (counts.building | default(0)) + (counts.evaluating | default(0)) %}
         <span class="summary-item">
-          {{ status_icon("building", labelled=false) }}
-          {{ (counts.building | default(0) ) + (counts.evaluating | default(0)) }} running
+          {# Only pulse the icon while builds are actually running. #}
+          <span class="status-icon building{% if running == 0 %} idle{% endif %}" aria-hidden="true"></span>
+          {{ running }} running
         </span>
         <span class="summary-item">
           {{ status_icon("pending", labelled=false) }}

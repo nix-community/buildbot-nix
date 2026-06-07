@@ -241,6 +241,9 @@ h2 .status-icon {
 .status-icon.evaluating {
 	animation: pulse 1.2s ease-in-out infinite;
 }
+.status-icon.idle {
+	animation: none;
+}
 .status-icon.cancelled,
 .status-icon.skipped_local {
 	border-style: dashed;
