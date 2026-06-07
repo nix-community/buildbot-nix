@@ -304,6 +304,27 @@ class _LogRoutes:
             text = "\n".join(text.splitlines()[-tail:]) + "\n"
         return PlainTextResponse(strip_ansi(text))
 
+    async def scheduled_run_log(
+        self,
+        request: Request,
+        forge: str,
+        owner: str,
+        name: str,
+        run_id: int,
+    ) -> PlainTextResponse:
+        """Log of one scheduled-effect run as plain text."""
+        project = await self.ctx.repo_or_404(forge, owner, name, request)
+        row = await self.ctx.pool.fetchrow(
+            "SELECT id FROM scheduled_effect_runs WHERE id = $1 AND project_id = $2",
+            run_id,
+            project["id"],
+        )
+        path = self.ctx.state_dir / "logs" / "scheduled" / f"{run_id}.zst"
+        if row is None or not await asyncio.to_thread(path.exists):
+            raise HTTPException(status_code=404)
+        data = await asyncio.to_thread(read_log, path)
+        return PlainTextResponse(strip_ansi(data.decode(errors="replace")))
+
     async def build_failures(  # noqa: PLR0913
         self,
         request: Request,
@@ -399,6 +420,9 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
     router.get(f"{_BASE}/logs/{{attr}}.txt")(routes.log_raw_text)
     router.get(f"{_BASE}/logs/{{attr}}/stream")(routes.log_stream)
     router.get(f"{_BASE}/logs/{{attr}}", response_class=HTMLResponse)(routes.log_viewer)
+    router.get("/repos/{forge}/{owner}/{name}/schedules/runs/{run_id}.txt")(
+        routes.scheduled_run_log
+    )
     return router
 
 

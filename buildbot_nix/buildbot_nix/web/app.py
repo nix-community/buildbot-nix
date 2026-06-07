@@ -38,6 +38,7 @@ from buildbot_nix.effects_state import TaskTokens
 
 from ..auth import can_control_build, is_admin  # noqa: TID252
 from ..recovery import check_db_health  # noqa: TID252
+from ..scheduled import ScheduledEffectsStore, schedule_overview  # noqa: TID252
 from .api_routes import create_api_router
 from .auth_routes import SESSION_COOKIE
 from .events import EventBroker, create_events_router
@@ -287,6 +288,7 @@ class _PageRoutes:
             page=page,
             filters=BuildFilters.for_ref(ref, status=status),
         )
+        store = ScheduledEffectsStore(ctx.pool)
         return ctx.render(
             "repo.html",
             request=request,
@@ -295,6 +297,10 @@ class _PageRoutes:
             status=status or "",
             ref=ref or "",
             webhook_url=await self._webhook_url(request, project),
+            schedules=schedule_overview(
+                await store.schedules_for_project(project["id"]),
+                await store.latest_runs_for_project(project["id"]),
+            ),
         )
 
     async def _webhook_url(

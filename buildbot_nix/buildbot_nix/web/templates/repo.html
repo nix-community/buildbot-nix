@@ -67,6 +67,41 @@
           </div>
         </details>
       {% endif %}
+      {% if schedules %}
+        <h2 class="section">Schedules</h2>
+        <table class="attrs">
+          <caption class="visually-hidden">scheduled effects</caption>
+          <thead class="visually-hidden">
+            <tr>
+              <th scope="col">status</th>
+              <th scope="col">schedule</th>
+              <th scope="col">when</th>
+              <th scope="col">last run</th>
+            </tr>
+          </thead>
+          {% for s in schedules %}
+            <tr>
+              <td class="status">{{ status_icon(s.run.status if s.run else "pending") }}</td>
+              <td class="attr-name">
+                {% if s.run %}
+                  <a href="{{ repo_path(project) }}/schedules/runs/{{ s.run.id }}.txt">{{ s.schedule }} · {{ s.effect }}</a>
+                {% else %}
+                  {{ s.schedule }} · {{ s.effect }}
+                {% endif %}
+              </td>
+              <td class="muted">{{ s.when }}</td>
+              <td class="muted">
+                {% if s.run %}
+                  <time datetime="{{ s.run.started_at.isoformat() }}"
+                        title="{{ s.run.started_at }}">{{ s.run.started_at | timeago }}</time>
+                {% else %}
+                  never
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% endif %}
       {% set rows_url = repo_path(project) ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
       <div class="table-scroll">
         <table class="builds">
