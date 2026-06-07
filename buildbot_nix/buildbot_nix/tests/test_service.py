@@ -28,9 +28,9 @@ from buildbot_nix.config import (
 from buildbot_nix.forge import DiscoveredRepo, GitlabClient
 from buildbot_nix.scheduled import DueEffect, ScheduleWhen
 from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
-from buildbot_nix.webhooks import ChangeRequest
+from buildbot_nix.webhooks import ChangeRequest, PrClosed
 
-from .support import ephemeral_postgres
+from .support import ephemeral_postgres, truncate_work_queue
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -44,6 +44,11 @@ pytestmark = pytest.mark.skipif(
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     with ephemeral_postgres(tmp_path_factory, "svc") as dsn:
         yield dsn
+
+
+@pytest.fixture(autouse=True)
+def _fresh_work_queue(postgres_dsn: str) -> None:
+    truncate_work_queue(postgres_dsn)
 
 
 def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> Config:
@@ -160,6 +165,49 @@ async def seed_project(pool: Any, url: str) -> int:
         f"svc-{time.monotonic_ns()}",
         url,
     )
+
+
+def test_pr_close_discards_queued_changes(postgres_dsn: str, tmp_path: Path) -> None:
+    """A queued change event for a closed PR must not build it later."""
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, "http://x")
+            forge_repo_id = await pool.fetchval(
+                "SELECT forge_repo_id FROM projects WHERE id = $1", project_id
+            )
+            await service._submit_change(  # noqa: SLF001
+                ChangeRequest(
+                    forge="github",
+                    forge_repo_id=forge_repo_id,
+                    branch="refs/pull/12/head",
+                    commit_sha="abc",
+                    pr_number=12,
+                )
+            )
+            await service.submit(
+                PrClosed(forge="github", forge_repo_id=forge_repo_id, pr_number=12)
+            )
+            handled: list[Any] = []
+
+            async def fake_handle(event: Any, credentials: Any = None) -> None:
+                handled.append((event, credentials))
+
+            service.orchestrator.handle_change_event = fake_handle  # type: ignore[method-assign]
+            await service.drain_work()
+            assert handled == []
+            status = await pool.fetchval(
+                "SELECT status FROM work_queue WHERE kind = 'change'"
+            )
+            assert status == "done"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
 
 
 def test_restart_eval_failed_build_reevaluates(
@@ -394,7 +442,7 @@ def test_pull_based_projects_synced_and_buildable(
                     commit_sha="abc",
                 )
             )
-            await asyncio.gather(*service._tasks)  # noqa: SLF001
+            await service.drain_work()
             assert len(events) == 1
             event, credentials = events[0]
             assert event.repo.forge == "pull_based"

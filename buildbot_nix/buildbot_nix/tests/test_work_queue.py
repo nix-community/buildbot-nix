@@ -11,7 +11,7 @@ import pytest
 
 from buildbot_nix.work_queue import WorkQueue
 
-from .support import ephemeral_postgres
+from .support import ephemeral_postgres, truncate_work_queue
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -27,11 +27,15 @@ def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         yield dsn
 
 
+@pytest.fixture(autouse=True)
+def _fresh_work_queue(postgres_dsn: str) -> None:
+    truncate_work_queue(postgres_dsn)
+
+
 def test_enqueue_dedupes_pending(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            await pool.execute("TRUNCATE work_queue")
             queue = WorkQueue(pool)
             assert await queue.enqueue("restart", "build-1", {"build_id": 1})
             # Double click: identical pending intent collapses.
@@ -55,7 +59,6 @@ def test_claim_serializes_per_key(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            await pool.execute("TRUNCATE work_queue")
             queue = WorkQueue(pool)
             await queue.enqueue("restart", "build-2")
             first = await queue.claim_next()
@@ -93,7 +96,6 @@ def test_settle_interrupted_requeues(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            await pool.execute("TRUNCATE work_queue")
             queue = WorkQueue(pool)
             await queue.enqueue("change", "proj-1")
             assert await queue.claim_next() is not None

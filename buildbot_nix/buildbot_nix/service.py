@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import os
 import re
@@ -165,10 +166,33 @@ class CIService:
             )
             if project is not None:
                 self.orchestrator.canceller.cancel_pr(project.id, event.pr_number)
+            # Queued events for the PR would build it after the close.
+            await self.pool.execute(
+                """
+                UPDATE work_queue SET status = 'done', finished_at = now()
+                WHERE kind = 'change' AND status = 'pending'
+                  AND payload->>'forge' = $1
+                  AND payload->>'forge_repo_id' = $2
+                  AND (payload->>'pr_number')::int = $3
+                """,
+                event.forge,
+                event.forge_repo_id,
+                event.pr_number,
+            )
             return
         await self._submit_change(event)
 
     async def _submit_change(self, change: ChangeRequest) -> None:
+        """Enqueue only; the dispatcher runs _process_change. The key
+        serializes deliveries of one commit, not of one branch:
+        supersede needs newer commits to run concurrently."""
+        await self.enqueue_work(
+            "change",
+            f"change-{change.forge}-{change.forge_repo_id}-{change.commit_sha}",
+            dataclasses.asdict(change),
+        )
+
+    async def _process_change(self, change: ChangeRequest) -> None:
         project = await self.repo_store.by_forge_id(change.forge, change.forge_repo_id)
         if project is None or not project.enabled:
             return
@@ -187,7 +211,7 @@ class CIService:
             base_sha=change.base_sha,
             commit_message=change.commit_message,
         )
-        self._spawn(self.orchestrator.handle_change_event(event, credentials))
+        await self.orchestrator.handle_change_event(event, credentials)
 
     # -- ControlBackend ---------------------------------------------------
 
@@ -251,7 +275,9 @@ class CIService:
 
     async def _dispatch_work(self, item: WorkItem) -> None:
         payload = item.payload
-        if item.kind == "restart":
+        if item.kind == "change":
+            await self._process_change(ChangeRequest(**payload))
+        elif item.kind == "restart":
             await self._restart(payload["build_id"], payload.get("attr"))
         elif item.kind == "rerun":
             # Crash recovery: resume pending attributes, no reset.

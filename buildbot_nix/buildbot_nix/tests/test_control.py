@@ -26,7 +26,7 @@ from buildbot_nix.web.control_routes import (
 )
 from buildbot_nix.web.token_routes import create_token_router
 
-from .support import cookie_header, ephemeral_postgres
+from .support import cookie_header, ephemeral_postgres, truncate_work_queue
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -77,6 +77,11 @@ def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     with ephemeral_postgres(tmp_path_factory, "ctl") as dsn:
         asyncio.run(seed(dsn))
         yield dsn
+
+
+@pytest.fixture(autouse=True)
+def _fresh_work_queue(postgres_dsn: str) -> None:
+    truncate_work_queue(postgres_dsn)
 
 
 async def seed(dsn: str) -> None:
@@ -622,7 +627,6 @@ def test_work_dispatch(postgres_dsn: str, tmp_path: Path) -> None:
         service, _app = await build_service(config)
         pool = service.pool
         try:
-            await pool.execute("TRUNCATE work_queue")
             # Scheduled payload roundtrip; the unknown project makes
             # execution a no-op, but parsing must succeed.
             await service.enqueue_work(

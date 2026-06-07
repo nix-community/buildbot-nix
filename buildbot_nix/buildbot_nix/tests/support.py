@@ -9,6 +9,8 @@ import subprocess
 import time
 from typing import TYPE_CHECKING
 
+import asyncpg
+
 from buildbot_nix.migrations import apply_migrations
 
 if TYPE_CHECKING:
@@ -94,3 +96,17 @@ def ephemeral_postgres(
     finally:
         proc.terminate()
         proc.wait()
+
+
+def truncate_work_queue(dsn: str) -> None:
+    """Per-test isolation for modules sharing one database: leftover
+    queued work would be executed by another test's drain_work."""
+
+    async def run() -> None:
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute("TRUNCATE work_queue")
+        finally:
+            await conn.close()
+
+    run_sync(run())
