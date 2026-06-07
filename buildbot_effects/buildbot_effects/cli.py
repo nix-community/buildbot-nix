@@ -16,6 +16,7 @@ from . import (
     list_scheduled_effects,
     parse_derivation,
     run_effects,
+    select_secrets,
 )
 from .options import EffectsOptions
 
@@ -59,6 +60,8 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
         branch=locked.get("ref"),
         url=meta.get("resolvedUrl", meta.get("url", "")),
         locked_url=locked_url,
+        default_branch=base.default_branch,
+        git_token_file=base.git_token_file,
         debug=base.debug,
         extra_sandbox_paths=base.extra_sandbox_paths,
     )
@@ -71,6 +74,8 @@ def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
         rev=args.rev,
         repo=args.repo,
         path=args.path.resolve(),
+        default_branch=getattr(args, "default_branch", None),
+        git_token_file=getattr(args, "git_token_file", None),
         debug=args.debug,
         extra_sandbox_paths=args.extra_sandbox_path,
     )
@@ -114,7 +119,7 @@ def run_command(args: argparse.Namespace) -> None:
         run_effects(
             drv_path,
             drv,
-            secrets=secrets,
+            secrets=select_secrets(drv, secrets, options),
             debug=options.debug,
             extra_sandbox_paths=options.extra_sandbox_paths,
         )
@@ -164,7 +169,7 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
         run_effects(
             drv_path,
             drv,
-            secrets=secrets,
+            secrets=select_secrets(drv, secrets, options),
             debug=options.debug,
             extra_sandbox_paths=options.extra_sandbox_paths,
         )
@@ -198,6 +203,16 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         default=False,
         action="store_true",
         help="Enable debug mode (may leak secrets such as GITHUB_TOKEN)",
+    )
+    parser.add_argument(
+        "--default-branch",
+        type=str,
+        help="Default branch of the repository (for secret conditions)",
+    )
+    parser.add_argument(
+        "--git-token-file",
+        type=Path,
+        help="File with a forge token for GitToken secret references",
     )
     parser.add_argument(
         "--extra-sandbox-path",

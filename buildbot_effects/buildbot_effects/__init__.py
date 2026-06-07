@@ -17,6 +17,9 @@ if TYPE_CHECKING:
     from .options import EffectsOptions
 
 
+from .secrets import SecretContext, gather_secrets, parse_secrets_map
+
+
 class BuildbotEffectsError(Exception):
     pass
 
@@ -282,6 +285,30 @@ def pipe() -> Iterator[tuple[IO[str], IO[str]]]:
     finally:
         r_file.close()
         w_file.close()
+
+
+def select_secrets(
+    drv: dict[str, Any],
+    secrets: dict[str, Any],
+    opts: EffectsOptions,
+) -> dict[str, Any]:
+    """Hercules semantics when the effect declares secretsMap;
+    whole-file passthrough otherwise (legacy buildbot-nix behavior)."""
+    secrets_map = parse_secrets_map(drv.get("env", {}))
+    if not secrets_map:
+        return secrets
+    branch = opts.branch or ""
+    ctx = SecretContext(
+        owner_name=(opts.repo or "").split("/")[0],
+        repo_name=(opts.repo or "").rsplit("/", 1)[-1],
+        is_default_branch=opts.default_branch is not None
+        and branch == opts.default_branch,
+        ref=f"refs/tags/{opts.tag}" if opts.tag else f"refs/heads/{branch}",
+    )
+    git_token = None
+    if opts.git_token_file is not None:
+        git_token = opts.git_token_file.read_text().strip()
+    return gather_secrets(secrets_map, secrets, ctx, git_token)
 
 
 def run_effects(

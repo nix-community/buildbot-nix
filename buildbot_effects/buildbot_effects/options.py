@@ -14,5 +14,7 @@ class EffectsOptions:
     url: str | None = None
     tag: str | None = None
     locked_url: str | None = None
+    default_branch: str | None = None
+    git_token_file: Path | None = None
     debug: bool = False
     extra_sandbox_paths: list[Path] = field(default_factory=list)
