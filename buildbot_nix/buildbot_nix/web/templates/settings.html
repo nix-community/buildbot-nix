@@ -9,6 +9,10 @@
         Settings <small>for {{ user.qualified }}</small>
       </h2>
       <h3>API tokens</h3>
+      <p class="muted">
+        Tokens authenticate requests to the <a href="/docs">API</a>
+        (<a href="/api/openapi.json">OpenAPI spec</a>).
+      </p>
       {% if new_token %}
         <pre class="error warning">Your new token (shown only once):
 {{ new_token }}</pre>
