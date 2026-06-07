@@ -365,6 +365,22 @@ button:hover {
 	gap: 1rem;
 	padding: 0.8rem 0;
 }
+.build-progress {
+	display: flex;
+	gap: 0.75rem;
+	align-items: center;
+}
+.build-progress progress {
+	flex: 1;
+	max-width: 28rem;
+	height: 0.5rem;
+	accent-color: var(--accent);
+}
+/* Fitts: small inline links get a larger hit area. */
+.pager a {
+	padding: 0.35rem 0.4rem;
+	margin: -0.35rem -0.4rem;
+}
 .build-header {
 	display: flex;
 	justify-content: space-between;
@@ -432,6 +448,7 @@ pre.log {
 	display: inline-block;
 	width: 4ch;
 	margin-right: 1ch;
+	padding: 0.15rem 0.3rem;
 	text-align: right;
 	color: var(--muted);
 	user-select: none;

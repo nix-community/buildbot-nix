@@ -344,11 +344,14 @@ class _PageRoutes:
             for group in INLINE_GROUPS
             if group_counts[group]
         }
+        total = sum(group_counts.values())
         return ctx.render(
             "build.html",
             request=request,
             project=project,
             build=build,
+            attrs_total=total,
+            attrs_done=total - group_counts["pending"] - group_counts["building"],
             group_counts=group_counts,
             inline=inline,
             prev_number=prev_number,

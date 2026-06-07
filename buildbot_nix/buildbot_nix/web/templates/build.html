@@ -79,6 +79,12 @@
           <pre class="error warning">{{ build.eval_warnings }}</pre>
         </details>
       {% endif %}
+      {% if build.status in RUNNING_STATUSES and attrs_total %}
+        <p class="build-progress">
+          <progress value="{{ attrs_done }}" max="{{ attrs_total }}"></progress>
+          <span class="muted">{{ attrs_done }} of {{ attrs_total }} attributes done</span>
+        </p>
+      {% endif %}
       <p>
         <input type="search"
                id="attr-filter"

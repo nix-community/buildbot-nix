@@ -170,6 +170,14 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
     assert '["' not in text
 
 
+def test_running_build_shows_progress(client: WebClient) -> None:
+    running = get(client, "/repos/github/acme/widget/builds/3").text
+    assert "<progress" in running
+    assert "3 of 3" in running  # seeded attrs are all settled
+    finished = get(client, "/repos/github/acme/widget/builds/2").text
+    assert "<progress" not in finished
+
+
 def test_build_page_live_markers(client: WebClient) -> None:
     running = get(client, "/repos/github/acme/widget/builds/3")
     # htmx SSE wiring: event stream scoped to the build, main region

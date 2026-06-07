@@ -14,7 +14,7 @@
       </table>
     {% else %}
       <details class="attr-group" data-group="{{ group }}">
-        <summary>{{ count }} {{ group }}{{ " (built locally)" if group == "skipped" else "" }}</summary>
+        <summary>{{ count }} {{ "already built" if group == "skipped" else group }}</summary>
         <table class="attrs">
           <caption class="visually-hidden">{{ group }} attributes</caption>
           <tr>
