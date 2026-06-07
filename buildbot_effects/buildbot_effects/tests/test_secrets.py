@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_effects import sandbox_env
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from buildbot_effects import pass_as_file_env, sandbox_env
 from buildbot_effects.secrets import (
     GitToken,
     SecretContext,
@@ -136,3 +140,20 @@ def test_home_is_not_inherited() -> None:
     its own."""
     assert sandbox_env({})["HOME"] == "/homeless-shelter"
     assert sandbox_env({"HOME": "/build/home"})["HOME"] == "/build/home"
+
+
+def test_pass_as_file_env(tmp_path: Path) -> None:
+    drv_env = {
+        "passAsFile": "buildCommand extra",
+        "buildCommand": "echo hi",
+        "extra": "x",
+        "other": "kept",
+    }
+    env, clear = pass_as_file_env(drv_env, tmp_path)
+    assert env == {
+        "buildCommandPath": "/build/.attr-buildCommand",
+        "extraPath": "/build/.attr-extra",
+    }
+    assert clear == {"buildCommand", "extra"}
+    assert (tmp_path / ".attr-buildCommand").read_text() == "echo hi"
+    assert (tmp_path / ".attr-extra").read_text() == "x"

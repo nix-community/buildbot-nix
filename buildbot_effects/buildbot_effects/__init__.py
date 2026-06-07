@@ -351,6 +351,21 @@ def sandbox_env(drv_env: dict[str, str]) -> dict[str, str]:
     }
 
 
+def pass_as_file_env(
+    drv_env: dict[str, str], build_dir: Path
+) -> tuple[dict[str, str], set[str]]:
+    """Nix's passAsFile: write each listed variable into the build
+    directory and point <name>Path at it. The agent never implemented
+    this, but plain runCommand effects need it for buildCommand."""
+    env: dict[str, str] = {}
+    clear: set[str] = set()
+    for name in drv_env.get("passAsFile", "").split():
+        (build_dir / f".attr-{name}").write_text(drv_env.get(name, ""))
+        env[f"{name}Path"] = f"/build/.attr-{name}"
+        clear.add(name)
+    return env, clear
+
+
 def virtual_ids(drv_env: dict[str, str]) -> tuple[int, int]:
     """`__hci_effect_virtual_uid`/`gid` from the derivation; the
     agent's defaults are 0/uid."""
@@ -376,6 +391,15 @@ def _task_env(
         if opts.task_token_file is not None:
             token = opts.task_token_file.read_text().strip()
     return env, token
+
+
+def _work_dirs() -> tuple[Path, Path, Path]:
+    work_dir = Path(tempfile.mkdtemp(prefix="effect-"))
+    build_dir = work_dir / "build"
+    etc_dir = work_dir / "etc"
+    build_dir.mkdir()
+    etc_dir.mkdir()
+    return work_dir, build_dir, etc_dir
 
 
 def run_effects(  # noqa: PLR0913
@@ -408,11 +432,10 @@ def run_effects(  # noqa: PLR0913
     if bwrap is None:
         msg = "bwrap' executable not found"
         raise BuildbotEffectsError(msg)
-    work_dir = Path(tempfile.mkdtemp(prefix="effect-"))
-    build_dir = work_dir / "build"
-    etc_dir = work_dir / "etc"
-    build_dir.mkdir()
-    etc_dir.mkdir()
+    work_dir, build_dir, etc_dir = _work_dirs()
+    pass_env, pass_clear = pass_as_file_env(drv_env, build_dir)
+    env.update(pass_env)
+    clear_env |= pass_clear
     # Private daemon socket: each connection gets its own untrusted
     # nix-daemon, so effects cannot use trusted-user privileges.
     daemon_socket = work_dir / "daemon-socket"
