@@ -66,17 +66,6 @@
     <script>
       /* Attribute filter: client-side over the loaded rows.
          Re-applied after htmx swaps in fresh rows. */
-      const afilter = document.querySelector("#attr-filter");
-      if (afilter) {
-        const apply = () => {
-          const q = afilter.value.toLowerCase();
-          for (const row of document.querySelectorAll("[data-attr]")) {
-            row.style.display = row.dataset.attr.includes(q) ? "" : "none";
-          }
-        };
-        afilter.addEventListener("input", apply);
-        document.body.addEventListener("htmx:afterSwap", apply);
-      }
       /* Morphs render the server state, which always closes the
          attribute groups - an SSE refresh would snap them shut and
          drop their lazily loaded rows. Reapply the open state after

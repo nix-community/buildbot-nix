@@ -41,7 +41,7 @@ from .auth_routes import SESSION_COOKIE
 from .events import EventBroker, create_events_router
 from .logs import LogRegistry, create_log_api_router, create_log_router
 from .metrics import create_metrics_router
-from .queries import PAGE_SIZE, BuildFilters, WebQueries
+from .queries import PAGE_SIZE, BuildFilters, Page, WebQueries
 from .templating import STATIC_DIR, CachedStaticFiles, make_env
 
 if TYPE_CHECKING:
@@ -370,23 +370,30 @@ class _PageRoutes:
         owner: str,
         name: str,
         number: int,
-        group: str,
+        group: str | None = None,
+        q: str | None = None,
         page: int = 1,
         limit: int = ATTR_PAGE,
     ) -> HTMLResponse:
-        """Row fragments for one attribute group, infinite scroll."""
+        """Row fragments: one group's infinite-scroll page, or a search."""
         ctx = self.ctx
-        statuses = ATTR_GROUPS.get(group)
-        if statuses is None:
+        statuses = ATTR_GROUPS.get(group) if group else None
+        if statuses is None and q is None:
             raise HTTPException(status_code=404)
         project = await ctx.repo_or_404(forge, owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
         limit = min(max(limit, 1), MAX_ROWS)
-        rows = await ctx.queries.attribute_page(
-            build["id"], statuses, limit, max(page, 1)
-        )
+        if statuses is None:
+            items = (
+                await ctx.queries.attribute_search(build["id"], q, limit) if q else []
+            )
+            rows = Page(items=items, page=1, has_next=False)
+        else:
+            rows = await ctx.queries.attribute_page(
+                build["id"], statuses, limit, max(page, 1)
+            )
         return ctx.render(
             "_attr_rows.html",
             request=request,

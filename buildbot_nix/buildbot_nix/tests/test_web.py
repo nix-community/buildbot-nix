@@ -147,6 +147,8 @@ def test_build_page(client: WebClient) -> None:
     assert "attrs?group=succeeded" in text
     # Groups scroll internally so the summaries below stay reachable.
     assert text.count('class="attr-scroll"') >= 2
+    # Search queries the server, not just the loaded rows.
+    assert 'name="q"' in text
     # Inline error excerpt.
     # ANSI in the stored excerpt renders as color, not as escapes.
     assert "builder failed loudly" in text
@@ -735,3 +737,11 @@ def test_event_broker_pushes_status_changes(
     assert attr_event["status"] == "failed"
     assert "attr" not in build_event
     assert build_event["status"] == "failed"
+
+
+def test_attribute_search(client: WebClient) -> None:
+    found = get(client, "/repos/github/acme/widget/builds/2/attrs?q=bad")
+    assert "x86_64-linux.bad" in found.text
+    assert "x86_64-linux.ok" not in found.text
+    empty = get(client, "/repos/github/acme/widget/builds/2/attrs?q=")
+    assert "data-attr" not in empty.text

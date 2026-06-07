@@ -320,6 +320,26 @@ class WebQueries:
         )
         return Page(items=_rows(rows[:limit]), page=page, has_next=len(rows) > limit)
 
+    async def attribute_search(
+        self, build_id: int, q: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Attributes matching a substring, across all statuses."""
+        pattern = "%" + _like_escape(q) + "%"
+        return _rows(
+            await self.pool.fetch(
+                """
+                SELECT a.*, l.path AS log_path, l.size_bytes AS log_size
+                FROM build_attributes a
+                LEFT JOIN logs l ON l.attribute_id = a.id
+                WHERE a.build_id = $1 AND a.attr ILIKE $2
+                ORDER BY a.attr LIMIT $3
+                """,
+                build_id,
+                pattern,
+                limit,
+            )
+        )
+
     async def attribute_history(
         self, project_id: int, attr: str, limit: int = 50
     ) -> list[dict[str, Any]]:

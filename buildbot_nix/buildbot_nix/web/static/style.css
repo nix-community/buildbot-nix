@@ -381,6 +381,8 @@ button:hover {
 	max-width: 28rem;
 	height: 0.5rem;
 	accent-color: var(--accent);
+#attr-search:not(:has(tr)) {
+	display: none;
 }
 /* Fitts: small inline links get a larger hit area. */
 .pager a {
