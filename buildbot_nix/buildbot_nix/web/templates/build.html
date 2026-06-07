@@ -8,12 +8,10 @@
   hx-ext="sse, morph" sse-connect="/events?build={{ build.id }}"
 {% endblock bodyattrs %}
 {% block body %}
-  {# sseOpen re-checks state rendered before the stream connected;
-     a status change in that gap would otherwise be lost. #}
-  {% set trigger = "sse:message delay:300ms" %}
-  {% if build.status in RUNNING_STATUSES %}
-    {% set trigger = trigger ~ ", htmx:sseOpen from:body" %}
-  {% endif %}
+  {# sseOpen re-checks state rendered before the stream connected; a
+     status change in that gap (eval start, rebuild-failed) would
+     otherwise be lost. #}
+  {% set trigger = "sse:message delay:300ms, htmx:sseOpen from:body" %}
   {# hx-disinherit: the lazy attribute-row fetches inside would
      otherwise inherit hx-select="#main" and swap in nothing. #}
   <main id="main"

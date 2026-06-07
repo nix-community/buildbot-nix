@@ -207,6 +207,9 @@ def test_build_page_live_markers(client: WebClient) -> None:
     # refetched and morphed on events.
     assert 'sse-connect="/events?build=' in running.text
     assert 'hx-trigger="sse:message' in running.text
+    # Finished pages re-check on connect too (rebuild-failed).
+    finished = get(client, "/repos/github/acme/widget/builds/2")
+    assert "htmx:sseOpen" in finished.text
     # PR link on the PR build.
     assert "/pull/5" in running.text
 
