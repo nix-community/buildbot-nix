@@ -445,24 +445,20 @@ class NixBuildExecutor:
                 timeout=self.settings.timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if cancel_task in done and wait_task not in done:
+            timed_out = not done
+            if wait_task not in done:  # cancel requested or timeout
                 kill()
                 await proc.wait()
-                await pump_task
-                return BuildOutcome.cancelled, False
-            if wait_task not in done:  # timeout
-                kill()
-                await proc.wait()
-                await pump_task
+            await pump_task
+            if timed_out:
                 await log_writer.write(
                     f"\n\nbuildbot-nix: build timed out after "
                     f"{self.settings.timeout}s\n\n".encode()
                 )
                 # Timeouts are genuine failures (cached when enabled).
                 return BuildOutcome.failure, False
-            await pump_task
             if proc.returncode == 0:
-                # Even when cancelled in the same turn: the build
+                # Even when the kill raced a clean exit: the build
                 # finished, the result is real.
                 return BuildOutcome.success, False
             if cancel_event.is_set():
