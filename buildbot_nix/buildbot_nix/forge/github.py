@@ -1,23 +1,8 @@
-"""Forge clients and project discovery.
-
-httpx-based async port of github/, github_projects.py and
-gitea_projects.py discovery:
-
-- GitHub: App auth only (token mode dropped). App JWTs are signed via
-  openssl with the operator-supplied private key; short-lived
-  installation tokens are minted per installation and cached until
-  shortly before expiry. Private-repo fetches get per-fetch credentials
-  through the gitrepo CredentialsProvider interface (netrc with
-  x-access-token).
-- Gitea: personal token; repos listed via /api/v1/user/repos with
-  topics fetched per repo (as before).
-- GitLab: personal/group/project access token (api scope); repos
-  listed via /api/v4/projects?membership=true. No GitHub-App
-  equivalent exists, so auth follows the Gitea model.
-- Discovery filters: repoAllowlist/userAllowlist are a security
-  boundary applied at discovery time; the topic filter is only a legacy
-  import aid (see projects.py for the one-shot enablement import).
-"""
+"""GitHub App auth and discovery. App JWTs are signed via openssl
+with the operator-supplied private key; short-lived installation
+tokens are minted per installation and cached until shortly before
+expiry. Private-repo fetches get per-fetch credentials through the
+gitrepo CredentialsProvider interface (netrc with x-access-token)."""
 
 from __future__ import annotations
 
@@ -30,71 +15,18 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-from urllib.parse import quote, urlparse
+from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
-from .gitrepo import FetchCredentials
+from buildbot_nix.gitrepo import FetchCredentials
 
-if TYPE_CHECKING:
-    from .config import RepoFilters
+from .base import DiscoveredRepo, ForgeError
 
 logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
-
-
-class ForgeError(Exception):
-    pass
-
-
-@dataclass(frozen=True)
-class DiscoveredRepo:
-    forge: str  # "github" | "gitea" | "gitlab"
-    forge_repo_id: str  # stable numeric id as string
-    owner: str
-    repo: str
-    default_branch: str
-    clone_url: str
-    private: bool
-    topics: tuple[str, ...] = ()
-
-    @property
-    def name(self) -> str:
-        return f"{self.owner}/{self.repo}"
-
-
-def filter_repos(
-    filters: RepoFilters, repos: list[DiscoveredRepo]
-) -> list[DiscoveredRepo]:
-    """Port of common.filter_repos: allow everything when both
-    allowlists are unset; otherwise a repo passes if its owner is in
-    the user allowlist or its full name in the repo allowlist.
-
-    The topic is deliberately not a discovery filter: it is only the
-    one-shot legacy enablement import aid (projects.py); filtering on
-    it here would keep non-topic repos out of the projects table and
-    thus impossible to enable in the web UI."""
-    no_allowlists = filters.user_allowlist is None and filters.repo_allowlist is None
-    return [
-        repo
-        for repo in repos
-        if (
-            no_allowlists
-            or (
-                filters.user_allowlist is not None
-                and repo.owner in filters.user_allowlist
-            )
-            or (
-                filters.repo_allowlist is not None
-                and repo.name in filters.repo_allowlist
-            )
-        )
-    ]
-
-
-# --- GitHub App auth -----------------------------------------------------------
 
 
 def _base64url(data: bytes) -> str:
@@ -318,158 +250,9 @@ def _write_netrc_atomic(netrc: Path, content: str) -> None:
     tmp.replace(netrc)
 
 
-class NetrcFetchCredentialsProvider:
-    """Credentials for fetching from token-auth forges (Gitea, GitLab):
-    the API token as a netrc entry for HTTPS clone URLs (both accept it
-    as basic auth password for user oauth2), plus the optional
-    per-instance SSH key for SSH remotes."""
-
-    def __init__(
-        self,
-        instance_url: str,
-        token: str,
-        ssh_private_key_file: Path | None = None,
-        ssh_known_hosts_file: Path | None = None,
-    ) -> None:
-        host = httpx.URL(instance_url).host
-        self._netrc = Path(tempfile.mkdtemp(prefix="gitea-netrc-")) / "netrc"
-        self._netrc.touch(mode=0o600)
-        self._netrc.write_text(f"machine {host} login oauth2 password {token}\n")
-        self.ssh_private_key_file = ssh_private_key_file
-        self.ssh_known_hosts_file = ssh_known_hosts_file
-
-    async def get(self, repo_url: str) -> FetchCredentials:  # noqa: ARG002
-        return FetchCredentials(
-            netrc_file=self._netrc,
-            ssh_private_key_file=self.ssh_private_key_file,
-            ssh_known_hosts_file=self.ssh_known_hosts_file,
-        )
-
-
 def _repo_name_from_url(repo_url: str) -> str | None:
     # https://github.com/owner/repo(.git)
     parts = repo_url.rstrip("/").removesuffix(".git").split("/")
     if len(parts) < 2:  # noqa: PLR2004
         return None
     return f"{parts[-2]}/{parts[-1]}"
-
-
-# --- Gitea ---------------------------------------------------------------------
-
-
-class GiteaClient:
-    def __init__(
-        self,
-        instance_url: str,
-        token: str,
-        http: httpx.AsyncClient | None = None,
-    ) -> None:
-        self.instance_url = instance_url.rstrip("/")
-        self.token = token
-        self.http = http or httpx.AsyncClient()
-
-    def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"token {self.token}"}
-
-    async def _paginated(self, url: str) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-        page = 1
-        while True:
-            response = await self.http.get(
-                f"{url}&page={page}", headers=self._headers()
-            )
-            if response.status_code >= 400:  # noqa: PLR2004
-                msg = f"Gitea request failed: {response.status_code} {response.text}"
-                raise ForgeError(msg)
-            data = response.json()
-            if not data:
-                return results
-            results.extend(data)
-            page += 1
-
-    async def discover_repos(self) -> list[DiscoveredRepo]:
-        repos = []
-        for repo in await self._paginated(
-            f"{self.instance_url}/api/v1/user/repos?limit=100"
-        ):
-            topics_response = await self.http.get(
-                f"{self.instance_url}/api/v1/repos/"
-                f"{repo['owner']['login']}/{repo['name']}/topics",
-                headers=self._headers(),
-            )
-            topics = (
-                topics_response.json().get("topics", [])
-                if topics_response.status_code < 400  # noqa: PLR2004
-                else []
-            )
-            repos.append(
-                DiscoveredRepo(
-                    forge="gitea",
-                    forge_repo_id=str(repo["id"]),
-                    owner=repo["owner"]["login"],
-                    repo=repo["name"],
-                    default_branch=repo.get("default_branch") or "main",
-                    clone_url=repo["clone_url"],
-                    private=repo.get("private", False),
-                    topics=tuple(topics),
-                )
-            )
-        return repos
-
-
-# --- GitLab --------------------------------------------------------------------
-
-
-class GitlabClient:
-    def __init__(
-        self,
-        instance_url: str,
-        token: str,
-        http: httpx.AsyncClient | None = None,
-    ) -> None:
-        self.instance_url = instance_url.rstrip("/")
-        self.token = token
-        self.http = http or httpx.AsyncClient()
-
-    def _headers(self) -> dict[str, str]:
-        return {"PRIVATE-TOKEN": self.token}
-
-    def project_api_url(self, owner: str, repo: str) -> str:
-        # GitLab accepts the URL-encoded full path wherever it takes a
-        # numeric project id; namespaces may be nested (a/b/c).
-        return (
-            f"{self.instance_url}/api/v4/projects/{quote(f'{owner}/{repo}', safe='')}"
-        )
-
-    async def _paginated(self, url: str) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-        next_url: str | None = url
-        while next_url:
-            response = await self.http.get(next_url, headers=self._headers())
-            if response.status_code >= 400:  # noqa: PLR2004
-                msg = f"GitLab request failed: {response.status_code} {response.text}"
-                raise ForgeError(msg)
-            results.extend(response.json())
-            next_url = response.links.get("next", {}).get("url")
-        return results
-
-    async def discover_repos(self) -> list[DiscoveredRepo]:
-        repos = []
-        for repo in await self._paginated(
-            f"{self.instance_url}/api/v4/projects"
-            "?membership=true&archived=false&per_page=100"
-        ):
-            owner, _, name = repo["path_with_namespace"].rpartition("/")
-            repos.append(
-                DiscoveredRepo(
-                    forge="gitlab",
-                    forge_repo_id=str(repo["id"]),
-                    owner=owner,
-                    repo=name,
-                    default_branch=repo.get("default_branch") or "main",
-                    clone_url=repo["http_url_to_repo"],
-                    private=repo.get("visibility") != "public",
-                    topics=tuple(repo.get("topics") or ()),
-                )
-            )
-        return repos
