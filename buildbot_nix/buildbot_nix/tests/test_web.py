@@ -717,6 +717,15 @@ def test_event_broker_pushes_status_changes(
         )
         build_event = json.loads(await asyncio.wait_for(ours.queue.get(), 5))
         assert other_build.queue.empty()
+        # Restore the seeded state for later tests.
+        await pool.execute(
+            "UPDATE build_attributes SET status = 'succeeded' "
+            "WHERE build_id = $1 AND attr = 'x86_64-linux.ok'",
+            build_id,
+        )
+        await pool.execute(
+            "UPDATE builds SET status = 'building' WHERE id = $1", build_id
+        )
         await broker.stop()
         await pool.close()
         return attr_event, build_event
