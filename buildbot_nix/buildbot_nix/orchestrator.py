@@ -484,6 +484,40 @@ class Orchestrator:
                 extra={"project": event.repo.name},
             )
 
+    @asynccontextmanager
+    async def _rerun_worktree(
+        self,
+        info: RepoInfo,
+        build: BuildRecord,
+        prefix: str,
+        credentials: FetchCredentials | None,
+    ) -> AsyncIterator[tuple[ChangeEvent, Path]]:
+        """Event reconstruction plus a fresh worktree at the recorded
+        commit; shared by the rerun paths."""
+        event = ChangeEvent(
+            repo=info,
+            branch=build.branch,
+            commit_sha=build.commit_sha,
+            pr_number=build.pr_number,
+        )
+        # PR head commits are only reachable via refs/pull/*.
+        refspecs = ["+refs/heads/*:refs/heads/*"]
+        if build.pr_number is not None:
+            refspecs.append(
+                f"+refs/pull/{build.pr_number}/*:refs/pull/{build.pr_number}/*"
+            )
+        await self.repos.fetch(info.key, info.clone_url, refspecs, credentials)
+        worktree = await self.repos.checkout_for_build(
+            info.key,
+            f"{prefix}-{build.id}",
+            base_commit=build.commit_sha,
+            credentials=credentials,
+        )
+        try:
+            yield event, worktree.path
+        finally:
+            await self.repos.remove_worktree(worktree)
+
     async def rerun_pending_attributes(
         self,
         info: RepoInfo,
@@ -508,12 +542,6 @@ class Orchestrator:
                 return
             # No re-eval happens on this path; go straight to building.
             await self.db.set_build_status(build.id, BuildStatus.BUILDING)
-            event = ChangeEvent(
-                repo=info,
-                branch=build.branch,
-                commit_sha=build.commit_sha,
-                pr_number=build.pr_number,
-            )
             # Register so supersede/PR-close cancellation also covers
             # recovered and restarted builds.
             self.canceller.register(
@@ -524,22 +552,12 @@ class Orchestrator:
                 build.commit_sha,
                 cancel_event,
             )
-            # PR head commits are only reachable via refs/pull/*.
-            refspecs = ["+refs/heads/*:refs/heads/*"]
-            if build.pr_number is not None:
-                refspecs.append(
-                    f"+refs/pull/{build.pr_number}/*:refs/pull/{build.pr_number}/*"
-                )
-            await self.repos.fetch(info.key, info.clone_url, refspecs, credentials)
-            worktree = await self.repos.checkout_for_build(
-                info.key,
-                f"rerun-{build.id}",
-                base_commit=build.commit_sha,
-                credentials=credentials,
-            )
-            try:
+            async with self._rerun_worktree(info, build, "rerun", credentials) as (
+                event,
+                worktree_path,
+            ):
                 status = await self._build_attributes(
-                    event, build, worktree.path, pending_jobs
+                    event, build, worktree_path, pending_jobs
                 )
                 if status == BuildStatus.SUCCEEDED:
                     # Crash recovery before effects started; the
@@ -548,12 +566,10 @@ class Orchestrator:
                     await self._maybe_run_effects(
                         event,
                         build,
-                        worktree.path,
-                        BranchConfig.load(worktree.path),
+                        worktree_path,
+                        BranchConfig.load(worktree_path),
                         credentials,
                     )
-            finally:
-                await self.repos.remove_worktree(worktree)
         finally:
             self.canceller.complete(build.id)
             self.cancel_events.pop(build.id, None)
@@ -579,31 +595,17 @@ class Orchestrator:
             await self.db.pool.execute(
                 "DELETE FROM build_effects WHERE build_id = $1", build.id
             )
-            event = ChangeEvent(
-                repo=info,
-                branch=build.branch,
-                commit_sha=build.commit_sha,
-                pr_number=build.pr_number,
-            )
-            refspecs = ["+refs/heads/*:refs/heads/*"]
-            if build.pr_number is not None:
-                refspecs.append(
-                    f"+refs/pull/{build.pr_number}/*:refs/pull/{build.pr_number}/*"
-                )
-            await self.repos.fetch(info.key, info.clone_url, refspecs, credentials)
-            worktree = await self.repos.checkout_for_build(
-                info.key,
-                f"effects-{build.id}",
-                base_commit=build.commit_sha,
-                credentials=credentials,
-            )
-            try:
-                branch_config = BranchConfig.load(worktree.path)
+            async with self._rerun_worktree(info, build, "effects", credentials) as (
+                event,
+                worktree_path,
+            ):
                 await self._maybe_run_effects(
-                    event, build, worktree.path, branch_config, credentials
+                    event,
+                    build,
+                    worktree_path,
+                    BranchConfig.load(worktree_path),
+                    credentials,
                 )
-            finally:
-                await self.repos.remove_worktree(worktree)
         finally:
             self.cancel_events.pop(build.id, None)
 

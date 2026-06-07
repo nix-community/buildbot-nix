@@ -245,6 +245,40 @@ async def run_event(
     return build, reporter, pool
 
 
+async def run_effect_build(
+    dsn: str,
+    tmp_path: Path,
+    upstream: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[BuildRecord | None, Orchestrator, RepoInfo, asyncpg.Pool, list[str]]:
+    """One default-branch build with a fake "deploy" effect; returns
+    the recorded effect runs for further assertions."""
+    ran: list[str] = []
+
+    async def fake_list(ctx: object) -> list[str]:
+        return ["deploy"]
+
+    async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
+        ran.append(name)
+        return True
+
+    monkeypatch.setattr(orch_mod, "list_effects", fake_list)
+    monkeypatch.setattr(orch_mod, "run_effect", fake_run)
+    pool = await asyncpg.create_pool(dsn)
+    orchestrator, _ = make_orchestrator(
+        pool, tmp_path, FakeEvalRunner([mk_job("a")]), FakeExecutor()
+    )
+    project = await make_project(pool)
+    project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
+    event = ChangeEvent(
+        repo=project,
+        branch="main",
+        commit_sha=git(upstream, "rev-parse", "HEAD"),
+    )
+    build = await orchestrator.handle_change_event(event)
+    return build, orchestrator, project, pool, ran
+
+
 def add_commit(upstream: Path, name: str) -> str:
     (upstream / name).write_text("x")
     git(upstream, "add", ".")
@@ -920,25 +954,9 @@ def test_effects_run_after_default_branch_success(
     postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def run() -> None:
-        ran: list[str] = []
-
-        async def fake_list(ctx: object) -> list[str]:
-            return ["deploy"]
-
-        async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
-            ran.append(name)
-            return True
-
-        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
-        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
-
         add_commit(upstream, "eff")
-        build, _, pool = await run_event(
-            postgres_dsn,
-            tmp_path,
-            upstream,
-            FakeEvalRunner([mk_job("a")]),
-            FakeExecutor(),
+        build, _, _, pool, ran = await run_effect_build(
+            postgres_dsn, tmp_path, upstream, monkeypatch
         )
         try:
             assert build is not None
@@ -960,31 +978,10 @@ def test_rerun_effects_runs_effects_again(
     without touching the build's attributes."""
 
     async def run() -> None:
-        ran: list[str] = []
-
-        async def fake_list(ctx: object) -> list[str]:
-            return ["deploy"]
-
-        async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
-            ran.append(name)
-            return True
-
-        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
-        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
-
         add_commit(upstream, "eff2")
-        pool = await asyncpg.create_pool(postgres_dsn)
-        orchestrator, _ = make_orchestrator(
-            pool, tmp_path, FakeEvalRunner([mk_job("a")]), FakeExecutor()
+        build, orchestrator, project, pool, ran = await run_effect_build(
+            postgres_dsn, tmp_path, upstream, monkeypatch
         )
-        project = await make_project(pool)
-        project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
-        event = ChangeEvent(
-            repo=project,
-            branch="main",
-            commit_sha=git(upstream, "rev-parse", "HEAD"),
-        )
-        build = await orchestrator.handle_change_event(event)
         try:
             assert build is not None
             assert ran == ["deploy"]
@@ -1014,31 +1011,10 @@ def test_recovery_rerun_runs_effects(
     started must still run them on success."""
 
     async def run() -> None:
-        ran: list[str] = []
-
-        async def fake_list(ctx: object) -> list[str]:
-            return ["deploy"]
-
-        async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
-            ran.append(name)
-            return True
-
-        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
-        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
-
         add_commit(upstream, "rec")
-        pool = await asyncpg.create_pool(postgres_dsn)
-        orchestrator, _ = make_orchestrator(
-            pool, tmp_path, FakeEvalRunner([mk_job("a")]), FakeExecutor()
+        build, orchestrator, project, pool, ran = await run_effect_build(
+            postgres_dsn, tmp_path, upstream, monkeypatch
         )
-        project = await make_project(pool)
-        project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
-        event = ChangeEvent(
-            repo=project,
-            branch="main",
-            commit_sha=git(upstream, "rev-parse", "HEAD"),
-        )
-        build = await orchestrator.handle_change_event(event)
         try:
             assert build is not None
             assert ran == ["deploy"]
