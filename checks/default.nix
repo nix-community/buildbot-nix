@@ -15,5 +15,5 @@ in
   treefmt = (inputs.treefmt-nix.lib.evalModule pkgs ../formatter/treefmt.nix).config.build.check self;
 }
 // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-  engine = import ./engine.nix checkArgs;
+  buildbot-nix = import ./buildbot-nix.nix checkArgs;
 }

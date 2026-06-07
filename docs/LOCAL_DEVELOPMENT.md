@@ -52,16 +52,16 @@ pointing at plain local files.
 ## VM integration test
 
 The end-to-end NixOS test (fake GitHub + real Gitea) lives in
-`checks/engine.nix`:
+`checks/buildbot-nix.nix`:
 
 ```bash
-nix build .#checks.x86_64-linux.engine -L
+nix build .#checks.x86_64-linux.buildbot-nix -L
 ```
 
 For interactive debugging:
 
 ```bash
-nix build .#checks.x86_64-linux.engine.driverInteractive
+nix build .#checks.x86_64-linux.buildbot-nix.driverInteractive
 ./result/bin/nixos-test-driver
 ```
 

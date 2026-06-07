@@ -23,7 +23,7 @@ let
   '';
 in
 (import ./lib.nix) {
-  name = "buildbot-nix-engine";
+  name = "buildbot-nix";
   nodes = {
     # GitHub mode against a fake GitHub API: discovery, webhook, eval,
     # build, and commit-status assertions all run against local fakes.
@@ -152,7 +152,7 @@ in
       };
 
     # Gitea mode against a real Gitea: discovery registers the webhook,
-    # a push delivers it, and the engine posts commit statuses back.
+    # a push delivers it, and buildbot-nix posts commit statuses back.
     gitea =
       { self, pkgs, ... }:
       {
@@ -234,7 +234,7 @@ in
 
             TOKEN=$(curl -fs -X POST \
               -H "Content-Type: application/json" \
-              -d '{"name":"engine-token","scopes":["write:repository","write:user","write:organization"]}' \
+              -d '{"name":"buildbot-nix-token","scopes":["write:repository","write:user","write:organization"]}' \
               -u "gitea-admin:testpassword123" \
               http://localhost:3742/api/v1/users/gitea-admin/tokens | jq -r .sha1)
 
@@ -272,7 +272,7 @@ in
 
     start_all()
 
-    with subtest("github: engine becomes healthy"):
+    with subtest("github: buildbot-nix becomes healthy"):
         github.wait_for_unit("buildbot-nix.service")
         github.wait_until_succeeds(
             "curl --fail -s http://127.0.0.1:8010/health", timeout=120
@@ -324,7 +324,7 @@ in
 
         retry(github_statuses_posted, timeout_seconds=300)
 
-    with subtest("gitea: engine becomes healthy"):
+    with subtest("gitea: buildbot-nix becomes healthy"):
         gitea.wait_for_unit("buildbot-nix.service")
         gitea.wait_until_succeeds(
             "curl --fail -s http://127.0.0.1:8010/health", timeout=120

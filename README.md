@@ -27,7 +27,7 @@ that some APIs may change over time.
 
 To set up buildbot-nix, start by exploring the provided examples:
 
-- Check out the basic setup in [example](./examples/engine.nix).
+- Check out the basic setup in [example](./examples/buildbot-nix.nix).
 - The NixOS module lives in
   [nixosModules/buildbot-nix.nix](./nixosModules/buildbot-nix.nix).
 - For local development, see

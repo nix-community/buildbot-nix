@@ -30,12 +30,12 @@ in
 {
   # The CI engine is one service; actual builds are offloaded to nix
   # remote builders, so a single machine works well for production.
-  "example-engine-${system}" = nixosSystem {
+  "example-buildbot-nix-${system}" = nixosSystem {
     inherit system;
     modules = [
       dummy
       buildbot-nix.nixosModules.buildbot-nix
-      ./engine.nix
+      ./buildbot-nix.nix
     ];
   };
 }
