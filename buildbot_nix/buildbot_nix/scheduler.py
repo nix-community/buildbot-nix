@@ -266,6 +266,9 @@ class _State:
     # build. post_build_failure drvs are absent on purpose - their
     # store paths exist.
     failed_drvs: set[str] = field(default_factory=set)
+    # Delivery is at-least-once (final re-send): re-ingesting a seen
+    # attr must be a no-op or settled jobs build twice.
+    seen_attrs: set[str] = field(default_factory=set)
 
     def prune(self, drv_path: str) -> None:
         for dependent in self.reverse_deps.get(drv_path, ()):
@@ -446,7 +449,9 @@ class JobScheduler:
         Closures are recomputed over pending + running jobs only:
         dependencies on drvs that already succeeded drop out naturally,
         dependencies on failed drvs settle the new job immediately."""
-        new_jobs = self._partition_jobs(batch, self.supported_systems, state.result)
+        fresh = [job for job in batch if job.attr not in state.seen_attrs]
+        state.seen_attrs.update(job.attr for job in fresh)
+        new_jobs = self._partition_jobs(fresh, self.supported_systems, state.result)
         # Settle jobs depending on failed drvs. Iterate new and already
         # pending jobs to a fixpoint: neither batches nor batch arrival
         # order is topological, so a dependent may precede the job that

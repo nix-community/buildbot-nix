@@ -519,3 +519,22 @@ def test_streaming_pending_dependent_fails_when_late_dep_arrives_failed() -> Non
         assert "top" not in executor.built
 
     asyncio.run(main())
+
+
+def test_resent_jobs_are_not_rebuilt() -> None:
+    """At-least-once delivery: a re-sent batch must not rebuild."""
+
+    async def main() -> None:
+        executor = FakeExecutor()
+        scheduler = JobScheduler(executor, [SYSTEM])
+        queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+        jobs = [mk_job("a"), mk_job("b", deps=["a"])]
+        await queue.put([jobs[0]])
+        await queue.put([jobs[1]])
+        await queue.put(list(jobs))  # final re-send
+        await queue.put(None)
+        result = await asyncio.wait_for(scheduler.run_incremental(queue), timeout=5)
+        assert sorted(executor.built) == ["a", "b"]
+        assert sorted(r.attr for r in result.results) == ["a", "b"]
+
+    asyncio.run(main())
