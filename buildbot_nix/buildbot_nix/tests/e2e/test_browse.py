@@ -133,3 +133,14 @@ def test_activity_infinite_scroll(page: Page, server: EngineServer) -> None:
         assert rows.count() == SEEDED_BUILDS + 3  # plus the base fixture
     finally:
         server.run(server.pool.execute("DELETE FROM builds WHERE number >= 100"))
+
+
+def test_no_horizontal_overflow_on_mobile(page: Page) -> None:
+    page.set_viewport_size({"width": 390, "height": 844})
+    for path in ("/", "/builds", "/repos/github/acme/widget/builds/2"):
+        page.goto(path)
+        overflow = page.evaluate(
+            "document.documentElement.scrollWidth"
+            " - document.documentElement.clientWidth"
+        )
+        assert overflow == 0, f"{path} overflows by {overflow}px"

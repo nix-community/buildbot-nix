@@ -667,3 +667,12 @@ table td.empty-state {
 	/* Header aligns on baseline, which would push the image up. */
 	align-self: center;
 }
+
+/* Narrow screens: tables keep their columns and scroll sideways
+   instead of overflowing the page. */
+@media (max-width: 40rem) {
+	main table {
+		display: block;
+		overflow-x: auto;
+	}
+}
