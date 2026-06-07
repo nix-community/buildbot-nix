@@ -282,8 +282,23 @@ class Orchestrator:
         # Race the evaluation against the cancel event: a superseded
         # build must not hold the eval slot to completion.
         cancel_event = self.cancel_events.setdefault(build.id, asyncio.Event())
+
+        async def record_job_batch(jobs: list[NixEvalJob]) -> None:
+            # Pending rows appear in the UI while the eval is running.
+            await self.db.record_attributes(
+                build.id,
+                [
+                    job
+                    for job in jobs
+                    if isinstance(job, NixEvalJobSuccess)
+                    and job.system in self.config.build_systems
+                ],
+            )
+
         eval_task = asyncio.ensure_future(
-            self.eval_runner.run(worktree_path, branch_config, eval_settings)
+            self.eval_runner.run(
+                worktree_path, branch_config, eval_settings, on_jobs=record_job_batch
+            )
         )
         cancel_wait = asyncio.ensure_future(cancel_event.wait())
         try:
@@ -332,9 +347,10 @@ class Orchestrator:
                 json.dumps(eval_result.warnings) if eval_result.warnings else None
             ),
         )
-        # Pending rows are what crash recovery resumes from. The
-        # scheduler drops unsupported systems; their pending rows would
-        # never turn terminal, so don't record them.
+        # Idempotent backstop for the streaming inserts above; pending
+        # rows are what crash recovery resumes from. The scheduler drops
+        # unsupported systems; their pending rows would never turn
+        # terminal, so don't record them.
         await self.db.record_attributes(
             build.id,
             [

@@ -294,6 +294,55 @@ def test_eval_runner_handles_long_json_lines(
     assert result.jobs[0].attr == "big"
 
 
+def test_eval_runner_streams_job_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Large evals (thousands of attrs) must reach the database in
+    # batches while nix-eval-jobs is still running, not as one huge
+    # insert at the end.
+    lines = [
+        json.dumps(
+            {
+                "attr": f"job{i}",
+                "attrPath": [f"job{i}"],
+                "cacheStatus": "notBuilt",
+                "neededBuilds": [],
+                "neededSubstitutes": [],
+                "drvPath": f"/nix/store/job{i}.drv",
+                "name": f"job{i}",
+                "outputs": {"out": f"/nix/store/job{i}-out"},
+                "system": "x86_64-linux",
+            }
+        )
+        for i in range(250)
+    ]
+    payload = tmp_path / "payload.json"
+    payload.write_text("\n".join(lines) + "\n")
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "nix-eval-jobs"
+    fake.write_text(f'#!/bin/sh\ncat "{payload}"\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    batches: list[int] = []
+
+    async def on_jobs(jobs: list) -> None:  # type: ignore[type-arg]
+        batches.append(len(jobs))
+
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", sandbox=False, systemd_scope=False
+    )
+    result = asyncio.run(
+        EvalRunner().run(tmp_path, BranchConfig(), settings, on_jobs=on_jobs)
+    )
+    assert len(result.jobs) == 250
+    assert sum(batches) == 250
+    assert len(batches) > 1  # streamed in multiple batches
+    assert max(batches) <= 100
+
+
 def test_cgroup_limiter_retries_subtree_enable(tmp_path: Path) -> None:
     # +memory could not be enabled at startup (e.g. an ExecStartPost
     # health check still occupied the unit cgroup): the first eval

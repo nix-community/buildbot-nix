@@ -29,9 +29,11 @@ from typing import TYPE_CHECKING
 from .models import NixEvalJob, NixEvalJobModel
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from .repo_config import BranchConfig
+
+    JobBatchCallback = Callable[[list[NixEvalJob]], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,8 @@ OOM_RETURN_CODES = (-9, 137)
 # line including the full neededBuilds/neededSubstitutes closures,
 # which easily exceeds asyncio's 64 KiB default readline limit.
 STREAM_LIMIT = 64 * 1024 * 1024
+
+JOB_BATCH_SIZE = 100
 
 
 class EvalError(Exception):
@@ -357,6 +361,38 @@ def extract_eval_warnings(stderr_output: str) -> list[str]:
     return eval_warnings
 
 
+async def _read_job_stream(
+    stdout: asyncio.StreamReader,
+    jobs: list[NixEvalJob],
+    parse_errors: list[str],
+    on_jobs: JobBatchCallback | None,
+) -> None:
+    """Parse nix-eval-jobs JSON lines, flushing batches of
+    JOB_BATCH_SIZE jobs to on_jobs so consumers see progress during
+    large evals."""
+    batch: list[NixEvalJob] = []
+
+    async def flush() -> None:
+        if on_jobs is not None and batch:
+            await on_jobs(batch.copy())
+            batch.clear()
+
+    async for raw in stdout:
+        line = raw.decode(errors="replace").strip()
+        if not line:
+            continue
+        try:
+            job = NixEvalJobModel.validate_python(json.loads(line))
+        except (json.JSONDecodeError, ValueError) as e:
+            parse_errors.append(f"failed to parse line: {line}: {e}")
+            continue
+        jobs.append(job)
+        batch.append(job)
+        if len(batch) >= JOB_BATCH_SIZE:
+            await flush()
+    await flush()
+
+
 class EvalRunner:
     """Runs nix-eval-jobs with a global concurrency cap."""
 
@@ -374,15 +410,17 @@ class EvalRunner:
         worktree_path: Path,
         branch_config: BranchConfig,
         settings: EvalSettings,
+        on_jobs: JobBatchCallback | None = None,
     ) -> EvalResult:
         async with self._semaphore:
-            return await self._run(worktree_path, branch_config, settings)
+            return await self._run(worktree_path, branch_config, settings, on_jobs)
 
     async def _run(
         self,
         worktree_path: Path,
         branch_config: BranchConfig,
         settings: EvalSettings,
+        on_jobs: JobBatchCallback | None = None,
     ) -> EvalResult:
         settings.gc_roots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -414,6 +452,7 @@ class EvalRunner:
                 branch_config,
                 settings,
                 preexec_fn=join_eval_cgroup if eval_cgroup is not None else None,
+                on_jobs=on_jobs,
             )
         finally:
             if self.limiter is not None and eval_cgroup is not None:
@@ -425,6 +464,7 @@ class EvalRunner:
         branch_config: BranchConfig,
         settings: EvalSettings,
         preexec_fn: Callable[[], None] | None = None,
+        on_jobs: JobBatchCallback | None = None,
     ) -> EvalResult:
         cmd = build_full_command(worktree_path, branch_config, settings)
         logger.info(
@@ -449,23 +489,15 @@ class EvalRunner:
         jobs: list[NixEvalJob] = []
         parse_errors: list[str] = []
 
-        async def read_stdout() -> None:
-            assert proc.stdout is not None  # noqa: S101
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    jobs.append(NixEvalJobModel.validate_python(json.loads(line)))
-                except (json.JSONDecodeError, ValueError) as e:
-                    parse_errors.append(f"failed to parse line: {line}: {e}")
-
         async def read_stderr() -> bytes:
             assert proc.stderr is not None  # noqa: S101
             return await proc.stderr.read()
 
         try:
-            _, stderr_bytes = await asyncio.gather(read_stdout(), read_stderr())
+            _, stderr_bytes = await asyncio.gather(
+                _read_job_stream(proc.stdout, jobs, parse_errors, on_jobs),
+                read_stderr(),
+            )
             returncode = await proc.wait()
         except asyncio.CancelledError:
             # Build superseded/cancelled: kill the evaluator instead
