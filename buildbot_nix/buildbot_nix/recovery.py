@@ -185,13 +185,14 @@ def _valid_paths_from_db(paths: list[str], nix_db: Path) -> set[str]:
 
 
 async def fail_interrupted_effects(pool: asyncpg.Pool) -> None:
-    """Settle effect rows left running by a crash: effects never
-    auto-re-run, so nothing else would ever finish them."""
+    """Settle effect rows left running by a crash: started effects
+    never auto-re-run. Pending rows keep their queued items and run
+    after the requeue."""
     await pool.execute(
         """
         UPDATE build_effects SET status = 'failed',
             error = 'interrupted by a service restart', finished_at = now()
-        WHERE status IN ('running', 'pending')
+        WHERE status = 'running'
         """
     )
     await pool.execute(

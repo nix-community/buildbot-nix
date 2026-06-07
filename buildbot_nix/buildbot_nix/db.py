@@ -220,6 +220,17 @@ class BuildDB:
             error,
             eval_warnings,
         )
+        if status in (BuildStatus.FAILED, BuildStatus.CANCELLED):
+            # Pending effect rows only get queue items when the build
+            # succeeds; after a failed rebuild nothing else owns them.
+            await self.pool.execute(
+                """
+                UPDATE build_effects SET status = 'failed',
+                    error = 'build did not succeed', finished_at = now()
+                WHERE build_id = $1 AND status = 'pending'
+                """,
+                build_id,
+            )
 
     async def get_build(self, build_id: int) -> BuildRecord | None:
         row = await self.pool.fetchrow("SELECT * FROM builds WHERE id = $1", build_id)
@@ -344,17 +355,20 @@ class BuildDB:
                     log_truncated,
                 )
 
-    async def start_effect(self, build_id: int, name: str) -> None:
+    async def start_effect(
+        self, build_id: int, name: str, status: str = "running"
+    ) -> None:
         """Record an effect run; a rerun resets the existing row."""
         await self.pool.execute(
             """
-            INSERT INTO build_effects (build_id, name) VALUES ($1, $2)
+            INSERT INTO build_effects (build_id, name, status) VALUES ($1, $2, $3)
             ON CONFLICT (build_id, name) DO UPDATE SET
-                status = 'running', error = NULL,
-                started_at = now(), finished_at = NULL
+                status = $3, error = NULL, log_path = NULL, log_size = 0,
+                log_truncated = FALSE, started_at = now(), finished_at = NULL
             """,
             build_id,
             name,
+            status,
         )
 
     async def finish_effect(  # noqa: PLR0913

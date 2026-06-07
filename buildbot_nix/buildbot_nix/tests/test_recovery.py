@@ -313,6 +313,31 @@ def test_check_store_paths_reads_the_nix_db(tmp_path: Path) -> None:
     assert missing == set()
 
 
+def test_failed_rebuild_settles_pending_effects(postgres_dsn: str) -> None:
+    """A failed rebuild must settle its pending effect rows."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            build_id = await make_build(pool, "fx-failed-rebuild")
+            await pool.execute(
+                "INSERT INTO build_effects (build_id, name, status) "
+                "VALUES ($1, 'deploy', 'pending')",
+                build_id,
+            )
+            await BuildDB(pool).set_build_status(build_id, "failed")
+            row = await pool.fetchrow(
+                "SELECT status, error FROM build_effects WHERE build_id = $1",
+                build_id,
+            )
+            assert row["status"] == "failed"
+            assert "did not succeed" in row["error"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_interrupted_effects_fail_on_recovery(postgres_dsn: str) -> None:
     """Effects never auto-re-run, so rows left running by a crash
     would spin forever without the startup sweep."""

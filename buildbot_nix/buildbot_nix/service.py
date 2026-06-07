@@ -360,6 +360,8 @@ class CIService:
             await self._rerun(payload["build_id"])
         elif item.kind == "effects":
             await self._restart_effects(payload["build_id"])
+        elif item.kind == "effect":
+            await self._run_effect_item(payload["build_id"], payload["name"])
         elif item.kind == "report":
             await self._re_report(
                 payload["build_id"],
@@ -425,6 +427,25 @@ class CIService:
                     f"report-{build_id}",
                     _report_payload(build_id, attempt + 1, e),
                 )
+            raise
+
+    async def _run_effect_item(self, build_id: int, name: str) -> None:
+        build = await self.orchestrator.db.get_build(build_id)
+        if build is None:
+            return
+        project = await self.repo_store.by_id(build.project_id)
+        if project is None:
+            return
+        info = repo_info(project)
+        credentials = await self._credentials_provider(info.forge).get(info.clone_url)
+        try:
+            await self.orchestrator.run_effect_item(info, build, name, credentials)
+        except Exception as e:
+            # Setup failures (fetch/checkout) happen before the
+            # runner settles the row.
+            await self.orchestrator.db.finish_effect(
+                build_id, name, success=False, error=str(e) or type(e).__name__
+            )
             raise
 
     async def _restart_effects(self, build_id: int) -> None:

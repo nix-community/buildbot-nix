@@ -748,6 +748,60 @@ def test_report_retry(
     asyncio.run(run())
 
 
+def test_effect_item_setup_failure_settles_row(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    """A fetch/checkout failure in an effect item must not leave the
+    row pending forever."""
+
+    async def run() -> None:
+        config = Config(
+            db_url=postgres_dsn,
+            build_systems=["x86_64-linux"],
+            domain="ci.test",
+            url="http://ci.test",
+            state_dir=tmp_path / "state",
+        )
+        service, _app = await build_service(config)
+        pool = service.pool
+        try:
+            project_id = await pool.fetchval(
+                "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
+                "default_branch, enabled) VALUES "
+                "('github', '81', 'acme', 'gear', 'file:///nonexistent', 'main', "
+                "TRUE) RETURNING id"
+            )
+            build_id = await pool.fetchval(
+                "INSERT INTO builds (project_id, number, branch, commit_sha, "
+                "tree_hash, status) VALUES "
+                "($1, 1, 'main', 'c5', 't5', 'succeeded') RETURNING id",
+                project_id,
+            )
+            await pool.execute(
+                "INSERT INTO build_effects (build_id, name, status) "
+                "VALUES ($1, 'deploy', 'pending')",
+                build_id,
+            )
+            await service.enqueue_work(
+                "effect", f"build-{build_id}", {"build_id": build_id, "name": "deploy"}
+            )
+            await service.drain_work()
+            row = await pool.fetchrow(
+                "SELECT status, error FROM build_effects WHERE build_id = $1",
+                build_id,
+            )
+            assert row["status"] == "failed"
+            assert row["error"]
+            item = await pool.fetchrow(
+                "SELECT status FROM work_queue WHERE kind = 'effect'"
+            )
+            assert item["status"] == "failed"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_work_dispatch(postgres_dsn: str, tmp_path: Path) -> None:
     """The dispatcher reconstructs payloads and fails unknown kinds."""
 
@@ -828,17 +882,15 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
             assert not await pool.fetchval(
                 "SELECT effects_started FROM builds WHERE id = $1", build_id
             )
-            # Rows stay visible as pending; the rerun prunes stale names.
+            # Stale log cleared by the reset; the failed rerun
+            # (unfetchable URL) settled the row.
             row = await pool.fetchrow(
-                "SELECT status, error, finished_at, log_path FROM build_effects "
-                "WHERE build_id = $1",
+                "SELECT status, error, log_path FROM build_effects WHERE build_id = $1",
                 build_id,
             )
-            # The stale log must not serve while the rerun is pending.
             assert dict(row) == {
-                "status": "pending",
-                "error": None,
-                "finished_at": None,
+                "status": "failed",
+                "error": "build did not succeed",
                 "log_path": None,
             }
 

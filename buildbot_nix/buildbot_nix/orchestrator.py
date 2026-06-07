@@ -54,6 +54,7 @@ from .scheduler import (
     JobScheduler,
 )
 from .web.logs import LogRegistry
+from .work_queue import WorkQueue
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -609,6 +610,8 @@ class Orchestrator:
                     credentials,
                 )
                 await self._refresh_schedules(event, worktree_path)
+            # The enqueued effect items share this build's key and only
+            # become claimable once this item finishes.
         finally:
             self.cancel_events.pop(build.id, None)
 
@@ -644,22 +647,67 @@ class Orchestrator:
         )
         try:
             names = await list_effects(ctx)
-            # Effects removed from the flake since the last run would
-            # otherwise linger as stale pending rows.
-            await self.db.pool.execute(
-                "DELETE FROM build_effects WHERE build_id = $1 "
-                "AND NOT (name = ANY($2::text[]))",
-                build.id,
-                names,
-            )
-            for name in names:
-                await self._run_one_effect(ctx, build, name)
         except (EffectsError, OSError):
             # OSError: buildbot-effects not installed; effects are
             # best-effort and must not fail the (already reported) build.
-            logger.exception("effects execution failed", extra={"build_id": build.id})
+            logger.exception("effects discovery failed", extra={"build_id": build.id})
+            return
         finally:
             self.task_tokens.revoke(task_token)
+        # Effects removed from the flake since the last run would
+        # otherwise linger as stale pending rows.
+        await self.db.pool.execute(
+            "DELETE FROM build_effects WHERE build_id = $1 "
+            "AND NOT (name = ANY($2::text[]))",
+            build.id,
+            names,
+        )
+        await self._enqueue_effects(build, names)
+
+    async def _enqueue_effects(self, build: BuildRecord, names: list[str]) -> None:
+        """One queue item per effect, on the build's dedup key."""
+        queue = WorkQueue(self.db.pool)
+        for name in names:
+            await self.db.start_effect(build.id, name, status="pending")
+            await queue.enqueue(
+                "effect", f"build-{build.id}", {"build_id": build.id, "name": name}
+            )
+
+    async def run_effect_item(
+        self,
+        info: RepoInfo,
+        build: BuildRecord,
+        name: str,
+        credentials: FetchCredentials | None = None,
+    ) -> None:
+        """Dispatcher entry for one queued effect."""
+        row = await self.db.pool.fetchval(
+            "SELECT status FROM build_effects WHERE build_id = $1 AND name = $2",
+            build.id,
+            name,
+        )
+        if row != "pending":
+            # Swept after a crash mid-run, or already terminal; started
+            # effects never auto-re-run (deploys are not idempotent).
+            return
+        async with self._rerun_worktree(info, build, "effect", credentials) as (
+            event,
+            worktree_path,
+        ):
+            task_token = self.task_tokens.issue(build.project_id)
+            try:
+                ctx = effects_context(
+                    self.config,
+                    info,
+                    worktree_path=worktree_path,
+                    rev=event.commit_sha,
+                    branch=event.branch,
+                    git_token=credentials.token if credentials is not None else None,
+                    task_token=task_token,
+                )
+                await self._run_one_effect(ctx, build, name)
+            finally:
+                self.task_tokens.revoke(task_token)
 
     @asynccontextmanager
     async def _open_log(

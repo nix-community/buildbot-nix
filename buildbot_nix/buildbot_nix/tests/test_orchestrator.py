@@ -23,13 +23,15 @@ from buildbot_nix.gitrepo import FetchCredentials, RepoManager
 from buildbot_nix.memory import calculate_eval_workers
 from buildbot_nix.nix_eval import EvalError, EvalResult
 from buildbot_nix.orchestrator import Orchestrator
+from buildbot_nix.recovery import fail_interrupted_effects
 from buildbot_nix.scheduler import (
     AttributeResult,
     AttributeStatus,
     BuildOutcome,
 )
+from buildbot_nix.work_queue import WorkQueue
 
-from .support import ephemeral_postgres, mk_job
+from .support import ephemeral_postgres, mk_job, truncate_work_queue
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -52,6 +54,11 @@ pytestmark = pytest.mark.skipif(
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     with ephemeral_postgres(tmp_path_factory, "orch") as dsn:
         yield dsn
+
+
+@pytest.fixture(autouse=True)
+def _fresh_work_queue(postgres_dsn: str) -> None:
+    truncate_work_queue(postgres_dsn)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -277,7 +284,22 @@ async def run_effect_build(
         commit_sha=git(upstream, "rev-parse", "HEAD"),
     )
     build = await orchestrator.handle_change_event(event)
+    if build is not None:
+        await drain_effect_items(orchestrator, project, pool)
     return build, orchestrator, project, pool, ran
+
+
+async def drain_effect_items(
+    orchestrator: Orchestrator, info: RepoInfo, pool: asyncpg.Pool
+) -> None:
+    """Execute queued effect items (the service dispatcher's job)."""
+    queue = WorkQueue(pool)
+    while (item := await queue.claim_next()) is not None:
+        assert item.kind == "effect"
+        build = await orchestrator.db.get_build(item.payload["build_id"])
+        assert build is not None
+        await orchestrator.run_effect_item(info, build, item.payload["name"])
+        await queue.finish(item.id)
 
 
 def add_commit(upstream: Path, name: str) -> str:
@@ -1007,6 +1029,7 @@ def test_rerun_effects_runs_effects_again(
                 "buildbot_nix.orchestrator.discover_schedules", fake_discover
             )
             await orchestrator.rerun_effects(project, build)
+            await drain_effect_items(orchestrator, project, pool)
             assert ran == ["deploy", "deploy"]
             # Restarts must refresh schedules too, not only fresh pushes.
             assert discovered
@@ -1050,6 +1073,7 @@ def test_recovery_rerun_runs_effects(
                 build.id,
             )
             await orchestrator.rerun_pending_attributes(project, build, [mk_job("a")])
+            await drain_effect_items(orchestrator, project, pool)
             assert ran == ["deploy", "deploy"]
         finally:
             await pool.close()
@@ -1215,6 +1239,42 @@ def test_effect_rows_roundtrip(postgres_dsn: str, tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+def test_effect_items_resume_only_pending(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a crash, pending effects re-run via their queued items;
+    a row caught mid-run (swept to failed) must not re-deploy."""
+
+    async def run() -> None:
+        add_commit(upstream, "eff-resume")
+        build, orchestrator, project, pool, ran = await run_effect_build(
+            postgres_dsn, tmp_path, upstream, monkeypatch
+        )
+        try:
+            assert build is not None
+            assert ran == ["deploy"]
+            # Crash mid-run: the sweep settles the row; the requeued
+            # item must skip it.
+            await pool.execute(
+                "UPDATE build_effects SET status = 'running' WHERE build_id = $1",
+                build.id,
+            )
+            await fail_interrupted_effects(pool)
+            await orchestrator.run_effect_item(project, build, "deploy")
+            assert ran == ["deploy"]
+            # Crash before the run: the pending row resumes.
+            await pool.execute(
+                "UPDATE build_effects SET status = 'pending' WHERE build_id = $1",
+                build.id,
+            )
+            await orchestrator.run_effect_item(project, build, "deploy")
+            assert ran == ["deploy", "deploy"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_effect_crash_settles_the_row(
     postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1232,15 +1292,22 @@ def test_effect_crash_settles_the_row(
 
         monkeypatch.setattr(orch_mod, "list_effects", fake_list)
         monkeypatch.setattr(orch_mod, "run_effect", broken_run)
-
         add_commit(upstream, "eff-crash")
-        build, _, pool = await run_event(
+        pool, orchestrator, _, project = await make_env(
             postgres_dsn,
             tmp_path,
             upstream,
             FakeEvalRunner([mk_job("a")]),
             FakeExecutor(),
+            name="eff-crash",
         )
+        event = ChangeEvent(
+            repo=project,
+            branch="main",
+            commit_sha=git(upstream, "rev-parse", "HEAD"),
+        )
+        build = await orchestrator.handle_change_event(event)
+        await drain_effect_items(orchestrator, project, pool)
         try:
             assert build is not None
             row = await pool.fetchrow(
