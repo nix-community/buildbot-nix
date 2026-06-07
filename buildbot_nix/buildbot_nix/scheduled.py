@@ -18,14 +18,12 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from .config import ScheduledEffectConfig, ScheduleWhen
-from .effects import EffectsError, _effects_args, _read_secret_file, _run
+from .effects import EffectsError, _effects_args, _run, run_effect_command
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import asyncpg
 
-    from .effects import EffectsContext
+    from .effects import EffectsContext, LogWrite
 
 logger = logging.getLogger(__name__)
 
@@ -104,58 +102,54 @@ def due_occurrence(
 
 
 async def run_scheduled_effect(
-    ctx: EffectsContext, schedule_name: str, effect: str
+    ctx: EffectsContext,
+    schedule_name: str,
+    effect: str,
+    log_write: LogWrite | None = None,
 ) -> bool:
-    """`buildbot-effects run-scheduled <schedule> <effect>` in a
-    default-branch checkout. Returns success. Per-repo secrets are
-    written next to the checkout for the duration of the run, like
-    `effects.run_effect`."""
-    secrets_file: Path | None = None
-    if ctx.secret_name is not None:
-        secrets_file = (
-            ctx.worktree_path.parent / f"{ctx.worktree_path.name}-secrets.json"
+    return await run_effect_command(
+        ctx, ["run-scheduled"], [schedule_name, effect], log_write
+    )
+
+
+HOURS_PER_DAY = 24
+
+
+def describe_when(when: ScheduleWhen, schedule_name: str) -> str:
+    """Human-readable resolved schedule, e.g. "hourly at :39 UTC"."""
+    fields = when.resolved(schedule_name)
+    minute = fields["minute"]
+    hour = fields["hour"]
+    hours = hour if isinstance(hour, list) else [hour]
+    if len(hours) == HOURS_PER_DAY:
+        text = f"hourly at :{minute:02d} UTC"
+    else:
+        text = "at " + ", ".join(f"{h:02d}:{minute:02d}" for h in hours) + " UTC"
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    if "dayOfWeek" in fields:
+        text += " on " + ", ".join(days[d] for d in fields["dayOfWeek"])
+    if "dayOfMonth" in fields:
+        text += " on day " + ", ".join(str(d) for d in fields["dayOfMonth"])
+    return text
+
+
+def schedule_overview(schedules: list[dict], runs: list[dict]) -> list[dict[str, Any]]:
+    """Schedules joined with their latest recorded run for the UI."""
+    latest: dict[tuple[str, str], dict] = {}
+    for entry in runs:  # newest first
+        latest.setdefault((entry["schedule_name"], entry["effect"]), entry)
+    overview = []
+    for schedule in schedules:
+        when = ScheduleWhen.model_validate_json(schedule["when_spec"])
+        overview.append(
+            {
+                "schedule": schedule["schedule_name"],
+                "effect": schedule["effect"],
+                "when": describe_when(when, schedule["schedule_name"]),
+                "run": latest.get((schedule["schedule_name"], schedule["effect"])),
+            }
         )
-        try:
-            secrets_file.write_text(_read_secret_file(ctx.secret_name))
-        except (EffectsError, OSError):
-            # Runs in a fire-and-forget task; an exception would only
-            # surface as "Task exception was never retrieved".
-            logger.exception(
-                "failed to prepare effects secrets",
-                extra={"schedule": schedule_name, "effect": effect},
-            )
-            return False
-    try:
-        returncode, output, errors = await _run(
-            [
-                "buildbot-effects",
-                "run-scheduled",
-                *_effects_args(ctx, secrets_file),
-                schedule_name,
-                effect,
-            ],
-            ctx.worktree_path,
-            time_limit=ctx.timeout,
-        )
-    except EffectsError:
-        logger.exception(
-            "scheduled effect failed",
-            extra={"schedule": schedule_name, "effect": effect},
-        )
-        return False
-    finally:
-        if secrets_file is not None:
-            secrets_file.unlink(missing_ok=True)
-    if returncode != 0:
-        logger.error(
-            "scheduled effect failed",
-            extra={
-                "schedule": schedule_name,
-                "effect": effect,
-                "output_tail": (output + errors)[-2000:],
-            },
-        )
-    return returncode == 0
+    return overview
 
 
 @dataclass(frozen=True)
@@ -231,6 +225,55 @@ class ScheduledEffectsStore:
                     )
                 )
         return due
+
+    async def start_run(self, due: DueEffect) -> int:
+        return await self.pool.fetchval(
+            """
+            INSERT INTO scheduled_effect_runs (project_id, schedule_name, effect)
+            VALUES ($1, $2, $3) RETURNING id
+            """,
+            due.project_id,
+            due.schedule_name,
+            due.effect,
+        )
+
+    async def finish_run(
+        self, run_id: int, *, success: bool, error: str | None = None
+    ) -> None:
+        await self.pool.execute(
+            """
+            UPDATE scheduled_effect_runs
+            SET status = $2, error = $3, finished_at = now() WHERE id = $1
+            """,
+            run_id,
+            "succeeded" if success else "failed",
+            error,
+        )
+
+    async def latest_runs_for_project(self, project_id: int) -> list[dict]:
+        """Most recent run per (schedule, effect)."""
+        rows = await self.pool.fetch(
+            """
+            SELECT DISTINCT ON (schedule_name, effect)
+                   id, schedule_name, effect, status, error,
+                   started_at, finished_at
+            FROM scheduled_effect_runs WHERE project_id = $1
+            ORDER BY schedule_name, effect, started_at DESC
+            """,
+            project_id,
+        )
+        return [dict(row) for row in rows]
+
+    async def schedules_for_project(self, project_id: int) -> list[dict]:
+        rows = await self.pool.fetch(
+            """
+            SELECT schedule_name, effect, when_spec, last_run
+            FROM scheduled_effects WHERE project_id = $1
+            ORDER BY schedule_name, effect
+            """,
+            project_id,
+        )
+        return [dict(row) for row in rows]
 
     async def mark_run(self, due: DueEffect, now: datetime | None = None) -> None:
         await self.pool.execute(

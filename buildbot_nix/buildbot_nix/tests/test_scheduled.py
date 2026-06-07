@@ -13,13 +13,15 @@ import asyncpg
 import pytest
 
 from buildbot_nix.config import ScheduleWhen
-from buildbot_nix.effects import EffectsContext
+from buildbot_nix.effects import EffectsContext, EffectsError
 from buildbot_nix.scheduled import (
+    DueEffect,
     ScheduledEffectsStore,
     due_occurrence,
     is_due,
     parse_schedules_from_json,
     run_scheduled_effect,
+    schedule_overview,
 )
 
 from .support import ephemeral_postgres
@@ -242,11 +244,11 @@ def test_due_effects_window_and_bad_spec(postgres_dsn: str) -> None:
     asyncio.run(run())
 
 
-def test_run_scheduled_effect_secret_read_failure_returns_false(
+def test_run_scheduled_effect_secret_read_failure_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Runs in a fire-and-forget task: a missing CREDENTIALS_DIRECTORY
-    # must be reported as failure, not raised.
+    # Same contract as push effects: the service records the raised
+    # error as a failed run.
     monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
     ctx = EffectsContext(
         worktree_path=tmp_path,
@@ -255,4 +257,58 @@ def test_run_scheduled_effect_secret_read_failure_returns_false(
         repo="acme/widget",
         secret_name="effects-secret",
     )
-    assert not asyncio.run(run_scheduled_effect(ctx, "nightly", "deploy"))
+    with pytest.raises(EffectsError, match="CREDENTIALS_DIRECTORY"):
+        asyncio.run(run_scheduled_effect(ctx, "nightly", "deploy"))
+
+
+@pytestmark_pg
+def test_run_recording_and_overview(postgres_dsn: str) -> None:
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await pool.fetchval(
+                """
+                INSERT INTO projects (forge, forge_repo_id, owner, name,
+                                      default_branch, url)
+                VALUES ('github', 'sched-4', 'acme', 'gadget', 'main', 'u')
+                RETURNING id
+                """
+            )
+            store = ScheduledEffectsStore(pool)
+            schedules = parse_schedules_from_json(
+                {"heartbeat": {"when": {}, "effects": ["beat"]}}
+            )
+            await store.replace_schedules(project_id, schedules)
+
+            overview = schedule_overview(
+                await store.schedules_for_project(project_id),
+                await store.latest_runs_for_project(project_id),
+            )
+            assert overview == [
+                {
+                    "schedule": "heartbeat",
+                    "effect": "beat",
+                    "when": overview[0]["when"],
+                    "run": None,
+                }
+            ]
+            assert overview[0]["when"].startswith("hourly at :")
+
+            due = DueEffect(
+                project_id=project_id,
+                schedule_name="heartbeat",
+                effect="beat",
+                when=ScheduleWhen(),
+            )
+            run_id = await store.start_run(due)
+            await store.finish_run(run_id, success=False, error="boom")
+            overview = schedule_overview(
+                await store.schedules_for_project(project_id),
+                await store.latest_runs_for_project(project_id),
+            )
+            assert overview[0]["run"]["status"] == "failed"
+            assert overview[0]["run"]["error"] == "boom"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

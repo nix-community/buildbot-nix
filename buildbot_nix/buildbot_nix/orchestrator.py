@@ -32,8 +32,8 @@ from .db import BuildStatus
 from .effects import (
     EffectsContext,
     EffectsError,
+    effects_context,
     list_effects,
-    resolve_effects_secret,
     run_effect,
     should_run_effects,
 )
@@ -629,27 +629,16 @@ class Orchestrator:
         # crash recovery (deploys are not idempotent).
         if not await self.db.mark_effects_started(build.id):
             return
-        ctx = EffectsContext(
+        task_token = self.task_tokens.issue(build.project_id)
+        ctx = effects_context(
+            self.config,
+            repo,
             worktree_path=worktree_path,
             rev=event.commit_sha,
             branch=event.branch,
-            repo=repo.name,
-            secret_name=resolve_effects_secret(
-                self.config.effects_per_repo_secrets,
-                repo.forge,
-                repo.owner,
-                repo.repo,
-            ),
-            extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
-            default_branch=repo.default_branch,
             git_token=credentials.token if credentials is not None else None,
-            api_base_url=self.config.url,
-            project_id=str(repo.id),
-            mountables_file=self.config.effects_mountables_file,
-            extra_nix_options=self.config.effects_extra_nix_options,
+            task_token=task_token,
         )
-        task_token = self.task_tokens.issue(build.project_id)
-        ctx.task_token = task_token
         try:
             for name in await list_effects(ctx):
                 await self._run_one_effect(ctx, build, name)

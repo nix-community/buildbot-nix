@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from .config import Config
+    from .events import RepoInfo
     from .repo_config import BranchConfig
 
     LogWrite = Callable[[bytes], Awaitable[None]]
@@ -98,6 +100,37 @@ class EffectsContext:
     project_id: str | None = None
     mountables_file: Path | None = None
     extra_nix_options: dict[str, str] = field(default_factory=dict)
+
+
+def effects_context(  # noqa: PLR0913
+    config: Config,
+    info: RepoInfo,
+    *,
+    worktree_path: Path,
+    rev: str,
+    branch: str,
+    git_token: str | None,
+    task_token: str | None,
+) -> EffectsContext:
+    """Context with the service-level configuration filled in; shared
+    by push and scheduled effect runs."""
+    return EffectsContext(
+        worktree_path=worktree_path,
+        rev=rev,
+        branch=branch,
+        repo=info.name,
+        secret_name=resolve_effects_secret(
+            config.effects_per_repo_secrets, info.forge, info.owner, info.repo
+        ),
+        extra_sandbox_paths=config.effects_extra_sandbox_paths,
+        default_branch=info.default_branch,
+        git_token=git_token,
+        api_base_url=config.url,
+        project_id=str(info.id),
+        mountables_file=config.effects_mountables_file,
+        extra_nix_options=config.effects_extra_nix_options,
+        task_token=task_token,
+    )
 
 
 def _effects_args(ctx: EffectsContext, secrets_file: Path | None) -> list[str]:
@@ -217,9 +250,18 @@ async def run_effect(
     effect: str,
     log_write: LogWrite | None = None,
 ) -> bool:
-    """Run one effect; returns success. The secrets file is written
-    outside the checkout (parent directory, like the buildbot setup)
-    and removed afterwards."""
+    return await run_effect_command(ctx, ["run"], [effect], log_write)
+
+
+async def run_effect_command(
+    ctx: EffectsContext,
+    subcommand: list[str],
+    targets: list[str],
+    log_write: LogWrite | None = None,
+) -> bool:
+    """Run one (push or scheduled) effect; returns success. The secrets
+    file is written outside the checkout (parent directory, like the
+    buildbot setup) and removed afterwards."""
     side_files: list[Path] = []
 
     def _side_file(suffix: str, content: str) -> Path:
@@ -249,10 +291,10 @@ async def run_effect(
         returncode, _, _ = await _run(
             [
                 "buildbot-effects",
-                "run",
+                *subcommand,
                 *_effects_args(ctx, secrets_file),
                 *extra,
-                effect,
+                *targets,
             ],
             ctx.worktree_path,
             log_write,

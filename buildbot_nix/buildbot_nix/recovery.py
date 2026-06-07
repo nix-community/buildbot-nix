@@ -194,6 +194,13 @@ async def fail_interrupted_effects(pool: asyncpg.Pool) -> None:
         WHERE status = 'running'
         """
     )
+    await pool.execute(
+        """
+        UPDATE scheduled_effect_runs SET status = 'failed',
+            error = 'interrupted by a service restart', finished_at = now()
+        WHERE status = 'running'
+        """
+    )
 
 
 async def check_store_paths(paths: list[str], nix_db: Path = NIX_DB) -> set[str]:
@@ -273,10 +280,22 @@ async def cleanup_old_builds(
             "WHERE to_timestamp(timestamp) < now() - make_interval(days => $1)",
             retention_days,
         )
+    old_runs = await pool.fetch(
+        """
+        DELETE FROM scheduled_effect_runs
+        WHERE finished_at IS NOT NULL
+          AND finished_at < now() - make_interval(days => $1)
+        RETURNING id
+        """,
+        retention_days,
+    )
     for row in rows:
         log_dir = state_dir / "logs" / str(row["id"])
         with contextlib.suppress(OSError):
             shutil.rmtree(log_dir)
+    for row in old_runs:
+        with contextlib.suppress(OSError):
+            (state_dir / "logs" / "scheduled" / f"{row['id']}.zst").unlink()
     if rows:
         logger.info("retention cleanup", extra={"deleted_builds": len(rows)})
     return len(rows)

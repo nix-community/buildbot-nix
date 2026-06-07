@@ -325,15 +325,27 @@ def test_interrupted_effects_fail_on_recovery(postgres_dsn: str) -> None:
                 "INSERT INTO build_effects (build_id, name) VALUES ($1, 'deploy')",
                 build_id,
             )
-            await fail_interrupted_effects(pool)
-            row = await pool.fetchrow(
-                "SELECT status, error, finished_at FROM build_effects "
-                "WHERE build_id = $1",
-                build_id,
+            project_id = await pool.fetchval(
+                "SELECT project_id FROM builds WHERE id = $1", build_id
             )
-            assert row["status"] == "failed"
-            assert "interrupted" in row["error"]
-            assert row["finished_at"] is not None
+            await pool.execute(
+                "INSERT INTO scheduled_effect_runs (project_id, schedule_name, "
+                "effect) VALUES ($1, 's', 'beat')",
+                project_id,
+            )
+            await fail_interrupted_effects(pool)
+            for table, column in [
+                ("build_effects", "build_id"),
+                ("scheduled_effect_runs", "project_id"),
+            ]:
+                row = await pool.fetchrow(
+                    f"SELECT status, error, finished_at FROM {table} "  # noqa: S608
+                    f"WHERE {column} = $1",
+                    build_id if column == "build_id" else project_id,
+                )
+                assert row["status"] == "failed"
+                assert "interrupted" in row["error"]
+                assert row["finished_at"] is not None
         finally:
             await pool.close()
 

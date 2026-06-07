@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .db import BuildStatus
-from .effects import EffectsContext, resolve_effects_secret
+from .effects import effects_context
 from .events import ChangeEvent, RepoInfo
+from .executor import LogWriter
 from .forge import (
     GiteaClient,
     GitHubAppClient,
@@ -79,12 +80,12 @@ def resolve_credential_path(path: Path | None) -> Path | None:
     return Path(directory) / path
 
 
-def scheduled_worktree_id(due: DueEffect) -> str:
-    """Per-effect worktree id: effects of one schedule run concurrently
-    and must not share a checkout. Schedule/effect names are
+def scheduled_worktree_id(due: DueEffect, run_id: int) -> str:
+    """Per-run worktree id: concurrent effects (or a run outlasting the
+    next due fire) must not share a checkout. Schedule/effect names are
     repo-controlled, so sanitize against path traversal."""
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{due.schedule_name}-{due.effect}")
-    return f"scheduled-{due.project_id}-{safe}"
+    return f"scheduled-{due.project_id}-{safe}-{run_id}"
 
 
 class PullBasedCredentialsProvider:
@@ -564,30 +565,51 @@ class CIService:
         if project is None or not project.enabled:
             return
         info = repo_info(project)
+        store = ScheduledEffectsStore(self.pool)
+        run_id = await store.start_run(due)
+        try:
+            success = await self._run_scheduled_inner(due, info, run_id)
+            await store.finish_run(run_id, success=success)
+        except Exception as e:
+            # Spawned task: an exception would only surface as "Task
+            # exception was never retrieved" and leave the row running.
+            logger.exception("scheduled effect crashed", extra={"run_id": run_id})
+            await store.finish_run(run_id, success=False, error=str(e))
+
+    async def _run_scheduled_inner(
+        self, due: DueEffect, info: RepoInfo, run_id: int
+    ) -> bool:
         credentials = await self._credentials_provider(info.forge).get(info.clone_url)
         await self.orchestrator.repos.fetch(
             info.key, info.clone_url, ["+refs/heads/*:refs/heads/*"], credentials
         )
         worktree = await self.orchestrator.repos.checkout_for_build(
             info.key,
-            scheduled_worktree_id(due),
+            scheduled_worktree_id(due, run_id),
             base_commit=info.default_branch,
             credentials=credentials,
         )
+        task_token = self.orchestrator.task_tokens.issue(due.project_id)
+        log_dir = self.config.state_dir / "logs" / "scheduled"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log = LogWriter(
+            path=log_dir / f"{run_id}.zst",
+            size_limit=self.config.log_size_limit,
+        )
         try:
-            ctx = EffectsContext(
+            ctx = effects_context(
+                self.config,
+                info,
                 worktree_path=worktree.path,
                 rev=await worktree.rev_parse("HEAD"),
                 branch=info.default_branch,
-                repo=info.name,
-                secret_name=resolve_effects_secret(
-                    self.config.effects_per_repo_secrets,
-                    info.forge,
-                    info.owner,
-                    info.repo,
-                ),
-                extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
+                git_token=credentials.token if credentials is not None else None,
+                task_token=task_token,
             )
-            await run_scheduled_effect(ctx, due.schedule_name, due.effect)
+            return await run_scheduled_effect(
+                ctx, due.schedule_name, due.effect, log.write
+            )
         finally:
+            self.orchestrator.task_tokens.revoke(task_token)
+            await log.close()
             await self.orchestrator.repos.remove_worktree(worktree)

@@ -91,7 +91,7 @@ def test_scheduled_worktree_id_distinct_per_effect() -> None:
     when = ScheduleWhen()
     a = DueEffect(project_id=1, schedule_name="s", effect="deploy", when=when)
     b = DueEffect(project_id=1, schedule_name="s", effect="notify", when=when)
-    assert scheduled_worktree_id(a) != scheduled_worktree_id(b)
+    assert scheduled_worktree_id(a, 1) != scheduled_worktree_id(b, 1)
 
 
 def test_scheduled_worktree_id_sanitizes_traversal() -> None:
@@ -101,7 +101,7 @@ def test_scheduled_worktree_id_sanitizes_traversal() -> None:
         effect="x/../../y",
         when=ScheduleWhen(),
     )
-    wid = scheduled_worktree_id(due)
+    wid = scheduled_worktree_id(due, 1)
     assert "/" not in wid
     assert ".." not in wid
 
