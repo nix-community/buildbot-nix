@@ -1,19 +1,15 @@
-"""Regression test for https://github.com/nix-community/buildbot-nix/issues/583
-
-When --branch is specified without --rev, effects_args() should resolve
-the rev from the tip of that branch, not from HEAD of the current checkout.
-"""
+"""How EffectsOptions turn into flake arguments: the _flake_url
+bridge to builtins.getFlake, and rev resolution in effects_args()
+(--branch without --rev must use the branch tip, not the checkout's
+HEAD; https://github.com/nix-community/buildbot-nix/issues/583)."""
 
 from __future__ import annotations
 
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
-from buildbot_effects import effects_args
+from buildbot_effects import _flake_url, effects_args
 from buildbot_effects.options import EffectsOptions
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -59,3 +55,24 @@ def test_branch_resolves_to_branch_tip(tmp_path: Path) -> None:
         f"got HEAD ({result['rev'][:7]})"
     )
     assert result["branch"] == "feature"
+
+
+class TestFlakeUrl:
+    def test_local_path_fallback(self) -> None:
+        opts = EffectsOptions(path=Path("/home/user/my-repo"))
+        assert (
+            _flake_url(opts, "abc1234") == "git+file:///home/user/my-repo?rev=abc1234#"
+        )
+
+    def test_locked_url_used(self) -> None:
+        opts = EffectsOptions(
+            path=Path("/nix/store/xyz-source"),
+            locked_url="github:org/repo/abc1234def5678",
+        )
+        assert _flake_url(opts, "abc1234") == "github:org/repo/abc1234def5678"
+
+    def test_empty_locked_url_falls_back(self) -> None:
+        opts = EffectsOptions(path=Path("/home/user/my-repo"), locked_url="")
+        assert (
+            _flake_url(opts, "abc1234") == "git+file:///home/user/my-repo?rev=abc1234#"
+        )
