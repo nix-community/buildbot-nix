@@ -4,6 +4,7 @@
     {% if group in inline %}
       <table class="attrs">
         <caption class="visually-hidden">{{ group }} attributes</caption>
+        {% include "_attr_head.html" %}
         {% with attributes = inline[group].items,
           group = group, page = 1, has_next = inline[group].has_next %}
           {% include "_attr_rows.html" %}
@@ -14,6 +15,7 @@
         <summary>{{ count }} {{ "already built" if group == "skipped" else group }}</summary>
         <table class="attrs">
           <caption class="visually-hidden">{{ group }} attributes</caption>
+          {% include "_attr_head.html" %}
           <tr>
             <td colspan="3"
                 class="muted"
