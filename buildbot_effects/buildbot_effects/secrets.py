@@ -133,3 +133,35 @@ def gather_secrets(
                 # The condition stays private to the runner.
                 out[dest] = {"data": secret.get("data", {})}
     return out
+
+
+def check_mounts(
+    mountables: dict[str, Any],
+    ctx: SecretContext,
+    drv_mounts: dict[str, str],
+) -> list[tuple[str, str, bool]]:
+    """`__hci_effect_mounts` checked against the configured mountables
+    allowlist; returns (container path, host path, read_only)."""
+    mounts = []
+    for path, name in drv_mounts.items():
+        mountable = mountables.get(name)
+        # Intentionally generic: misconfiguration details are sensitive.
+        denied = SecretsError(
+            f"mountable {name!r} is not configured or its condition "
+            "does not allow this effect invocation"
+        )
+        if mountable is None:
+            raise denied
+        if not path.startswith("/") or "/." in path or "//" in path:
+            msg = f"invalid mount path: {path!r}"
+            raise SecretsError(msg)
+        for protected in ("/nix", "/secrets", "/build"):
+            if path == protected or path.startswith(protected + "/"):
+                msg = f"mount over {protected} is not allowed: {path!r}"
+                raise SecretsError(msg)
+        if not eval_condition(ctx, mountable.get("condition", False)):
+            raise denied
+        mounts.append(
+            (path, mountable["source"], bool(mountable.get("readOnly", True)))
+        )
+    return mounts

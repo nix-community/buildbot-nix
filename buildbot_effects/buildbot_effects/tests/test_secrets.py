@@ -10,6 +10,7 @@ from buildbot_effects.secrets import (
     SecretContext,
     SecretsError,
     SimpleSecret,
+    check_mounts,
     eval_condition,
     gather_secrets,
     parse_secrets_map,
@@ -106,6 +107,27 @@ def test_gather_secrets_no_condition_warns_but_allows(
     )
     assert out == {"d": {"data": {"v": 1}}}
     assert "no condition" in capsys.readouterr().err
+
+
+def test_check_mounts() -> None:
+    mountables = {
+        "docker": {
+            "source": "/var/run/docker.sock",
+            "readOnly": False,
+            "condition": {"isOwner": "acme"},
+        },
+        "denied": {"source": "/x", "readOnly": True, "condition": {"isOwner": "evil"}},
+    }
+    mounts = check_mounts(mountables, CTX, {"/var/run/docker.sock": "docker"})
+    assert mounts == [("/var/run/docker.sock", "/var/run/docker.sock", False)]
+
+    for bad in ("relative", "/nix/store", "/build/x", "/a/../b", "/a//b"):
+        with pytest.raises(SecretsError):
+            check_mounts(mountables, CTX, {bad: "docker"})
+    with pytest.raises(SecretsError):
+        check_mounts(mountables, CTX, {"/y": "denied"})
+    with pytest.raises(SecretsError):
+        check_mounts(mountables, CTX, {"/y": "unknown"})
 
 
 def test_home_is_not_inherited() -> None:

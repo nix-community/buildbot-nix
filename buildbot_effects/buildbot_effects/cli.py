@@ -16,6 +16,7 @@ from . import (
     list_scheduled_effects,
     parse_derivation,
     run_effects,
+    select_mounts,
     select_secrets,
 )
 from .options import EffectsOptions
@@ -62,6 +63,7 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
         locked_url=locked_url,
         default_branch=base.default_branch,
         git_token_file=base.git_token_file,
+        mountables_file=base.mountables_file,
         debug=base.debug,
         extra_sandbox_paths=base.extra_sandbox_paths,
     )
@@ -76,6 +78,7 @@ def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
         path=args.path.resolve(),
         default_branch=getattr(args, "default_branch", None),
         git_token_file=getattr(args, "git_token_file", None),
+        mountables_file=getattr(args, "mountables_file", None),
         debug=args.debug,
         extra_sandbox_paths=args.extra_sandbox_path,
     )
@@ -120,6 +123,7 @@ def run_command(args: argparse.Namespace) -> None:
             drv_path,
             drv,
             secrets=select_secrets(drv, secrets, options),
+            bind_mounts=select_mounts(drv, options),
             debug=options.debug,
             extra_sandbox_paths=options.extra_sandbox_paths,
         )
@@ -170,6 +174,7 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
             drv_path,
             drv,
             secrets=select_secrets(drv, secrets, options),
+            bind_mounts=select_mounts(drv, options),
             debug=options.debug,
             extra_sandbox_paths=options.extra_sandbox_paths,
         )
@@ -213,6 +218,11 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         "--git-token-file",
         type=Path,
         help="File with a forge token for GitToken secret references",
+    )
+    parser.add_argument(
+        "--mountables-file",
+        type=Path,
+        help="JSON file with mountables effects may request via __hci_effect_mounts",
     )
     parser.add_argument(
         "--extra-sandbox-path",

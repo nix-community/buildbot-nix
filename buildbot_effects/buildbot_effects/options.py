@@ -16,5 +16,6 @@ class EffectsOptions:
     locked_url: str | None = None
     default_branch: str | None = None
     git_token_file: Path | None = None
+    mountables_file: Path | None = None
     debug: bool = False
     extra_sandbox_paths: list[Path] = field(default_factory=list)

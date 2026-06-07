@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from .options import EffectsOptions
 
 
-from .secrets import SecretContext, gather_secrets, parse_secrets_map
+from .secrets import SecretContext, check_mounts, gather_secrets, parse_secrets_map
 
 
 class BuildbotEffectsError(Exception):
@@ -288,6 +288,31 @@ def pipe() -> Iterator[tuple[IO[str], IO[str]]]:
         w_file.close()
 
 
+def secret_context(opts: EffectsOptions) -> SecretContext:
+    branch = opts.branch or ""
+    return SecretContext(
+        owner_name=(opts.repo or "").split("/")[0],
+        repo_name=(opts.repo or "").rsplit("/", 1)[-1],
+        is_default_branch=opts.default_branch is not None
+        and branch == opts.default_branch,
+        ref=f"refs/tags/{opts.tag}" if opts.tag else f"refs/heads/{branch}",
+    )
+
+
+def select_mounts(
+    drv: dict[str, Any], opts: EffectsOptions
+) -> list[tuple[str, str, bool]]:
+    """Bind mounts requested via __hci_effect_mounts, validated
+    against the configured mountables."""
+    raw = drv.get("env", {}).get("__hci_effect_mounts")
+    if not raw:
+        return []
+    mountables: dict[str, Any] = {}
+    if opts.mountables_file is not None:
+        mountables = json.loads(opts.mountables_file.read_text())
+    return check_mounts(mountables, secret_context(opts), json.loads(raw))
+
+
 def select_secrets(
     drv: dict[str, Any],
     secrets: dict[str, Any],
@@ -298,14 +323,7 @@ def select_secrets(
     secrets_map = parse_secrets_map(drv.get("env", {}))
     if not secrets_map:
         return secrets
-    branch = opts.branch or ""
-    ctx = SecretContext(
-        owner_name=(opts.repo or "").split("/")[0],
-        repo_name=(opts.repo or "").rsplit("/", 1)[-1],
-        is_default_branch=opts.default_branch is not None
-        and branch == opts.default_branch,
-        ref=f"refs/tags/{opts.tag}" if opts.tag else f"refs/heads/{branch}",
-    )
+    ctx = secret_context(opts)
     git_token = None
     if opts.git_token_file is not None:
         git_token = opts.git_token_file.read_text().strip()
@@ -340,18 +358,21 @@ def virtual_ids(drv_env: dict[str, str]) -> tuple[int, int]:
     return uid, gid
 
 
-def run_effects(
+def run_effects(  # noqa: PLR0913
     drv_path: str,
     drv: dict[str, Any],
     *,
     secrets: dict[str, Any] | None = None,
     extra_sandbox_paths: list[Path] | None = None,
+    bind_mounts: list[tuple[str, str, bool]] | None = None,
     debug: bool = False,
 ) -> None:
     if secrets is None:
         secrets = {}
     if extra_sandbox_paths is None:
         extra_sandbox_paths = []
+    if bind_mounts is None:
+        bind_mounts = []
     builder = drv["builder"]
     args = drv["args"]
     sandboxed_cmd = [
@@ -418,6 +439,11 @@ def run_effects(
             arg
             for path in extra_sandbox_paths
             for arg in ("--ro-bind", str(path), str(path))
+        ],
+        *[
+            arg
+            for dest, source, read_only in bind_mounts
+            for arg in ("--ro-bind" if read_only else "--bind", source, dest)
         ],
         "--hostname",
         "hercules-ci",
