@@ -459,6 +459,10 @@ def test_api_projects_and_builds(client: WebClient) -> None:
     projects = get(client, "/api/repos").json()
     assert any(p["name"] == "widget" for p in projects)
 
+    repo = get(client, "/api/repos/github/acme/widget").json()
+    assert repo["name"] == "widget"
+    assert repo["default_branch"] == "main"
+
     builds = get(client, "/api/repos/github/acme/widget/builds").json()
     assert builds["page"] == 1
     assert len(builds["items"]) == 3
