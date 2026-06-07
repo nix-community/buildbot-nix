@@ -61,6 +61,21 @@ let
             ssh_private_key_file = if cfg.gitea.sshPrivateKeyFile != null then "gitea-ssh-key" else null;
             ssh_known_hosts_file = cfg.gitea.sshKnownHostsFile;
           };
+      gitlab =
+        if !cfg.gitlab.enable then
+          null
+        else
+          {
+            instance_url = cfg.gitlab.instanceUrl;
+            filters = {
+              user_allowlist = cfg.gitlab.userAllowlist;
+              repo_allowlist = cfg.gitlab.repoAllowlist;
+              topic = cfg.gitlab.topic;
+            };
+            token_file = "gitlab-token";
+            ssh_private_key_file = if cfg.gitlab.sshPrivateKeyFile != null then "gitlab-ssh-key" else null;
+            ssh_known_hosts_file = cfg.gitlab.sshKnownHostsFile;
+          };
       github =
         if !cfg.github.enable then
           null
@@ -622,6 +637,56 @@ in
       };
     };
 
+    gitlab = {
+      enable = lib.mkEnableOption "GitLab integration";
+
+      instanceUrl = lib.mkOption {
+        type = lib.types.str;
+        default = "https://gitlab.com";
+        description = "GitLab instance URL.";
+      };
+
+      tokenFile = lib.mkOption {
+        type = lib.types.path;
+        description = "GitLab access token file (api scope).";
+      };
+
+      userAllowlist = lib.mkOption {
+        type = lib.types.nullOr (lib.types.listOf lib.types.str);
+        default = null;
+        description = "If non-null, only repositories owned by these users/groups are built.";
+      };
+
+      repoAllowlist = lib.mkOption {
+        type = lib.types.nullOr (lib.types.listOf lib.types.str);
+        default = null;
+        description = "If non-null, only these repositories are built.";
+      };
+
+      topic = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = "build-with-buildbot";
+        description = ''
+          Legacy import aid: on the first startup with an empty database,
+          repositories carrying this topic are enabled automatically.
+          Afterwards the topic is ignored; enable or disable projects in
+          the web UI.
+        '';
+      };
+
+      sshPrivateKeyFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "SSH key used to fetch repositories, if non-null.";
+      };
+
+      sshKnownHostsFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "known_hosts file matched when fetching over SSH.";
+      };
+    };
+
     oidc = {
       enable = lib.mkEnableOption "OIDC login";
 
@@ -867,7 +932,9 @@ in
         "buildbot-nix: github.* is configured but github.enable is false; GitHub projects will not appear. Set services.buildbot-nix.github.enable = true."
       ++
         lib.optional (!cfg.gitea.enable && options.services.buildbot-nix.gitea.tokenFile.isDefined)
-          "buildbot-nix: gitea.* is configured but gitea.enable is false; Gitea projects will not appear. Set services.buildbot-nix.gitea.enable = true.";
+          "buildbot-nix: gitea.* is configured but gitea.enable is false; Gitea projects will not appear. Set services.buildbot-nix.gitea.enable = true."
+        ++ lib.optional (!cfg.gitlab.enable && options.services.buildbot-nix.gitlab.tokenFile.isDefined)
+          "buildbot-nix: gitlab.* is configured but gitlab.enable is false; GitLab projects will not appear. Set services.buildbot-nix.gitlab.enable = true.";
 
     assertions = [
       {
@@ -973,6 +1040,10 @@ in
           ++ lib.optional (
             cfg.gitea.enable && cfg.gitea.sshPrivateKeyFile != null
           ) "gitea-ssh-key:${cfg.gitea.sshPrivateKeyFile}"
+          ++ lib.optional cfg.gitlab.enable "gitlab-token:${cfg.gitlab.tokenFile}"
+          ++ lib.optional (
+            cfg.gitlab.enable && cfg.gitlab.sshPrivateKeyFile != null
+          ) "gitlab-ssh-key:${cfg.gitlab.sshPrivateKeyFile}"
           ++ lib.optional cfg.oidc.enable "oidc-client-secret:${cfg.oidc.clientSecretFile}"
           ++ lib.optional (
             !cfg.database.createLocally && cfg.database.urlFile != null
