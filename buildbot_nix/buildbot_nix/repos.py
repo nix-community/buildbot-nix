@@ -86,6 +86,15 @@ class RepoStore:
                         url = EXCLUDED.url,
                         private = EXCLUDED.private,
                         updated_at = now()
+                    -- Discovery re-upserts every repo every poll cycle;
+                    -- skip no-op updates to avoid WAL/autovacuum churn.
+                    WHERE (projects.owner, projects.name,
+                           projects.default_branch, projects.url,
+                           projects.private)
+                          IS DISTINCT FROM
+                          (EXCLUDED.owner, EXCLUDED.name,
+                           EXCLUDED.default_branch, EXCLUDED.url,
+                           EXCLUDED.private)
                     """,
                     repo.forge,
                     repo.forge_repo_id,
@@ -123,6 +132,11 @@ class RepoStore:
                     default_branch = EXCLUDED.default_branch,
                     url = EXCLUDED.url,
                     updated_at = now()
+                -- Same no-op skip as sync_discovered: this runs on
+                -- every reconcile tick for every configured repo.
+                WHERE (projects.default_branch, projects.url)
+                      IS DISTINCT FROM
+                      (EXCLUDED.default_branch, EXCLUDED.url)
                 """,
                 name,
                 owner or "pull_based",

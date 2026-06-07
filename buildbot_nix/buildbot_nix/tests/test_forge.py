@@ -339,6 +339,45 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
     asyncio.run(run())
 
 
+def test_project_store_sync_skips_unchanged_rows(postgres_dsn: str) -> None:
+    """Re-syncing identical repo metadata must not rewrite rows:
+    discovery runs every poll cycle over every repo, and unconditional
+    updates churn WAL and autovacuum on otherwise idle databases."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            store = RepoStore(pool)
+            repos = [repo("acme", "stable"), repo("acme", "other")]
+            await store.sync_discovered(repos)
+            await store.sync_pull_based([("pull/one", "https://x/one.git", "main")])
+            before = await pool.fetch(
+                "SELECT name, xmin, updated_at FROM projects ORDER BY name"
+            )
+
+            await store.sync_discovered(repos)
+            await store.sync_pull_based([("pull/one", "https://x/one.git", "main")])
+            after = await pool.fetch(
+                "SELECT name, xmin, updated_at FROM projects ORDER BY name"
+            )
+            assert [tuple(r) for r in before] == [tuple(r) for r in after]
+
+            # A real change still updates the row.
+            changed = DiscoveredRepo(
+                **{**repos[0].__dict__, "default_branch": "develop"}
+            )
+            await store.sync_discovered([changed])
+            row = await pool.fetchrow(
+                "SELECT default_branch FROM projects WHERE name = 'stable'"
+            )
+            assert row is not None
+            assert row["default_branch"] == "develop"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 # --- gitea webhook auto-registration ------------------------------
 
 
