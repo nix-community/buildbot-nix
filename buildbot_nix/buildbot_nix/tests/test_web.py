@@ -18,7 +18,7 @@ import pytest
 import zstandard
 
 from buildbot_nix.executor import LogWriter
-from buildbot_nix.web.app import create_app, timeago
+from buildbot_nix.web.app import create_app
 from buildbot_nix.web.events import EventBroker
 from buildbot_nix.web.logs import (
     AnsiHtmlStream,
@@ -26,6 +26,7 @@ from buildbot_nix.web.logs import (
     render_log_lines,
     strip_ansi,
 )
+from buildbot_nix.web.templating import timeago
 
 from .e2e.support import ephemeral_postgres, seed
 
