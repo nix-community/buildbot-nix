@@ -1076,6 +1076,11 @@ in
       # Drop gc-roots of builds that have not been refreshed in 90 days.
       "e /nix/var/nix/gcroots/per-user/buildbot-nix/* - - - 90d -"
     ]
-    ++ lib.optional (cfg.outputsPath != null) "d ${cfg.outputsPath} 0755 buildbot-nix buildbot-nix - -";
+    ++ lib.optionals (cfg.outputsPath != null) [
+      "d ${cfg.outputsPath} 0755 buildbot-nix buildbot-nix - -"
+      # Recursively fix ownership so files created by a previous service user
+      # (e.g. after the buildbot -> buildbot-nix migration) stay writable.
+      "Z ${cfg.outputsPath} - buildbot-nix buildbot-nix - -"
+    ];
   };
 }
