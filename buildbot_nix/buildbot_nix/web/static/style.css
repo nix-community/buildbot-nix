@@ -324,6 +324,7 @@ details summary {
    summaries below it out of reach (infinite-scroll footer problem). */
 .attr-scroll {
 	max-height: 70vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: dvh with vh fallback */
 	max-height: 70dvh;
 	overflow: auto;
 }
@@ -555,6 +556,7 @@ pre.log {
 	/* Own scroll pane: tail-following must not scroll the page and
      hide the header. dvh tracks the collapsing mobile URL bar. */
 	max-height: calc(100vh - 11rem);
+	/* biome-ignore lint/suspicious/noDuplicateProperties: dvh with vh fallback */
 	max-height: calc(100dvh - 11rem);
 	overscroll-behavior: contain;
 	font-size: 0.8125rem;
