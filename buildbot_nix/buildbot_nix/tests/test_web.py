@@ -89,6 +89,19 @@ def get(client: WebClient, url: str) -> httpx.Response:
     return client.loop.run_until_complete(client.http.get(url))
 
 
+def test_html_error_pages(client: WebClient) -> None:
+    missing = client.loop.run_until_complete(
+        client.http.get("/repos/github/nope/nope", headers={"accept": "text/html"})
+    )
+    assert missing.status_code == 404
+    assert missing.headers["content-type"].startswith("text/html")
+    assert 'href="/"' in missing.text
+
+    api = get(client, "/api/repos/github/nope/nope")
+    assert api.status_code == 404
+    assert api.json() == {"detail": "Not Found"}
+
+
 def test_homepage(client: WebClient) -> None:
     response = get(client, "/")
     assert response.status_code == 200

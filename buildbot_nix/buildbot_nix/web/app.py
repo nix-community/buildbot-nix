@@ -23,12 +23,16 @@ from urllib.parse import quote
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from http import HTTPStatus
+
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi.responses import (
     HTMLResponse,
+    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
 )
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..auth import can_control_build  # noqa: TID252
 from ..recovery import check_db_health  # noqa: TID252
@@ -496,6 +500,21 @@ def create_app(
     )
     ctx = WebContext(pool, state_dir)
     app.state.web_context = ctx
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> Response:
+        wants_html = "text/html" in request.headers.get(
+            "accept", ""
+        ) and not request.url.path.startswith("/api/")
+        if not wants_html:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        detail = exc.detail or HTTPStatus(exc.status_code).phrase
+        page = ctx.render(
+            "error.html", request=request, status_code=exc.status_code, detail=detail
+        )
+        page.status_code = exc.status_code
+        return page
+
     # Only /api belongs in the OpenAPI spec; HTML pages, SSE, logs and
     # metrics are excluded so /docs documents just the JSON API.
     app.include_router(create_events_router(ctx, broker), include_in_schema=False)
