@@ -261,6 +261,8 @@ class BuildSettings:
     max_silent_time: int = 60 * 20
     show_trace: bool = False
     log_size_limit: int = 64 * 1024 * 1024
+    # Extra `nix build` arguments, e.g. --option overrides.
+    extra_args: list[str] = field(default_factory=list)
 
 
 def build_nix_command(
@@ -282,6 +284,7 @@ def build_nix_command(
         "--max-silent-time",
         str(settings.max_silent_time),
         "--accept-flake-config",
+        *settings.extra_args,
         "--out-link",
         str(out_link),
         f"{job.drv_path}^*",

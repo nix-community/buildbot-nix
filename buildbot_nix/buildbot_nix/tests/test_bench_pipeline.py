@@ -58,6 +58,23 @@ BUILD_CONCURRENCY = int(os.environ.get("BENCH_CONCURRENCY", "16"))
 CHAIN_STRIDE = 10
 
 
+# The benchmark measures the engine, not the network: salted drvs
+# always miss binary caches (--check-cache-status would issue
+# thousands of sequential narinfo lookups), and remote builders would
+# add ssh round-trips per trivial build.
+LOCAL_ONLY = [
+    "--option",
+    "substituters",
+    "",
+    "--option",
+    "builders",
+    "",
+    "--option",
+    "max-jobs",
+    "auto",
+]
+
+
 def current_system() -> str:
     return subprocess.run(
         ["nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"],
@@ -102,7 +119,7 @@ class BenchExecutor:
     def __init__(self, cwd: Path, log_dir: Path) -> None:
         self.inner = NixBuildExecutor(
             FairScheduler(BUILD_CONCURRENCY),
-            BuildSettings(log_dir=log_dir, timeout=300),
+            BuildSettings(log_dir=log_dir, timeout=300, extra_args=LOCAL_ONLY),
         )
         self.cwd = cwd
         self.log_dir = log_dir
@@ -136,7 +153,10 @@ def test_bench_full_pipeline(
 
     async def pipeline() -> ScheduleResult:
         settings = EvalSettings(
-            gc_roots_dir=tmp_path / "gcroots", sandbox=False, systemd_scope=False
+            gc_roots_dir=tmp_path / "gcroots",
+            sandbox=False,
+            systemd_scope=False,
+            extra_args=LOCAL_ONLY,
         )
         eval_result = await EvalRunner().run(flake, BranchConfig(), settings)
         scheduler = JobScheduler(BenchExecutor(flake, log_dir), [current_system()])

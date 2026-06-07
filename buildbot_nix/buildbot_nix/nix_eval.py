@@ -72,6 +72,8 @@ class EvalSettings:
     netrc_file: Path | None = None
     nix_daemon_socket: Path = Path("/nix/var/nix/daemon-socket/socket")
     extra_ro_paths: list[Path] = field(default_factory=list)
+    # Extra nix-eval-jobs arguments, e.g. --option overrides.
+    extra_args: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -107,6 +109,7 @@ def build_eval_command(
         str(settings.gc_roots_dir),
         "--force-recurse",
         "--check-cache-status",
+        *settings.extra_args,
         *(["--show-trace"] if settings.show_trace else []),
         "--flake",
         flake,
