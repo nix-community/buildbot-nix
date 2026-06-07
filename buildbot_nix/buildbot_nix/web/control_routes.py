@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 from ..auth import can_control_build, is_admin, same_origin  # noqa: TID252
 
@@ -37,6 +38,19 @@ class ControlBackend(Protocol):
 
 
 FAILED_STATUSES = ("failed", "failed_eval", "dependency_failed", "cached_failure")
+
+
+class ControlAction(BaseModel):
+    """Acknowledgement of a restart/cancel request."""
+
+    number: int
+    action: str  # restart | cancel
+
+
+class EnableResult(BaseModel):
+    owner: str
+    name: str
+    enabled: bool
 
 
 def _back(forge: str, owner: str, name: str, number: int) -> RedirectResponse:
@@ -147,6 +161,22 @@ class _ControlRoutes:
             if project_id not in toggleable:
                 raise HTTPException(status_code=403, detail="not a project admin")
 
+    async def api_restart(
+        self, request: Request, forge: str, owner: str, name: str, number: int
+    ) -> dict:
+        """Re-run the whole build. Authz: admins or the PR author."""
+        build = await self._authorize(request, forge, owner, name, number)
+        await self.backend.restart_build(build["id"])
+        return {"number": number, "action": "restart"}
+
+    async def api_cancel(
+        self, request: Request, forge: str, owner: str, name: str, number: int
+    ) -> dict:
+        """Cancel a pending/running build. Authz: admins or the PR author."""
+        build = await self._authorize(request, forge, owner, name, number)
+        await self.backend.cancel_build(build["id"])
+        return {"number": number, "action": "cancel"}
+
     async def api_set_enabled(
         self, request: Request, forge: str, owner: str, name: str
     ) -> dict:
@@ -203,8 +233,28 @@ def create_control_router(
     router.post(f"{base}/rebuild-failed")(routes.rebuild_failed)
     router.post(f"{base}/attrs/{{attr}}/cancel")(routes.cancel_attribute)
     router.post(f"{base}/cancel")(routes.cancel)
-    router.post("/api/repos/{forge}/{owner}/{name}/enable")(routes.api_set_enabled)
-    router.post("/api/repos/{forge}/{owner}/{name}/disable")(routes.api_set_enabled)
     router.post("/admin/repos/refresh")(routes.refresh_repos)
     router.post("/admin/repos/{project_id}/toggle")(routes.toggle_repo)
+    return router
+
+
+def create_control_api_router(
+    ctx: WebContext,
+    backend: ControlBackend,
+    authz: AuthzConfig,
+    own_url: str,
+) -> APIRouter:
+    """JSON control endpoints; part of the documented /api surface.
+    API tokens authenticate via Authorization: Bearer."""
+    router = APIRouter(prefix="/api", tags=["api"])
+    routes = _ControlRoutes(ctx, backend, authz, own_url)
+    base = "/repos/{forge}/{owner}/{name}"
+    router.post(f"{base}/builds/{{number}}/restart", response_model=ControlAction)(
+        routes.api_restart
+    )
+    router.post(f"{base}/builds/{{number}}/cancel", response_model=ControlAction)(
+        routes.api_cancel
+    )
+    router.post(f"{base}/enable", response_model=EnableResult)(routes.api_set_enabled)
+    router.post(f"{base}/disable", response_model=EnableResult)(routes.api_set_enabled)
     return router

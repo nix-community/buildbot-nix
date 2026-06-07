@@ -370,16 +370,25 @@ the instance restricts project visibility.
 - GET /api/repos -> [{owner, name, ...}]
 - GET /api/repos/{forge}/{owner}/{name}/builds?commit={sha-prefix} -> find the build number
   (other filters: status, branch, pr_number, page)
-- GET /api/repos/{forge}/{owner}/{name}/builds/{number}/failures?tail=50
+- GET /api/repos/{forge}/{owner}/{name}/builds/{number}/failures?tail=N
   -> {status, error, eval_warnings, failures: [{attr, status, error, log_tail}]}
+  (tail defaults to 50 lines per attribute)
 
 ## Other endpoints
 
+- GET /api/repos/{forge}/{owner}/{name} -> single project
 - GET /api/repos/{forge}/{owner}/{name}/builds/{number} -> build + all attributes
 - GET /api/repos/{forge}/{owner}/{name}/attrs/{attr} -> per-attribute history
 - GET /api/queue -> global build queue
 - GET /repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}.txt?tail=N
   -> plain-text log (full when tail is omitted)
+
+## Control (Authorization: Bearer <token>; create tokens at /settings)
+
+- POST /api/repos/{forge}/{owner}/{name}/builds/{number}/restart
+- POST /api/repos/{forge}/{owner}/{name}/builds/{number}/cancel
+- POST /api/repos/{forge}/{owner}/{name}/enable (admin)
+- POST /api/repos/{forge}/{owner}/{name}/disable (admin)
 """
 
 

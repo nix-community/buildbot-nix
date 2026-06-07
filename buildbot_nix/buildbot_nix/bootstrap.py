@@ -60,7 +60,7 @@ from .status import (
 from .visibility import AccessCache, ForgeRepoAccessFetcher, VisibilityService
 from .web.app import create_app
 from .web.auth_routes import create_auth_router
-from .web.control_routes import create_control_router
+from .web.control_routes import create_control_api_router, create_control_router
 from .web.token_routes import create_token_router
 from .webhooks import (
     ChangeRequest,
@@ -251,6 +251,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     app.include_router(
         create_control_router(ctx, service, authz, config.url), include_in_schema=False
     )
+    app.include_router(create_control_api_router(ctx, service, authz, config.url))
     app.include_router(
         create_token_router(ctx, ctx.token_store, config.url), include_in_schema=False
     )

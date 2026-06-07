@@ -24,7 +24,10 @@ from buildbot_nix.config import EngineConfig
 from buildbot_nix.forge_tokens import ForgeTokenStore
 from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.web.app import create_app
-from buildbot_nix.web.control_routes import create_control_router
+from buildbot_nix.web.control_routes import (
+    create_control_api_router,
+    create_control_router,
+)
 from buildbot_nix.web.token_routes import create_token_router
 
 if TYPE_CHECKING:
@@ -148,6 +151,9 @@ def harness(postgres_dsn: str) -> Iterator[tuple]:
         ctx = app.state.web_context
         ctx.signer = SIGNER
         app.include_router(create_control_router(ctx, BACKEND, AUTHZ, "http://test"))
+        app.include_router(
+            create_control_api_router(ctx, BACKEND, AUTHZ, "http://test")
+        )
         ctx.token_store = ApiTokenStore(pool)
         app.include_router(create_token_router(ctx, ctx.token_store, "http://test"))
         client = httpx.AsyncClient(
@@ -311,6 +317,34 @@ def test_api_enable_disable(harness: tuple) -> None:
     )
     assert project_enabled(harness) is True
     assert post(harness, "/api/repos/github/acme/nope/enable", ROOT).status_code == 404
+
+
+def test_api_restart_and_cancel(harness: tuple) -> None:
+    BACKEND.restarted.clear()
+    BACKEND.cancelled.clear()
+
+    assert (
+        post(harness, "/api/repos/github/acme/widget/builds/1/restart").status_code
+        == 403
+    )
+    assert BACKEND.restarted == []
+
+    response = post(harness, "/api/repos/github/acme/widget/builds/1/restart", ROOT)
+    assert response.status_code == 200
+    assert response.json() == {"number": 1, "action": "restart"}
+    assert len(BACKEND.restarted) == 1
+
+    response = post(harness, "/api/repos/github/acme/widget/builds/1/cancel", ROOT)
+    assert response.status_code == 200
+    assert response.json() == {"number": 1, "action": "cancel"}
+    assert len(BACKEND.cancelled) == 1
+
+    assert (
+        post(
+            harness, "/api/repos/github/acme/widget/builds/99/restart", ROOT
+        ).status_code
+        == 404
+    )
 
 
 # --- personal API tokens ---------------------------------------------
