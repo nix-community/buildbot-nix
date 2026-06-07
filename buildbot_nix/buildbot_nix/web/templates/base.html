@@ -64,20 +64,19 @@
     <script src="/static/vendor/sse.min.js?v={{ static_v }}"></script>
     <script src="/static/vendor/idiomorph-ext.min.js?v={{ static_v }}"></script>
     <script>
-      /* Attribute filter: client-side over the loaded rows.
-         Re-applied after htmx swaps in fresh rows. */
-      /* Morphs render the server state, which always closes the
-         attribute groups - an SSE refresh would snap them shut and
-         drop their lazily loaded rows. Reapply the open state after
-         swaps; the restored placeholder re-fetches fresh rows. */
-      const openGroups = new Set();
+      /* Morphs render the server's default open/closed state for the
+         attribute groups - an SSE refresh would snap them back and
+         drop lazily loaded rows. Remember the user's toggles and
+         reapply them after swaps. */
+      const groupState = new Map();
       document.body.addEventListener("toggle", (e) => {
         const g = e.target.closest?.("details.attr-group");
-        if (g) openGroups[g.open ? "add" : "delete"](g.dataset.group);
+        if (g) groupState.set(g.dataset.group, g.open);
       }, true);
       document.body.addEventListener("htmx:afterSwap", (e) => {
         for (const g of document.querySelectorAll("details.attr-group")) {
-          if (openGroups.has(g.dataset.group)) g.open = true;
+          const saved = groupState.get(g.dataset.group);
+          if (saved !== undefined) g.open = saved;
           /* idiomorph swaps in the lazy placeholder without htmx
              processing; without this the intersect trigger never
              arms and the group stays on "loading". */

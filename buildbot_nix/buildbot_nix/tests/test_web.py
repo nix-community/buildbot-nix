@@ -142,8 +142,12 @@ def test_build_page(client: WebClient) -> None:
     response = get(client, "/repos/github/acme/widget/builds/2")
     assert response.status_code == 200
     text = response.text
-    # Failures render inline; the succeeded bulk is collapsed to a count.
+    # Failures render eagerly in an open group; the succeeded bulk is
+    # collapsed to a count.
     assert "x86_64-linux.bad" in text
+    failed_group = re.search(r'<details[^>]*data-group="failed"[^>]*>', text)
+    assert failed_group is not None
+    assert "open" in failed_group.group(0)
     assert "x86_64-linux.ok" not in text
     assert "2 succeeded" in text
     assert "attrs?group=succeeded" in text
