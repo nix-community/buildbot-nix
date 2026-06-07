@@ -30,9 +30,9 @@ from .executor import BuildSettings, FairScheduler, NixBuildExecutor
 from .failed_builds import PostgresFailedBuildCache
 from .forge import (
     GiteaClient,
-    GiteaFetchCredentialsProvider,
     GitHubAppClient,
     GitHubFetchCredentialsProvider,
+    NetrcFetchCredentialsProvider,
 )
 from .forge_tokens import ForgeTokenStore
 from .gitrepo import (
@@ -156,7 +156,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
         posters["github"] = GitHubStatusPoster(github)
     if config.gitea is not None:
         gitea = GiteaClient(config.gitea.instance_url, config.gitea.token)
-        credentials_providers["gitea"] = GiteaFetchCredentialsProvider(
+        credentials_providers["gitea"] = NetrcFetchCredentialsProvider(
             config.gitea.instance_url,
             config.gitea.token,
             ssh_private_key_file=resolve_credential_path(

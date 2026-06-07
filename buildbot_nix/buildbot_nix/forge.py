@@ -11,6 +11,9 @@ gitea_projects.py discovery:
   x-access-token).
 - Gitea: personal token; repos listed via /api/v1/user/repos with
   topics fetched per repo (as before).
+- GitLab: personal/group/project access token (api scope); repos
+  listed via /api/v4/projects?membership=true. No GitHub-App
+  equivalent exists, so auth follows the Gitea model.
 - Discovery filters: repoAllowlist/userAllowlist are a security
   boundary applied at discovery time; the topic filter is only a legacy
   import aid (see projects.py for the one-shot enablement import).
@@ -28,7 +31,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -48,7 +51,7 @@ class ForgeError(Exception):
 
 @dataclass(frozen=True)
 class DiscoveredRepo:
-    forge: str  # "github" | "gitea"
+    forge: str  # "github" | "gitea" | "gitlab"
     forge_repo_id: str  # stable numeric id as string
     owner: str
     repo: str
@@ -315,11 +318,11 @@ def _write_netrc_atomic(netrc: Path, content: str) -> None:
     tmp.replace(netrc)
 
 
-class GiteaFetchCredentialsProvider:
-    """Credentials for fetching Gitea repositories: the API token as a
-    netrc entry for HTTPS clone URLs (Gitea accepts the token as basic
-    auth password), plus the optional per-instance SSH key for SSH
-    remotes (gitea.sshPrivateKeyFile)."""
+class NetrcFetchCredentialsProvider:
+    """Credentials for fetching from token-auth forges (Gitea, GitLab):
+    the API token as a netrc entry for HTTPS clone URLs (both accept it
+    as basic auth password for user oauth2), plus the optional
+    per-instance SSH key for SSH remotes."""
 
     def __init__(
         self,
@@ -409,6 +412,64 @@ class GiteaClient:
                     clone_url=repo["clone_url"],
                     private=repo.get("private", False),
                     topics=tuple(topics),
+                )
+            )
+        return repos
+
+
+# --- GitLab --------------------------------------------------------------------
+
+
+class GitlabClient:
+    def __init__(
+        self,
+        instance_url: str,
+        token: str,
+        http: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.instance_url = instance_url.rstrip("/")
+        self.token = token
+        self.http = http or httpx.AsyncClient()
+
+    def _headers(self) -> dict[str, str]:
+        return {"PRIVATE-TOKEN": self.token}
+
+    def project_api_url(self, owner: str, repo: str) -> str:
+        # GitLab accepts the URL-encoded full path wherever it takes a
+        # numeric project id; namespaces may be nested (a/b/c).
+        return (
+            f"{self.instance_url}/api/v4/projects/{quote(f'{owner}/{repo}', safe='')}"
+        )
+
+    async def _paginated(self, url: str) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        next_url: str | None = url
+        while next_url:
+            response = await self.http.get(next_url, headers=self._headers())
+            if response.status_code >= 400:  # noqa: PLR2004
+                msg = f"GitLab request failed: {response.status_code} {response.text}"
+                raise ForgeError(msg)
+            results.extend(response.json())
+            next_url = response.links.get("next", {}).get("url")
+        return results
+
+    async def discover_repos(self) -> list[DiscoveredRepo]:
+        repos = []
+        for repo in await self._paginated(
+            f"{self.instance_url}/api/v4/projects"
+            "?membership=true&archived=false&per_page=100"
+        ):
+            owner, _, name = repo["path_with_namespace"].rpartition("/")
+            repos.append(
+                DiscoveredRepo(
+                    forge="gitlab",
+                    forge_repo_id=str(repo["id"]),
+                    owner=owner,
+                    repo=name,
+                    default_branch=repo.get("default_branch") or "main",
+                    clone_url=repo["http_url_to_repo"],
+                    private=repo.get("visibility") != "public",
+                    topics=tuple(repo.get("topics") or ()),
                 )
             )
         return repos

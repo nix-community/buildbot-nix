@@ -22,6 +22,7 @@ from buildbot_nix.forge import (
     GiteaClient,
     GitHubAppClient,
     GitHubFetchCredentialsProvider,
+    GitlabClient,
     filter_repos,
 )
 from buildbot_nix.gitea_hooks import (
@@ -692,3 +693,53 @@ def test_register_repo_hook_without_admin_warns(
     with caplog.at_level("WARNING"):
         asyncio.run(run())
     assert any("manually" in r.message for r in caplog.records)
+
+
+def test_gitlab_discovery() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["PRIVATE-TOKEN"] == "glpat-x"
+        if request.url.path == "/api/v4/projects":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 7,
+                        "path_with_namespace": "group/sub/tool",
+                        "default_branch": "develop",
+                        "http_url_to_repo": "https://gitlab.example.com/group/sub/tool.git",
+                        "visibility": "private",
+                        "topics": ["ci"],
+                    },
+                    {
+                        "id": 8,
+                        "path_with_namespace": "Mic92/dotfiles",
+                        "default_branch": "main",
+                        "http_url_to_repo": "https://gitlab.example.com/Mic92/dotfiles.git",
+                        "visibility": "public",
+                    },
+                ],
+            )
+        raise AssertionError(request.url.path)
+
+    client = GitlabClient(
+        "https://gitlab.example.com/",
+        "glpat-x",
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    nested, public = asyncio.run(client.discover_repos())
+    assert nested == DiscoveredRepo(
+        forge="gitlab",
+        forge_repo_id="7",
+        owner="group/sub",
+        repo="tool",
+        default_branch="develop",
+        clone_url="https://gitlab.example.com/group/sub/tool.git",
+        private=True,
+        topics=("ci",),
+    )
+    assert public.name == "Mic92/dotfiles"
+    assert not public.private
+    assert (
+        client.project_api_url("group/sub", "tool")
+        == "https://gitlab.example.com/api/v4/projects/group%2Fsub%2Ftool"
+    )
