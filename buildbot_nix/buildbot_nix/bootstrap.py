@@ -35,11 +35,11 @@ from .forge import (
     GitHubFetchCredentialsProvider,
 )
 from .forge_tokens import ForgeTokenStore
-from .gitea_hooks import GiteaWebhookSecrets
 from .gitrepo import (
     CredentialsProvider,
     RepoManager,
 )
+from .hook_secrets import WebhookSecrets
 from .migrations import apply_migrations
 from .nix_eval import CgroupLimiter, EvalRunner
 from .orchestrator import Orchestrator
@@ -260,7 +260,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
         create_webhook_router(
             service,
             config.github.webhook_secret if config.github is not None else None,
-            GiteaWebhookSecrets(pool) if config.gitea is not None else None,
+            WebhookSecrets(pool, "gitea") if config.gitea is not None else None,
         ),
         include_in_schema=False,
     )

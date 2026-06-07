@@ -22,12 +22,13 @@ from .forge import (
     GitHubAppClient,
     filter_repos,
 )
-from .gitea_hooks import GiteaWebhookSecrets, register_repo_hook
+from .gitea_hooks import register_repo_hook
 from .gitrepo import (
     CredentialsProvider,
     FetchCredentials,
     StaticCredentialsProvider,
 )
+from .hook_secrets import WebhookSecrets
 from .reconcile import gitea_heads, github_heads, reconcile_repo
 from .recovery import (
     cleanup_old_builds,
@@ -458,7 +459,7 @@ class EngineService:
         await self.repo_store.sync_discovered(repos, legacy_import_topic=topic)
         # Auto-register Gitea webhooks for enabled projects.
         if self.gitea is not None:
-            secrets_store = GiteaWebhookSecrets(self.pool)
+            secrets_store = WebhookSecrets(self.pool, "gitea")
             base = self.config.webhook_base_url or self.config.url
             for project in await self.repo_store.enabled_repos():
                 if project.forge == "gitea":

@@ -555,7 +555,7 @@ def test_webhook_setup_shown_to_admin_only(harness: tuple) -> None:
             """
         )
         await ctx.pool.execute(
-            "INSERT INTO gitea_webhook_secrets (project_id, secret)"
+            "INSERT INTO webhook_secrets (project_id, secret)"
             " VALUES ($1, 's3cret') ON CONFLICT (project_id) DO NOTHING",
             project_id,
         )
@@ -594,7 +594,7 @@ def test_webhook_secret_regeneration(harness: tuple) -> None:
     async def stored() -> str:
         ctx = _client._transport.app.state.web_context  # noqa: SLF001
         return await ctx.pool.fetchval(
-            "SELECT secret FROM gitea_webhook_secrets WHERE project_id = $1", pid
+            "SELECT secret FROM webhook_secrets WHERE project_id = $1", pid
         )
 
     new_secret = loop.run_until_complete(stored())

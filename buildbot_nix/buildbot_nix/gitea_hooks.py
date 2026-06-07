@@ -1,8 +1,8 @@
-"""Gitea webhook auto-registration with per-repo secrets.
+"""Gitea webhook auto-registration.
 
-When a project is enabled, the engine generates a per-repository
-secret, stores it (gitea_webhook_secrets, read by webhook validation),
-and registers a webhook pointing at `<webhook_base_url>/webhooks/gitea`.
+When a project is enabled, the engine stores a per-repository secret
+(hook_secrets.py) and registers a webhook pointing at
+`<webhook_base_url>/webhooks/gitea`.
 The webhook base URL may differ from the UI URL (`webhookBaseUrl`).
 
 Leftover buildbot-era webhooks are removed only when their URL matches
@@ -13,72 +13,18 @@ looks like buildbot".
 from __future__ import annotations
 
 import logging
-import secrets
 from typing import TYPE_CHECKING, Any
 
 from .forge import ForgeError
 
 if TYPE_CHECKING:
-    import asyncpg
-
     from .forge import GiteaClient
+    from .hook_secrets import WebhookSecrets
 
 logger = logging.getLogger(__name__)
 
 LEGACY_HOOK_PATH = "/change_hook/gitea"
 HOOK_PATH = "/webhooks/gitea"
-
-
-class GiteaWebhookSecrets:
-    """Implements the webhook router's GiteaSecretStore protocol."""
-
-    def __init__(self, pool: asyncpg.Pool) -> None:
-        self.pool = pool
-
-    async def secret_for_repo(self, forge_repo_id: str) -> str | None:
-        return await self.pool.fetchval(
-            """
-            SELECT s.secret FROM gitea_webhook_secrets s
-            JOIN projects p ON p.id = s.project_id
-            WHERE p.forge = 'gitea' AND p.forge_repo_id = $1
-            """,
-            forge_repo_id,
-        )
-
-    async def get_or_create(self, project_id: int) -> str:
-        secret = await self.pool.fetchval(
-            "SELECT secret FROM gitea_webhook_secrets WHERE project_id = $1",
-            project_id,
-        )
-        if secret is not None:
-            return secret
-        secret = secrets.token_hex(32)
-        # Concurrent creation: first writer wins.
-        return await self.pool.fetchval(
-            """
-            INSERT INTO gitea_webhook_secrets (project_id, secret)
-            VALUES ($1, $2)
-            ON CONFLICT (project_id) DO UPDATE SET secret = gitea_webhook_secrets.secret
-            RETURNING secret
-            """,
-            project_id,
-            secret,
-        )
-
-    async def rotate(self, project_id: int) -> str:
-        """Replace the secret; the old one stops verifying immediately.
-        Auto-managed hooks re-sync on the next discovery cycle."""
-        secret = secrets.token_hex(32)
-        return await self.pool.fetchval(
-            """
-            INSERT INTO gitea_webhook_secrets (project_id, secret)
-            VALUES ($1, $2)
-            ON CONFLICT (project_id) DO UPDATE SET secret = EXCLUDED.secret
-            RETURNING secret
-            """,
-            project_id,
-            secret,
-        )
 
 
 def hook_url(webhook_base_url: str) -> str:
@@ -93,7 +39,7 @@ def legacy_hook_urls(webhook_base_url: str) -> set[str]:
 
 async def register_repo_hook(  # noqa: PLR0913
     client: GiteaClient,
-    secrets_store: GiteaWebhookSecrets,
+    secrets_store: WebhookSecrets,
     project_id: int,
     owner: str,
     repo: str,

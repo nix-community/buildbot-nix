@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from ..auth import can_control_build, is_admin, same_origin  # noqa: TID252
-from ..gitea_hooks import GiteaWebhookSecrets  # noqa: TID252
+from ..hook_secrets import WebhookSecrets  # noqa: TID252
 
 if TYPE_CHECKING:
     from ..auth import AuthzConfig  # noqa: TID252
@@ -222,10 +222,10 @@ class _ControlRoutes:
     async def regenerate_webhook_secret(
         self, request: Request, project_id: int
     ) -> HTMLResponse:
-        """Rotate and show the Gitea webhook secret once; it is never
+        """Rotate and show the webhook secret once; it is never
         readable afterwards."""
         await self._require_repo_admin(request, project_id)
-        secret = await GiteaWebhookSecrets(self.ctx.pool).rotate(project_id)
+        secret = await WebhookSecrets(self.ctx.pool).rotate(project_id)
         return self.ctx.render("_webhook_secret.html", request=request, secret=secret)
 
 

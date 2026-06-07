@@ -25,9 +25,9 @@ from buildbot_nix.forge import (
     filter_repos,
 )
 from buildbot_nix.gitea_hooks import (
-    GiteaWebhookSecrets,
     register_repo_hook,
 )
+from buildbot_nix.hook_secrets import WebhookSecrets
 from buildbot_nix.reconcile import gitea_heads, reconcile_repo
 from buildbot_nix.repos import RepoStore
 from buildbot_nix.status import (
@@ -424,7 +424,7 @@ def test_gitea_hook_registration(postgres_dsn: str) -> None:
                 RETURNING id
                 """
             )
-            secrets_store = GiteaWebhookSecrets(pool)
+            secrets_store = WebhookSecrets(pool, "gitea")
             client = GiteaClient(
                 "https://gitea.example.com",
                 "tkn",
@@ -680,7 +680,7 @@ def test_register_repo_hook_without_admin_warns(
             )
             await register_repo_hook(
                 client,
-                GiteaWebhookSecrets(pool),
+                WebhookSecrets(pool, "gitea"),
                 project_id,
                 "acme",
                 "locked",
