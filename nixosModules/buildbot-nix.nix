@@ -1155,6 +1155,8 @@ in
           "@mount"
           "unshare"
           "setns"
+          # bwrap --hostname; only affects its own UTS namespace.
+          "sethostname"
         ];
         ReadWritePaths = [
           "/nix/var/nix/gcroots/per-user/buildbot-nix"
