@@ -57,6 +57,8 @@ class StatusReporter(Protocol):
         warnings: list[str],
     ) -> None: ...
 
+    async def eval_cancelled(self, event: ChangeEvent, build: BuildRecord) -> None: ...
+
     async def build_finished(  # noqa: PLR0913
         self,
         event: ChangeEvent,
@@ -82,6 +84,9 @@ class NullStatusReporter:
         success: bool,
         warnings: list[str],
     ) -> None:
+        pass
+
+    async def eval_cancelled(self, event: ChangeEvent, build: BuildRecord) -> None:
         pass
 
     async def build_finished(  # noqa: PLR0913

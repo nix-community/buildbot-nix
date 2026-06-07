@@ -146,6 +146,9 @@ class RecordingReporter:
     ) -> None:
         self.events.append(("eval", build.id, success, tuple(warnings)))
 
+    async def eval_cancelled(self, event: ChangeEvent, build: BuildRecord) -> None:
+        self.events.append(("eval-cancelled", build.id))
+
     async def build_finished(  # noqa: PLR0913
         self,
         event: ChangeEvent,
@@ -609,7 +612,7 @@ def test_cancel_interrupts_evaluation(
         sha = add_commit(upstream, "ceval")
         eval_runner = FakeEvalRunner([mk_job("a")], block=asyncio.Event())
         executor = FakeExecutor()
-        pool, orchestrator, _, project = await make_env(
+        pool, orchestrator, reporter, project = await make_env(
             postgres_dsn, tmp_path, upstream, eval_runner, executor, "ceval"
         )
         try:
@@ -625,6 +628,8 @@ def test_cancel_interrupts_evaluation(
             assert build is not None
             assert await build_status(pool, build.id) == BuildStatus.CANCELLED
             assert executor.built == []
+            # The pending nix-eval status must resolve (merge queues).
+            assert ("eval-cancelled", build.id) in reporter.events
         finally:
             await pool.close()
 

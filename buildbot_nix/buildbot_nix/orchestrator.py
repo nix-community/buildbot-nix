@@ -323,6 +323,7 @@ class Orchestrator:
                 await build_task
             await self.db.settle_unfinished_attributes(build.id)
             await self.db.set_build_status(build.id, BuildStatus.CANCELLED)
+            await self.reporter.eval_cancelled(event, build)
             await self.reporter.build_finished(
                 event, build, BuildStatus.CANCELLED, build.status_generation, []
             )

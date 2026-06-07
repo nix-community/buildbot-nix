@@ -270,6 +270,17 @@ class ForgeStatusReporter:
                 "building attributes",
             )
 
+    async def eval_cancelled(self, event: ChangeEvent, build: BuildRecord) -> None:
+        """Resolve the pending eval context; see the orchestrator's
+        cancel path."""
+        await self._post(
+            event,
+            build,
+            "buildbot/nix-eval",
+            StatusState.error,
+            "build cancelled",
+        )
+
     async def build_finished(  # noqa: PLR0913
         self,
         event: ChangeEvent,
