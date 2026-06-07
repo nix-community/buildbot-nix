@@ -144,7 +144,7 @@ def test_phase_statuses_and_target_url() -> None:
         ("buildbot/nix-build", StatusState.success),
     ]
     assert all(
-        p.target_url == "https://ci.test/repos/acme/widget/builds/42"
+        p.target_url == "https://ci.test/repos/github/acme/widget/builds/42"
         for p in poster.posts
     )
     assert "(1 warning)" in poster.posts[1].description

@@ -46,13 +46,16 @@ def create_api_router(ctx: WebContext) -> APIRouter:
             projects = [p for p in projects if p["id"] in visible]
         return [_clean(p) for p in projects]
 
-    @router.get("/repos/{owner}/{name}")
-    async def get_repo(request: Request, owner: str, name: str) -> dict[str, Any]:
-        return _clean(await ctx.repo_or_404(owner, name, request))
+    @router.get("/repos/{forge}/{owner}/{name}")
+    async def get_repo(
+        request: Request, forge: str, owner: str, name: str
+    ) -> dict[str, Any]:
+        return _clean(await ctx.repo_or_404(forge, owner, name, request))
 
-    @router.get("/repos/{owner}/{name}/builds")
+    @router.get("/repos/{forge}/{owner}/{name}/builds")
     async def list_builds(  # noqa: PLR0913
         request: Request,
+        forge: str,
         owner: str,
         name: str,
         page: int = 1,
@@ -62,7 +65,7 @@ def create_api_router(ctx: WebContext) -> APIRouter:
         commit: str | None = None,
     ) -> dict[str, Any]:
         """Paginated builds with status/branch/PR/commit-prefix filters."""
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         builds = await ctx.queries.builds_for_repo(
             project["id"],
             page=page,
@@ -76,11 +79,11 @@ def create_api_router(ctx: WebContext) -> APIRouter:
             "has_next": builds.has_next,
         }
 
-    @router.get("/repos/{owner}/{name}/builds/{number}")
+    @router.get("/repos/{forge}/{owner}/{name}/builds/{number}")
     async def get_build(
-        request: Request, owner: str, name: str, number: int
+        request: Request, forge: str, owner: str, name: str, number: int
     ) -> dict[str, Any]:
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
@@ -90,11 +93,11 @@ def create_api_router(ctx: WebContext) -> APIRouter:
             "attributes": [_clean(a) for a in attributes],
         }
 
-    @router.get("/repos/{owner}/{name}/attrs/{attr}")
+    @router.get("/repos/{forge}/{owner}/{name}/attrs/{attr}")
     async def get_attribute_history(
-        request: Request, owner: str, name: str, attr: str
+        request: Request, forge: str, owner: str, name: str, attr: str
     ) -> list[dict[str, Any]]:
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         return [
             _clean(h) for h in await ctx.queries.attribute_history(project["id"], attr)
         ]

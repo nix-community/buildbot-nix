@@ -79,16 +79,28 @@ class WebQueries:
             )
         )
 
-    async def repo_by_name(self, owner: str, name: str) -> dict[str, Any] | None:
-        # (owner, name) is only unique per forge; until URLs carry the
-        # forge, pick deterministically rather than by planner row order.
+    async def repo_by_name(
+        self, forge: str, owner: str, name: str
+    ) -> dict[str, Any] | None:
         row = await self.pool.fetchrow(
-            "SELECT * FROM projects WHERE owner = $1 AND name = $2 "
-            "ORDER BY forge, id LIMIT 1",
+            "SELECT * FROM projects WHERE forge = $1 AND owner = $2 AND name = $3",
+            forge,
             owner,
             name,
         )
         return dict(row) if row else None
+
+    async def repo_candidates(self, owner: str, name: str) -> list[dict[str, Any]]:
+        """All forges' rows for an unqualified owner/name; used by the
+        legacy-URL redirect to pick a target."""
+        return _rows(
+            await self.pool.fetch(
+                "SELECT * FROM projects WHERE owner = $1 AND name = $2 "
+                "ORDER BY forge, id",
+                owner,
+                name,
+            )
+        )
 
     async def repo_overview(
         self, project_ids: list[int] | None = None, q: str | None = None

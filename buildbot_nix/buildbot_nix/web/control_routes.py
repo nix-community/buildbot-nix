@@ -45,10 +45,12 @@ def create_control_router(  # noqa: C901
 ) -> APIRouter:
     router = APIRouter()
 
-    async def _authorize(request: Request, owner: str, name: str, number: int) -> dict:
+    async def _authorize(
+        request: Request, forge: str, owner: str, name: str, number: int
+    ) -> dict:
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
@@ -57,40 +59,41 @@ def create_control_router(  # noqa: C901
             raise HTTPException(status_code=403, detail="not authorized")
         return build
 
-    def _back(owner: str, name: str, number: int) -> RedirectResponse:
+    def _back(forge: str, owner: str, name: str, number: int) -> RedirectResponse:
         return RedirectResponse(
-            f"/repos/{owner}/{name}/builds/{number}", status_code=303
+            f"/repos/{forge}/{owner}/{name}/builds/{number}", status_code=303
         )
 
     def _back_to_attr(
-        owner: str, name: str, number: int, attr: str
+        forge: str, owner: str, name: str, number: int, attr: str
     ) -> RedirectResponse:
         return RedirectResponse(
-            f"/repos/{owner}/{name}/builds/{number}/logs/{attr}", status_code=303
+            f"/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}",
+            status_code=303,
         )
 
-    @router.post("/repos/{owner}/{name}/builds/{number}/restart")
+    @router.post("/repos/{forge}/{owner}/{name}/builds/{number}/restart")
     async def restart(
-        request: Request, owner: str, name: str, number: int
+        request: Request, forge: str, owner: str, name: str, number: int
     ) -> RedirectResponse:
-        build = await _authorize(request, owner, name, number)
+        build = await _authorize(request, forge, owner, name, number)
         await backend.restart_build(build["id"])
-        return _back(owner, name, number)
+        return _back(forge, owner, name, number)
 
-    @router.post("/repos/{owner}/{name}/builds/{number}/attrs/{attr}/restart")
-    async def restart_attribute(
-        request: Request, owner: str, name: str, number: int, attr: str
+    @router.post("/repos/{forge}/{owner}/{name}/builds/{number}/attrs/{attr}/restart")
+    async def restart_attribute(  # noqa: PLR0913
+        request: Request, forge: str, owner: str, name: str, number: int, attr: str
     ) -> RedirectResponse:
-        build = await _authorize(request, owner, name, number)
+        build = await _authorize(request, forge, owner, name, number)
         # Reuses the stored eval results (drv_path); no re-eval.
         await backend.restart_attribute(build["id"], attr)
-        return _back_to_attr(owner, name, number, attr)
+        return _back_to_attr(forge, owner, name, number, attr)
 
-    @router.post("/repos/{owner}/{name}/builds/{number}/rebuild-failed")
+    @router.post("/repos/{forge}/{owner}/{name}/builds/{number}/rebuild-failed")
     async def rebuild_failed(
-        request: Request, owner: str, name: str, number: int
+        request: Request, forge: str, owner: str, name: str, number: int
     ) -> RedirectResponse:
-        build = await _authorize(request, owner, name, number)
+        build = await _authorize(request, forge, owner, name, number)
         rows = await ctx.pool.fetch(
             "SELECT attr FROM build_attributes "
             "WHERE build_id = $1 AND status = ANY($2::text[])",
@@ -99,23 +102,23 @@ def create_control_router(  # noqa: C901
         )
         for row in rows:
             await backend.restart_attribute(build["id"], row["attr"])
-        return _back(owner, name, number)
+        return _back(forge, owner, name, number)
 
-    @router.post("/repos/{owner}/{name}/builds/{number}/attrs/{attr}/cancel")
-    async def cancel_attribute(
-        request: Request, owner: str, name: str, number: int, attr: str
+    @router.post("/repos/{forge}/{owner}/{name}/builds/{number}/attrs/{attr}/cancel")
+    async def cancel_attribute(  # noqa: PLR0913
+        request: Request, forge: str, owner: str, name: str, number: int, attr: str
     ) -> RedirectResponse:
-        build = await _authorize(request, owner, name, number)
+        build = await _authorize(request, forge, owner, name, number)
         await backend.cancel_attribute(build["id"], attr)
-        return _back_to_attr(owner, name, number, attr)
+        return _back_to_attr(forge, owner, name, number, attr)
 
-    @router.post("/repos/{owner}/{name}/builds/{number}/cancel")
+    @router.post("/repos/{forge}/{owner}/{name}/builds/{number}/cancel")
     async def cancel(
-        request: Request, owner: str, name: str, number: int
+        request: Request, forge: str, owner: str, name: str, number: int
     ) -> RedirectResponse:
-        build = await _authorize(request, owner, name, number)
+        build = await _authorize(request, forge, owner, name, number)
         await backend.cancel_build(build["id"])
-        return _back(owner, name, number)
+        return _back(forge, owner, name, number)
 
     async def _require_repo_admin(request: Request, project_id: int) -> None:
         """Instance admins, or forge-side admins of this repo."""
@@ -126,11 +129,13 @@ def create_control_router(  # noqa: C901
             if project_id not in toggleable:
                 raise HTTPException(status_code=403, detail="not a project admin")
 
-    @router.post("/api/repos/{owner}/{name}/enable")
-    @router.post("/api/repos/{owner}/{name}/disable")
-    async def api_set_enabled(request: Request, owner: str, name: str) -> dict:
+    @router.post("/api/repos/{forge}/{owner}/{name}/enable")
+    @router.post("/api/repos/{forge}/{owner}/{name}/disable")
+    async def api_set_enabled(
+        request: Request, forge: str, owner: str, name: str
+    ) -> dict:
         """Idempotent enable/disable for scripts and agents."""
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         await _require_repo_admin(request, project["id"])
         enabled = request.url.path.endswith("/enable")
         await ctx.pool.execute(

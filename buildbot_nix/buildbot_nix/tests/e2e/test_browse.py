@@ -23,7 +23,7 @@ def test_homepage_lists_project_and_recent_builds(page: Page) -> None:
 def test_navigate_sidebar_to_failed_build(page: Page) -> None:
     page.goto("/")
     page.get_by_role("link", name="acme/widget").first.click()
-    page.wait_for_url("**/repos/acme/widget")
+    page.wait_for_url("**/repos/github/acme/widget")
 
     page.locator('a[href$="/builds/2"]').first.click()
     page.wait_for_url("**/builds/2")
@@ -37,7 +37,7 @@ def test_navigate_sidebar_to_failed_build(page: Page) -> None:
 
 
 def test_build_prev_next_navigation(page: Page) -> None:
-    page.goto("/repos/acme/widget/builds/2")
+    page.goto("/repos/github/acme/widget/builds/2")
     page.locator('a[href$="/builds/3"]').first.click()
     page.wait_for_url("**/builds/3")
     page.locator('a[href$="/builds/2"]').first.click()
@@ -45,7 +45,7 @@ def test_build_prev_next_navigation(page: Page) -> None:
 
 
 def test_project_filter_form(page: Page) -> None:
-    page.goto("/repos/acme/widget")
+    page.goto("/repos/github/acme/widget")
     page.select_option("select[name=status]", "failed")
     page.get_by_role("button", name="filter").click()
     page.wait_for_url("**status=failed**")
@@ -70,7 +70,7 @@ def test_project_filter_form(page: Page) -> None:
 
 
 def test_attribute_log_prev_next_navigation(page: Page) -> None:
-    page.goto("/repos/acme/widget/builds/2/logs/x86_64-linux.bad")
+    page.goto("/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad")
     page.locator('a[rel="prev"]').click()
     page.wait_for_url("**/builds/1/logs/x86_64-linux.bad")
     page.locator('a[rel="next"]').click()

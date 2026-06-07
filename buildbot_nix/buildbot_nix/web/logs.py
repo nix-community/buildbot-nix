@@ -272,18 +272,19 @@ _FAILURE_STATUSES = {s.value for s in TERMINAL_FAILURES} | {"cancelled"}
 def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # noqa: C901
     router = APIRouter()
 
-    async def _resolve(
-        request: Request, owner: str, name: str, number: int, attr: str
+    async def _resolve(  # noqa: PLR0913
+        request: Request, forge: str, owner: str, name: str, number: int, attr: str
     ) -> tuple[dict, dict, Path | None]:
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
         return project, build, await _log_path(ctx, registry, build, attr)
 
-    @router.get("/repos/{owner}/{name}/builds/{number}/logs/{attr}.txt")
+    @router.get("/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}.txt")
     async def log_raw_text(  # noqa: PLR0913
         request: Request,
+        forge: str,
         owner: str,
         name: str,
         number: int,
@@ -291,7 +292,7 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         tail: int | None = None,
     ) -> PlainTextResponse:
         """Full log as plain text; ?tail=N returns only the last N lines."""
-        _, build, path = await _resolve(request, owner, name, number, attr)
+        _, build, path = await _resolve(request, forge, owner, name, number, attr)
         text = await _log_text(registry, build, attr, path)
         if text is None:
             raise HTTPException(status_code=404)
@@ -299,40 +300,40 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             text = "\n".join(text.splitlines()[-tail:]) + "\n"
         return PlainTextResponse(strip_ansi(text))
 
-    @router.get("/api/repos/{owner}/{name}/builds/{number}/failures")
-    async def build_failures(
-        request: Request, owner: str, name: str, number: int, tail: int = 50
+    @router.get("/api/repos/{forge}/{owner}/{name}/builds/{number}/failures")
+    async def build_failures(  # noqa: PLR0913
+        request: Request, forge: str, owner: str, name: str, number: int, tail: int = 50
     ) -> dict:
         """One-shot failure summary: failed attributes with log tails.
 
         Saves API consumers (CI scripts, LLM agents) a request per
         attribute when answering "why did this build fail?".
         """
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
         return await _failure_summary(ctx, registry, build, tail)
 
-    @router.get("/repos/{owner}/{name}/builds/{number}/logs/{attr}/stream")
-    async def log_stream(
-        request: Request, owner: str, name: str, number: int, attr: str
+    @router.get("/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}/stream")
+    async def log_stream(  # noqa: PLR0913
+        request: Request, forge: str, owner: str, name: str, number: int, attr: str
     ) -> StreamingResponse:
         """SSE: history from disk, then live chunks until completion."""
-        _, build, path = await _resolve(request, owner, name, number, attr)
+        _, build, path = await _resolve(request, forge, owner, name, number, attr)
         writer = registry.get(build["id"], attr)
         return StreamingResponse(
             _stream_events(writer, path), media_type="text/event-stream"
         )
 
     @router.get(
-        "/repos/{owner}/{name}/builds/{number}/logs/{attr}",
+        "/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}",
         response_class=HTMLResponse,
     )
-    async def log_viewer(
-        request: Request, owner: str, name: str, number: int, attr: str
+    async def log_viewer(  # noqa: PLR0913
+        request: Request, forge: str, owner: str, name: str, number: int, attr: str
     ) -> HTMLResponse:
-        project, build, path = await _resolve(request, owner, name, number, attr)
+        project, build, path = await _resolve(request, forge, owner, name, number, attr)
         attr_status = await ctx.pool.fetchval(
             "SELECT status FROM build_attributes WHERE build_id = $1 AND attr = $2",
             build["id"],

@@ -16,7 +16,7 @@ stale posts (lower generation than the last one sent for that build)
 are dropped.
 
 Target URLs point at the engine's own URL scheme
-(/repos/<name>/builds/<number>), independent of the frontend tasks.
+(/repos/<forge>/<owner>/<name>/builds/<number>), independent of the frontend tasks.
 """
 
 from __future__ import annotations
@@ -210,7 +210,7 @@ class ForgeStatusReporter:
         self._posted_generations: dict[int, int] = {}
 
     def build_url(self, event: ChangeEvent, build: BuildRecord) -> str:
-        return f"{self.base_url}/repos/{event.repo.name}/builds/{build.number}"
+        return f"{self.base_url}/repos/{event.repo.forge}/{event.repo.name}/builds/{build.number}"
 
     async def _post(
         self,

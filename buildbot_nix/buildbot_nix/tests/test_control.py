@@ -177,20 +177,26 @@ def post(
 
 
 def test_anonymous_cannot_control(harness: tuple) -> None:
-    response = post(harness, "/repos/acme/widget/builds/1/restart")
+    response = post(harness, "/repos/github/acme/widget/builds/1/restart")
     assert response.status_code == 403
     assert BACKEND.restarted == []
 
 
 def test_admin_can_restart_and_cancel(harness: tuple) -> None:
-    assert post(harness, "/repos/acme/widget/builds/1/restart", ROOT).status_code == 303
+    assert (
+        post(harness, "/repos/github/acme/widget/builds/1/restart", ROOT).status_code
+        == 303
+    )
     assert len(BACKEND.restarted) == 1
-    assert post(harness, "/repos/acme/widget/builds/1/cancel", ROOT).status_code == 303
+    assert (
+        post(harness, "/repos/github/acme/widget/builds/1/cancel", ROOT).status_code
+        == 303
+    )
     assert len(BACKEND.cancelled) == 1
     assert (
         post(
             harness,
-            "/repos/acme/widget/builds/1/attrs/x86_64-linux.ok/cancel",
+            "/repos/github/acme/widget/builds/1/attrs/x86_64-linux.ok/cancel",
             ROOT,
         ).status_code
         == 303
@@ -200,18 +206,20 @@ def test_admin_can_restart_and_cancel(harness: tuple) -> None:
 
 def test_pr_author_can_control_own_pr(harness: tuple) -> None:
     assert (
-        post(harness, "/repos/acme/widget/builds/1/restart", ALICE).status_code == 303
+        post(harness, "/repos/github/acme/widget/builds/1/restart", ALICE).status_code
+        == 303
     )
     # Same username on another forge: rejected.
     assert (
-        post(harness, "/repos/acme/widget/builds/1/restart", MALLORY).status_code == 403
+        post(harness, "/repos/github/acme/widget/builds/1/restart", MALLORY).status_code
+        == 403
     )
 
 
 def test_csrf_cross_origin_rejected(harness: tuple) -> None:
     response = post(
         harness,
-        "/repos/acme/widget/builds/1/restart",
+        "/repos/github/acme/widget/builds/1/restart",
         ROOT,
         origin="https://evil.example.com",
     )
@@ -222,7 +230,7 @@ def test_restart_single_attribute(harness: tuple) -> None:
     BACKEND.attr_restarts.clear()
     assert (
         post(
-            harness, "/repos/acme/widget/builds/1/attrs/bad1/restart", ROOT
+            harness, "/repos/github/acme/widget/builds/1/attrs/bad1/restart", ROOT
         ).status_code
         == 303
     )
@@ -232,7 +240,9 @@ def test_restart_single_attribute(harness: tuple) -> None:
 def test_rebuild_all_failed(harness: tuple) -> None:
     BACKEND.attr_restarts.clear()
     assert (
-        post(harness, "/repos/acme/widget/builds/1/rebuild-failed", ROOT).status_code
+        post(
+            harness, "/repos/github/acme/widget/builds/1/rebuild-failed", ROOT
+        ).status_code
         == 303
     )
     assert sorted(a for _, a in BACKEND.attr_restarts) == ["bad1", "bad2"]
@@ -261,17 +271,23 @@ def test_admin_project_toggle(harness: tuple) -> None:
 
 
 def test_api_enable_disable(harness: tuple) -> None:
-    assert post(harness, "/api/repos/acme/widget/disable", ALICE).status_code == 403
+    assert (
+        post(harness, "/api/repos/github/acme/widget/disable", ALICE).status_code == 403
+    )
 
-    response = post(harness, "/api/repos/acme/widget/disable", ROOT)
+    response = post(harness, "/api/repos/github/acme/widget/disable", ROOT)
     assert response.status_code == 200
     assert response.json() == {"owner": "acme", "name": "widget", "enabled": False}
     assert project_enabled(harness) is False
     # Idempotent: repeating is fine.
-    assert post(harness, "/api/repos/acme/widget/disable", ROOT).status_code == 200
-    assert post(harness, "/api/repos/acme/widget/enable", ROOT).status_code == 200
+    assert (
+        post(harness, "/api/repos/github/acme/widget/disable", ROOT).status_code == 200
+    )
+    assert (
+        post(harness, "/api/repos/github/acme/widget/enable", ROOT).status_code == 200
+    )
     assert project_enabled(harness) is True
-    assert post(harness, "/api/repos/acme/nope/enable", ROOT).status_code == 404
+    assert post(harness, "/api/repos/github/acme/nope/enable", ROOT).status_code == 404
 
 
 # --- personal API tokens ---------------------------------------------
@@ -363,7 +379,7 @@ def test_api_token_controls_build(harness: tuple) -> None:
     BACKEND.restarted.clear()
     response = loop.run_until_complete(
         client.post(
-            "/repos/acme/widget/builds/1/restart",
+            "/repos/github/acme/widget/builds/1/restart",
             headers={"Authorization": f"Bearer {token}"},
         )
     )
@@ -372,7 +388,7 @@ def test_api_token_controls_build(harness: tuple) -> None:
 
     bad = loop.run_until_complete(
         client.post(
-            "/repos/acme/widget/builds/1/restart",
+            "/repos/github/acme/widget/builds/1/restart",
             headers={"Authorization": "Bearer bnix_invalid"},
         )
     )
@@ -405,7 +421,7 @@ def test_build_service_composition(postgres_dsn: str, tmp_path: Path) -> None:
                 ).status_code == 404
                 # Control endpoints present and gated.
                 assert (
-                    await client.post("/repos/acme/widget/builds/1/cancel")
+                    await client.post("/repos/github/acme/widget/builds/1/cancel")
                 ).status_code == 403
         finally:
             await service.pool.close()

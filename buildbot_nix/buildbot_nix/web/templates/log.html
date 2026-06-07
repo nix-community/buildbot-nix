@@ -14,14 +14,14 @@
           {% endif %}
           <code>{{ attr }}</code>
           <small>
-            <a href="/repos/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>
-            · <a href="/repos/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.txt">raw</a>
+            <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}">build #{{ build.number }}</a>
+            · <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}.txt">raw</a>
             {% if prev_number %}
-              · <a href="/repos/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}/logs/{{ attr }}"
+              · <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}/logs/{{ attr }}"
     rel="prev">‹ #{{ prev_number }}</a>
             {% endif %}
             {% if next_number %}
-              · <a href="/repos/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}/logs/{{ attr }}"
+              · <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}/logs/{{ attr }}"
     rel="next">#{{ next_number }} ›</a>
             {% endif %}
           </small>
@@ -29,12 +29,12 @@
         <div class="controls">
           {% if attr_status in ('pending', 'building') %}
             <form method="post"
-                  action="/repos/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attrs/{{ attr }}/cancel">
+                  action="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attrs/{{ attr }}/cancel">
               <button>cancel</button>
             </form>
           {% elif attr_status %}
             <form method="post"
-                  action="/repos/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attrs/{{ attr }}/restart">
+                  action="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/attrs/{{ attr }}/restart">
               <button>restart</button>
             </form>
           {% endif %}
@@ -82,7 +82,7 @@
         log.scrollHeight - log.scrollTop - log.clientHeight < 4;
       log.addEventListener("scroll", () => { follow.checked = atBottom(); });
       const source = new EventSource(
-        "/repos/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}/stream");
+        "/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/logs/{{ attr }}/stream");
       /* The stream replays full history on every (re)connect. */
       let errors = 0;
       source.onopen = () => {

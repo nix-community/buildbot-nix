@@ -41,7 +41,7 @@
           {% set max_secs = p.history | map(attribute='secs') | select | max | default(1, true) %}
           <div class="pipeline-row">
             <a class="pipeline{% if p.last_status %} {{ p.last_status }}{% endif %}"
-               href="/repos/{{ p.owner }}/{{ p.name }}">
+               href="/repos/{{ p.forge }}/{{ p.owner }}/{{ p.name }}">
               {{ status_icon(p.last_status or "", labelled=false) }}
               {% if p.last_status %}
                 <span class="visually-hidden">{{ p.last_status.replace('_', ' ') }}</span>

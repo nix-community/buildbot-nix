@@ -35,7 +35,7 @@
                value="{{ ref }}">
         <button>filter</button>
       </form>
-      {% set rows_url = "/repos/" ~ project.owner ~ "/" ~ project.name ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
+      {% set rows_url = "/repos/" ~ project.forge ~ "/" ~ project.owner ~ "/" ~ project.name ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
       <table class="builds">
         <thead>
           <tr>

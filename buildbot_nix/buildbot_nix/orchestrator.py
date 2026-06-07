@@ -371,7 +371,7 @@ class Orchestrator:
             failed_build_cache=(
                 self.failed_build_cache if self.config.cache_failed_builds else None
             ),
-            build_url=f"{self.config.url}/repos/{event.repo.name}/builds/{build.number}",
+            build_url=f"{self.config.url}/repos/{event.repo.forge}/{event.repo.name}/builds/{build.number}",
         )
         schedule_result = await scheduler.run(list(jobs))
 

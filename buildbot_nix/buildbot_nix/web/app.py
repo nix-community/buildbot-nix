@@ -240,11 +240,11 @@ class WebContext:
         return await self.forge_tokens.get(session_id)
 
     async def repo_or_404(
-        self, owner: str, name: str, request: Request | None = None
+        self, forge: str, owner: str, name: str, request: Request | None = None
     ) -> dict[str, Any]:
         """404 for unknown projects AND for private projects the
         requester cannot see (their existence stays hidden)."""
-        project = await self.queries.repo_by_name(owner, name)
+        project = await self.queries.repo_by_name(forge, owner, name)
         if project is None:
             raise HTTPException(status_code=404)
         if request is not None:
@@ -254,20 +254,35 @@ class WebContext:
         return project
 
 
-def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
+def create_legacy_router(ctx: WebContext) -> APIRouter:
+    """Transitional redirects: v1 URLs said /projects/ without a
+    forge segment. Resolve the forge by lookup and 307
+    (method-preserving) to the canonical URL. Remove once the rename
+    has been out for a while."""
     router = APIRouter()
 
-    # Transitional: the v2 URLs said /projects/ before settling on
-    # /repos/. 307 keeps the method for API POSTs. Remove after the
-    # rename has been deployed for a while.
-    @router.api_route("/projects/{rest:path}", methods=["GET", "POST"])
-    @router.api_route("/api/projects/{rest:path}", methods=["GET", "POST"])
-    async def legacy_project_urls(request: Request, rest: str) -> RedirectResponse:
+    @router.api_route("/projects/{owner}/{name}{rest:path}", methods=["GET", "POST"])
+    @router.api_route(
+        "/api/projects/{owner}/{name}{rest:path}", methods=["GET", "POST"]
+    )
+    async def legacy_repo_urls(
+        request: Request, owner: str, name: str, rest: str
+    ) -> RedirectResponse:
+        candidates = await ctx.queries.repo_candidates(owner, name)
+        if not candidates:
+            raise HTTPException(status_code=404)
+        forge = candidates[0]["forge"]
         prefix = "/api/repos" if request.url.path.startswith("/api/") else "/repos"
-        url = f"{prefix}/{rest}"
+        url = f"{prefix}/{forge}/{owner}/{name}{rest}"
         if request.url.query:
             url += f"?{request.url.query}"
         return RedirectResponse(url, status_code=307)
+
+    return router
+
+
+def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
+    router = APIRouter()
 
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request, q: str = "") -> HTMLResponse:
@@ -329,16 +344,17 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             "_queue.html", request=request, queue=await ctx.queries.queue(visible)
         )
 
-    @router.get("/repos/{owner}/{name}", response_class=HTMLResponse)
+    @router.get("/repos/{forge}/{owner}/{name}", response_class=HTMLResponse)
     async def repo_page(  # noqa: PLR0913
         request: Request,
+        forge: str,
         owner: str,
         name: str,
         page: int = 1,
         status: str | None = None,
         ref: str | None = None,
     ) -> HTMLResponse:
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         builds = await ctx.queries.builds_for_repo(
             project["id"],
             page=page,
@@ -353,9 +369,10 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             ref=ref or "",
         )
 
-    @router.get("/repos/{owner}/{name}/rows", response_class=HTMLResponse)
+    @router.get("/repos/{forge}/{owner}/{name}/rows", response_class=HTMLResponse)
     async def repo_rows(  # noqa: PLR0913
         request: Request,
+        forge: str,
         owner: str,
         name: str,
         before: int | None = None,
@@ -366,7 +383,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         """Row fragments: infinite scroll (before=) and live refresh of
         the loaded rows (limit=)."""
         limit = min(max(limit, 1), MAX_ROWS)
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         builds = await ctx.queries.builds_for_repo(
             project["id"],
             limit=limit,
@@ -377,16 +394,18 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             request=request,
             builds=builds.items,
             has_more=builds.has_next,
-            more_url=f"/repos/{owner}/{name}/rows?status={status or ''}"
+            more_url=f"/repos/{forge}/{owner}/{name}/rows?status={status or ''}"
             f"&ref={quote(ref or '')}",
             project=project,
         )
 
-    @router.get("/repos/{owner}/{name}/builds/{number}", response_class=HTMLResponse)
+    @router.get(
+        "/repos/{forge}/{owner}/{name}/builds/{number}", response_class=HTMLResponse
+    )
     async def build_page(
-        request: Request, owner: str, name: str, number: int
+        request: Request, forge: str, owner: str, name: str, number: int
     ) -> HTMLResponse:
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
@@ -406,11 +425,13 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             next_number=next_number,
         )
 
-    @router.get("/repos/{owner}/{name}/attrs/{attr}", response_class=HTMLResponse)
+    @router.get(
+        "/repos/{forge}/{owner}/{name}/attrs/{attr}", response_class=HTMLResponse
+    )
     async def attribute_history(
-        request: Request, owner: str, name: str, attr: str
+        request: Request, forge: str, owner: str, name: str, attr: str
     ) -> HTMLResponse:
-        project = await ctx.repo_or_404(owner, name, request)
+        project = await ctx.repo_or_404(forge, owner, name, request)
         return ctx.render(
             "attribute_history.html",
             request=request,
@@ -443,17 +464,17 @@ the instance restricts project visibility.
 ## Answering "why did build X / commit Y fail?"
 
 - GET /api/repos -> [{owner, name, ...}]
-- GET /api/repos/{owner}/{name}/builds?commit={sha-prefix} -> find the build number
+- GET /api/repos/{forge}/{owner}/{name}/builds?commit={sha-prefix} -> find the build number
   (other filters: status, branch, pr_number, page)
-- GET /api/repos/{owner}/{name}/builds/{number}/failures?tail=50
+- GET /api/repos/{forge}/{owner}/{name}/builds/{number}/failures?tail=50
   -> {status, error, eval_warnings, failures: [{attr, status, error, log_tail}]}
 
 ## Other endpoints
 
-- GET /api/repos/{owner}/{name}/builds/{number} -> build + all attributes
-- GET /api/repos/{owner}/{name}/attrs/{attr} -> per-attribute history
+- GET /api/repos/{forge}/{owner}/{name}/builds/{number} -> build + all attributes
+- GET /api/repos/{forge}/{owner}/{name}/attrs/{attr} -> per-attribute history
 - GET /api/queue -> global build queue
-- GET /repos/{owner}/{name}/builds/{number}/logs/{attr}.txt?tail=N
+- GET /repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}.txt?tail=N
   -> plain-text log (full when tail is omitted)
 """
 
@@ -485,5 +506,7 @@ def create_app(
     app.include_router(create_log_router(ctx, registry))
     app.include_router(create_metrics_router(pool))
     app.include_router(create_api_router(ctx))
+    # Last: the legacy catch-alls must not shadow real routes.
+    app.include_router(create_legacy_router(ctx))
     app.mount("/static", _CachedStaticFiles(directory=STATIC_DIR), name="static")
     return app

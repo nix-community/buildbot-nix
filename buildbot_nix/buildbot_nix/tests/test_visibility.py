@@ -180,31 +180,41 @@ def test_anonymous_sees_public_only(harness: tuple) -> None:
     home = get(harness, "/")
     assert "acme/public" in home.text
     assert "secret" not in home.text  # name leak check
-    assert get(harness, "/repos/acme/public").status_code == 200
-    assert get(harness, "/repos/acme/secret").status_code == 404
-    assert get(harness, "/repos/acme/secret/builds/1").status_code == 404
+    assert get(harness, "/repos/github/acme/public").status_code == 200
+    assert get(harness, "/repos/github/acme/secret").status_code == 404
+    assert get(harness, "/repos/github/acme/secret/builds/1").status_code == 404
     # Log + SSE endpoints hidden too.
-    assert get(harness, "/repos/acme/secret/builds/1/logs/a.x").status_code == 404
     assert (
-        get(harness, "/repos/acme/secret/builds/1/logs/a.x/stream").status_code == 404
+        get(harness, "/repos/github/acme/secret/builds/1/logs/a.x").status_code == 404
     )
-    assert get(harness, "/repos/acme/secret/builds/1/attributes").status_code == 404
+    assert (
+        get(harness, "/repos/github/acme/secret/builds/1/logs/a.x/stream").status_code
+        == 404
+    )
+    assert (
+        get(harness, "/repos/github/acme/secret/builds/1/attributes").status_code == 404
+    )
 
 
 def test_unauthorized_user_sees_public_only(harness: tuple) -> None:
-    assert get(harness, "/repos/acme/secret", MALLORY, "tok-mallory").status_code == 404
+    assert (
+        get(harness, "/repos/github/acme/secret", MALLORY, "tok-mallory").status_code
+        == 404
+    )
     home = get(harness, "/", MALLORY, "tok-mallory")
     assert "secret" not in home.text
 
 
 def test_authorized_user_sees_private(harness: tuple) -> None:
-    assert get(harness, "/repos/acme/secret", CAROL, "tok-carol").status_code == 200
+    assert (
+        get(harness, "/repos/github/acme/secret", CAROL, "tok-carol").status_code == 200
+    )
     home = get(harness, "/", CAROL, "tok-carol")
     assert "acme/secret" in home.text
 
 
 def test_admin_sees_everything(harness: tuple) -> None:
-    assert get(harness, "/repos/acme/secret", ROOT).status_code == 200
+    assert get(harness, "/repos/github/acme/secret", ROOT).status_code == 200
 
 
 def test_admin_api_token_sees_private(harness: tuple) -> None:
@@ -215,7 +225,9 @@ def test_admin_api_token_sees_private(harness: tuple) -> None:
     ctx.token_store = ApiTokenStore(ctx.pool)
     token = loop.run_until_complete(ctx.token_store.create(ROOT, "admin-script"))
     response = loop.run_until_complete(
-        client.get("/repos/acme/secret", headers={"Authorization": f"Bearer {token}"})
+        client.get(
+            "/repos/github/acme/secret", headers={"Authorization": f"Bearer {token}"}
+        )
     )
     assert response.status_code == 200
 
@@ -295,8 +307,8 @@ def test_fetch_errors_are_not_cached(harness: tuple) -> None:
 
 def test_access_cache_used(harness: tuple) -> None:
     calls_before = FETCHER.calls
-    get(harness, "/repos/acme/secret", CAROL, "tok-carol")
-    get(harness, "/repos/acme/secret", CAROL, "tok-carol")
+    get(harness, "/repos/github/acme/secret", CAROL, "tok-carol")
+    get(harness, "/repos/github/acme/secret", CAROL, "tok-carol")
     # TTL cache: at most one fetch for repeated requests.
     assert FETCHER.calls <= calls_before + 1
 
