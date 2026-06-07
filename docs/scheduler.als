@@ -50,18 +50,30 @@ pred unchangedExcept[js: set Job] {
 }
 
 // A single eval result arrives (the implementation ingests batches;
-// per-job arrival covers the same interleavings). _ingest settles jobs
-// depending on failed drvs to a fixpoint over new and pending jobs.
+// per-job arrival covers the same interleavings). Delivery is
+// at-least-once: the orchestrator re-sends the complete eval result
+// as a final batch, so any job can arrive again. _ingest drops
+// already-seen attrs (seen_attrs); before that check, redelivery
+// re-queued settled jobs: with the else branch set to Pending,
+// TerminalImmutable, DispatchNeverRunsOnFailedDep and
+// DepFailedJustified all fail - the production incident (settled
+// attrs rebuilt at the eval-to-building transition).
+// For new jobs, _ingest settles failed-drv dependents to a fixpoint
+// over new and pending jobs.
 pred ingest[j: Job] {
   some EvalOpen
-  j.status = Unarrived
-  (some j.deps & failed) implies {
-    j.status' = DepFailed
-    all k: pendingDependents[j] | k.status' = DepFailed
-    unchangedExcept[j + pendingDependents[j]]
+  j.status = Unarrived implies {
+    (some j.deps & failed) implies {
+      j.status' = DepFailed
+      all k: pendingDependents[j] | k.status' = DepFailed
+      unchangedExcept[j + pendingDependents[j]]
+    } else {
+      j.status' = Pending
+      unchangedExcept[j]
+    }
   } else {
-    j.status' = Pending
-    unchangedExcept[j]
+    // Redelivery of a seen attr: dropped, nothing changes.
+    status' = status
   }
   flagsUnchanged
 }
