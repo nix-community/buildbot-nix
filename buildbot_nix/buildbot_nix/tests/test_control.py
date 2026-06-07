@@ -48,6 +48,7 @@ MALLORY = User(provider="gitea", username="alice")  # same name, wrong forge
 class FakeBackend:
     restarted: list[int] = field(default_factory=list)
     attr_restarts: list[tuple[int, str]] = field(default_factory=list)
+    effect_restarts: list[int] = field(default_factory=list)
     cancelled: list[int] = field(default_factory=list)
     attr_cancels: list[tuple[int, str]] = field(default_factory=list)
     refreshes: int = 0
@@ -57,6 +58,9 @@ class FakeBackend:
 
     async def restart_attribute(self, build_id: int, attr: str) -> None:
         self.attr_restarts.append((build_id, attr))
+
+    async def restart_effects(self, build_id: int) -> None:
+        self.effect_restarts.append(build_id)
 
     async def cancel_build(self, build_id: int) -> None:
         self.cancelled.append(build_id)
@@ -660,3 +664,10 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_effects_restart_route(harness: tuple) -> None:
+    url = "/repos/github/acme/widget/builds/1/effects/restart"
+    assert post(harness, url).status_code == 403
+    assert post(harness, url, ROOT).status_code == 303
+    assert BACKEND.effect_restarts == [1]

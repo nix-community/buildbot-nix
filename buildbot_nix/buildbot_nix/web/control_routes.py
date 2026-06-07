@@ -31,6 +31,8 @@ class ControlBackend(Protocol):
 
     async def restart_attribute(self, build_id: int, attr: str) -> None: ...
 
+    async def restart_effects(self, build_id: int) -> None: ...
+
     async def cancel_build(self, build_id: int) -> None: ...
 
     async def cancel_attribute(self, build_id: int, attr: str) -> None: ...
@@ -118,6 +120,13 @@ class _ControlRoutes:
         # Reuses the stored eval results (drv_path); no re-eval.
         await self.backend.restart_attribute(build["id"], attr)
         return _back_to_attr(forge, owner, name, number, attr)
+
+    async def restart_effects(
+        self, request: Request, forge: str, owner: str, name: str, number: int
+    ) -> RedirectResponse:
+        build = await self._authorize(request, forge, owner, name, number)
+        await self.backend.restart_effects(build["id"])
+        return _back(forge, owner, name, number)
 
     async def rebuild_failed(
         self, request: Request, forge: str, owner: str, name: str, number: int
@@ -241,6 +250,7 @@ def create_control_router(
     router.post(f"{base}/restart")(routes.restart)
     router.post(f"{base}/attrs/{{attr}}/restart")(routes.restart_attribute)
     router.post(f"{base}/rebuild-failed")(routes.rebuild_failed)
+    router.post(f"{base}/effects/restart")(routes.restart_effects)
     router.post(f"{base}/attrs/{{attr}}/cancel")(routes.cancel_attribute)
     router.post(f"{base}/cancel")(routes.cancel)
     router.post("/admin/repos/refresh")(routes.refresh_repos)

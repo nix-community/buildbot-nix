@@ -111,7 +111,15 @@
       </p>
       <div id="attributes">{% include "_attributes.html" %}</div>
       {% if effects %}
-        <h2 class="section">Effects</h2>
+        <div class="section-row">
+          <h2 class="section">Effects</h2>
+          {% if can_control and build.status == "succeeded" %}
+            <form method="post"
+                  action="{{ build_path(project, build.number) }}/effects/restart">
+              <button>restart effects</button>
+            </form>
+          {% endif %}
+        </div>
         <table class="attrs">
           <caption class="visually-hidden">effects</caption>
           <thead class="visually-hidden">

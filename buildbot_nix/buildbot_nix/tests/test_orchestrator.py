@@ -953,6 +953,60 @@ def test_effects_run_after_default_branch_success(
     asyncio.run(run())
 
 
+def test_rerun_effects_runs_effects_again(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Effects-only restart: re-runs effects from a fresh worktree
+    without touching the build's attributes."""
+
+    async def run() -> None:
+        ran: list[str] = []
+
+        async def fake_list(ctx: object) -> list[str]:
+            return ["deploy"]
+
+        async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
+            ran.append(name)
+            return True
+
+        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
+        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
+
+        add_commit(upstream, "eff2")
+        pool = await asyncpg.create_pool(postgres_dsn)
+        orchestrator, _ = make_orchestrator(
+            pool, tmp_path, FakeEvalRunner([mk_job("a")]), FakeExecutor()
+        )
+        project = await make_project(pool)
+        project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
+        event = ChangeEvent(
+            repo=project,
+            branch="main",
+            commit_sha=git(upstream, "rev-parse", "HEAD"),
+        )
+        build = await orchestrator.handle_change_event(event)
+        try:
+            assert build is not None
+            assert ran == ["deploy"]
+            attrs_before = await pool.fetch(
+                "SELECT attr, status, finished_at FROM build_attributes "
+                "WHERE build_id = $1",
+                build.id,
+            )
+            await orchestrator.rerun_effects(project, build)
+            assert ran == ["deploy", "deploy"]
+            attrs_after = await pool.fetch(
+                "SELECT attr, status, finished_at FROM build_attributes "
+                "WHERE build_id = $1",
+                build.id,
+            )
+            assert attrs_before == attrs_after
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_unsupported_system_attr_does_not_block_aggregation(
     postgres_dsn: str, tmp_path: Path, upstream: Path
 ) -> None:

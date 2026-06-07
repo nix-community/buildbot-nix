@@ -545,6 +545,55 @@ class Orchestrator:
             self.canceller.complete(build.id)
             self.cancel_events.pop(build.id, None)
 
+    async def rerun_effects(
+        self,
+        info: RepoInfo,
+        build: BuildRecord,
+        credentials: FetchCredentials | None = None,
+    ) -> None:
+        """Effects-only restart: fresh worktree at the recorded commit,
+        attributes untouched."""
+        if build.id in self.cancel_events:
+            # A concurrent rerun (or double click) would deploy twice.
+            return
+        self.cancel_events[build.id] = asyncio.Event()
+        try:
+            # Reset under the claim: resetting earlier (e.g. in the
+            # service) could clobber a rerun already in flight.
+            await self.db.pool.execute(
+                "UPDATE builds SET effects_started = FALSE WHERE id = $1", build.id
+            )
+            await self.db.pool.execute(
+                "DELETE FROM build_effects WHERE build_id = $1", build.id
+            )
+            event = ChangeEvent(
+                repo=info,
+                branch=build.branch,
+                commit_sha=build.commit_sha,
+                pr_number=build.pr_number,
+            )
+            refspecs = ["+refs/heads/*:refs/heads/*"]
+            if build.pr_number is not None:
+                refspecs.append(
+                    f"+refs/pull/{build.pr_number}/*:refs/pull/{build.pr_number}/*"
+                )
+            await self.repos.fetch(info.key, info.clone_url, refspecs, credentials)
+            worktree = await self.repos.checkout_for_build(
+                info.key,
+                f"effects-{build.id}",
+                base_commit=build.commit_sha,
+                credentials=credentials,
+            )
+            try:
+                branch_config = BranchConfig.load(worktree.path)
+                await self._maybe_run_effects(
+                    event, build, worktree.path, branch_config, credentials
+                )
+            finally:
+                await self.repos.remove_worktree(worktree)
+        finally:
+            self.cancel_events.pop(build.id, None)
+
     async def _maybe_run_effects(
         self,
         event: ChangeEvent,

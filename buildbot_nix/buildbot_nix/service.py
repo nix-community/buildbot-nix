@@ -201,6 +201,19 @@ class CIService:
     async def restart_attribute(self, build_id: int, attr: str) -> None:
         await self._restart(build_id, attr=attr)
 
+    async def restart_effects(self, build_id: int) -> None:
+        if build_id in self.orchestrator.cancel_events:
+            return  # build (or an effects rerun) still running
+        build = await self.orchestrator.db.get_build(build_id)
+        if build is None or build.status != "succeeded":
+            return  # effects only ever run after a successful build
+        project = await self.repo_store.by_id(build.project_id)
+        if project is None:
+            return
+        info = repo_info(project)
+        credentials = await self._credentials_provider(info.forge).get(info.clone_url)
+        self._spawn(self.orchestrator.rerun_effects(info, build, credentials))
+
     async def _restart(self, build_id: int, attr: str | None) -> None:
         """Reset attributes (one or all) and re-run only the pending jobs
         from the stored eval results — no re-eval."""
