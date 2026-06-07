@@ -26,13 +26,14 @@ import logging
 import secrets
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlencode
+
+import httpx
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import httpx
     from fastapi import Request
 
 logger = logging.getLogger(__name__)
@@ -243,6 +244,9 @@ class OAuthProvider:
     # Userinfo field carrying the avatar URL.
     avatar_field: str = "avatar_url"
     provider_id: str = ""  # User.provider value
+    # GitHub/Gitea take credentials in the body; OIDC servers only
+    # have to support client_secret_basic (RFC 6749 section 2.3.1).
+    client_auth: Literal["body", "basic"] = "body"
 
     def authorize_redirect(self, redirect_uri: str, state: str) -> str:
         return (
@@ -262,15 +266,23 @@ class OAuthProvider:
     async def exchange_code(
         self, http: httpx.AsyncClient, code: str, redirect_uri: str
     ) -> tuple[User, str]:
+        data = {
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        }
+        auth = (
+            httpx.BasicAuth(self.client_id, self.client_secret)
+            if self.client_auth == "basic"
+            else httpx.USE_CLIENT_DEFAULT
+        )
+        if self.client_auth == "body":
+            data["client_id"] = self.client_id
+            data["client_secret"] = self.client_secret
         response = await http.post(
             self.token_url,
-            data={
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
-            },
+            data=data,
+            auth=auth,
             headers={"Accept": "application/json"},
         )
         # GitHub returns token-exchange errors (expired/reused code) as
@@ -373,6 +385,7 @@ async def oidc_provider(  # noqa: PLR0913
         client_id=client_id,
         client_secret=client_secret,
         scope=" ".join(scope),
+        client_auth="basic",
         username_field=username_claim,
         # Standard OIDC claim for the profile picture.
         avatar_field="picture",

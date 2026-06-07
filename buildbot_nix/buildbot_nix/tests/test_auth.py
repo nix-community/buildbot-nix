@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from typing import TYPE_CHECKING
 
 import httpx
@@ -12,6 +13,7 @@ from fastapi import FastAPI
 
 from buildbot_nix.auth import (
     AuthzConfig,
+    OAuthProvider,
     SessionSigner,
     User,
     can_control_build,
@@ -330,3 +332,41 @@ def test_gitea_oauth_urls() -> None:
     assert provider.userinfo_url == "https://gitea.example.com/api/v1/user"
     # read:repository is needed so /api/v1/user/repos works with scoped tokens.
     assert "read:repository" in provider.scope.split()
+
+
+def test_oidc_exchange_uses_basic_auth() -> None:
+    """OIDC servers only have to support client_secret_basic (RFC
+    6749 section 2.3.1); authelia rejects body credentials with 401."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/token":
+            seen["authorization"] = request.headers.get("authorization", "")
+            seen["body"] = request.content.decode()
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/userinfo":
+            return httpx.Response(
+                200, json={"preferred_username": "alice", "picture": None}
+            )
+        return httpx.Response(404)
+
+    provider = OAuthProvider(
+        name="oidc",
+        authorize_url="https://id.example.com/auth",
+        token_url="https://id.example.com/token",  # noqa: S106
+        userinfo_url="https://id.example.com/userinfo",
+        client_id="cid",
+        client_secret="cs",  # noqa: S106
+        scope="openid",
+        username_field="preferred_username",
+        provider_id="oidc:id.example.com",
+        client_auth="basic",
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    user, _token = asyncio.run(
+        provider.exchange_code(client, "code123", "https://ci/auth/oidc/callback")
+    )
+    assert user.username == "alice"
+    expected = base64.b64encode(b"cid:cs").decode()
+    assert seen["authorization"] == f"Basic {expected}"
+    assert "client_secret" not in seen["body"]
