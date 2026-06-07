@@ -140,18 +140,20 @@ def sort_jobs_by_closures(
     jobs: list[NixEvalJobSuccess], job_closures: dict[str, set[str]]
 ) -> list[NixEvalJobSuccess]:
     """Topological order by derivation closure (dependencies first)."""
-    jobs = list(jobs)
-    sorted_jobs = []
+    by_drv: dict[str, list[NixEvalJobSuccess]] = {}
+    for job in jobs:
+        by_drv.setdefault(job.drv_path, []).append(job)
     sorter = graphlib.TopologicalSorter(job_closures)
-    for item in sorter.static_order():
-        i = 0
-        while i < len(jobs):
-            if item == jobs[i].drv_path:
-                sorted_jobs.append(jobs[i])
-                del jobs[i]
-            else:
-                i += 1
-    return sorted_jobs
+    return [job for item in sorter.static_order() for job in by_drv.get(item, ())]
+
+
+def compute_reverse_deps(job_closures: dict[str, set[str]]) -> dict[str, set[str]]:
+    """drv_path -> drv_paths of jobs whose closure contains it."""
+    reverse: dict[str, set[str]] = {}
+    for drv, deps in job_closures.items():
+        for dep in deps:
+            reverse.setdefault(dep, set()).add(drv)
+    return reverse
 
 
 def get_failed_dependents(
@@ -159,26 +161,27 @@ def get_failed_dependents(
     jobs: list[NixEvalJobSuccess],
     job_closures: dict[str, set[str]],
 ) -> list[NixEvalJobSuccess]:
-    """Transitive dependents of a failed job.
+    """Transitive dependents of a failed job among `jobs`.
 
     MUST be called before the failed job is pruned from job_closures —
-    the closure sets are how the dependency edges are found.
+    the closure sets are how the dependency edges are found. The BFS
+    expands only through jobs in `jobs`: a dependent reachable solely
+    via an already-finished job is not failed.
     """
-    jobs = list(jobs)
-    failed_paths: list[str] = [job.drv_path]
-    removed = []
-    while True:
-        old_paths = list(failed_paths)
-        for build in list(jobs):
-            deps: set[str] = job_closures.get(build.drv_path, set())
-            for path in old_paths:
-                if path in deps:
-                    failed_paths.append(build.drv_path)
-                    jobs.remove(build)
-                    removed.append(build)
-                    break
-        if old_paths == failed_paths:
-            break
+    reverse_deps = compute_reverse_deps(job_closures)
+    by_drv: dict[str, list[NixEvalJobSuccess]] = {}
+    for build in jobs:
+        by_drv.setdefault(build.drv_path, []).append(build)
+    removed: list[NixEvalJobSuccess] = []
+    seen: set[str] = set()
+    stack = [job.drv_path]
+    while stack:
+        drv = stack.pop()
+        for dependent in reverse_deps.get(drv, ()):
+            if dependent in by_drv and dependent not in seen:
+                seen.add(dependent)
+                stack.append(dependent)
+                removed.extend(by_drv[dependent])
     return removed
 
 
@@ -187,11 +190,9 @@ def compute_job_closures(
 ) -> dict[str, set[str]]:
     job_set = {job.drv_path for job in jobs}
     return {
-        k.drv_path: set(k.needed_substitutes)
-        .union(set(k.needed_builds))
-        .intersection(job_set)
-        .difference({k.drv_path})
-        for k in jobs
+        job.drv_path: (job_set & {*job.needed_builds, *job.needed_substitutes})
+        - {job.drv_path}
+        for job in jobs
     }
 
 
@@ -223,16 +224,24 @@ class _State:
     result: ScheduleResult
     pending: list[NixEvalJobSuccess]
     job_closures: dict[str, set[str]]
+    # Static reverse edges from the initial closures: which jobs'
+    # closures contain a given drv. Lets prune touch only actual
+    # dependents instead of every closure (O(deps) vs O(jobs)).
+    reverse_deps: dict[str, set[str]] = field(default_factory=dict)
 
     def prune(self, drv_path: str) -> None:
-        for closure in self.job_closures.values():
-            closure.discard(drv_path)
+        for dependent in self.reverse_deps.get(drv_path, ()):
+            self.job_closures[dependent].discard(drv_path)
 
     def fail_dependents(self, job: NixEvalJobSuccess, status: AttributeStatus) -> None:
         """Invariant: dependents are computed BEFORE the finished job is
         pruned from the closures."""
-        for dependent in get_failed_dependents(job, self.pending, self.job_closures):
-            self.pending.remove(dependent)
+        dependents = get_failed_dependents(job, self.pending, self.job_closures)
+        if not dependents:
+            return
+        failed_drvs = {dependent.drv_path for dependent in dependents}
+        self.pending = [j for j in self.pending if j.drv_path not in failed_drvs]
+        for dependent in dependents:
             self.result.results.append(
                 _success_result(dependent, status, dependency_attr=job.attr)
             )
@@ -351,6 +360,7 @@ class JobScheduler:
             result=result,
             pending=sort_jobs_by_closures(successful_jobs, job_closures),
             job_closures=job_closures,
+            reverse_deps=compute_reverse_deps(job_closures),
         )
         running: dict[asyncio.Task[BuildOutcome], NixEvalJobSuccess] = {}
 
