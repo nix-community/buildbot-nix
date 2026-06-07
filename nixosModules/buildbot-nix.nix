@@ -138,6 +138,12 @@ let
         value = "effects-secret__${cleanUpRepoName name}";
       }) cfg.effects.perRepoSecretFiles;
       effects_extra_sandbox_paths = cfg.effects.extraSandboxPaths;
+      effects_mountables_file =
+        if cfg.effects.mountables == { } then
+          null
+        else
+          pkgs.writeText "effects-mountables.json" (builtins.toJSON cfg.effects.mountables);
+      effects_extra_nix_options = cfg.effects.extraNixOptions;
       show_trace_on_failure = cfg.showTrace;
       cache_failed_builds = cfg.cacheFailedBuilds;
       allow_unauthenticated_control = cfg.allowUnauthenticatedControl;
@@ -876,6 +882,42 @@ in
         type = lib.types.listOf lib.types.path;
         default = [ ];
         description = "Extra host paths bind-mounted read-only into the effects sandbox.";
+      };
+
+      mountables = lib.mkOption {
+        type = lib.types.attrsOf (
+          lib.types.submodule {
+            options = {
+              source = lib.mkOption {
+                type = lib.types.path;
+                description = "Host path to mount.";
+              };
+              readOnly = lib.mkOption {
+                type = lib.types.bool;
+                default = true;
+              };
+              condition = lib.mkOption {
+                type = lib.types.anything;
+                description = ''
+                  Hercules secret condition controlling which effect
+                  invocations may request this mountable, e.g.
+                  { isOwner = "my-org"; } or "isDefaultBranch".
+                '';
+              };
+            };
+          }
+        );
+        default = { };
+        description = ''
+          Named host paths effects may request via __hci_effect_mounts
+          (hercules-ci mountables).
+        '';
+      };
+
+      extraNixOptions = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        description = "nix options for the effect sandbox's private daemon.";
       };
     };
 

@@ -98,3 +98,10 @@ equivalent.
 - Per-user API tokens for scripted access.
 - GitLab support (`services.buildbot-nix.gitlab`): token-based, with
   per-repository webhooks and commit statuses. See docs/GITLAB.md.
+- Effects show up on the build page with status, live log and failure excerpt.
+- Effects parity with hercules-ci-agent: `secretsMap` selection with per-secret
+  conditions, `GitToken` references, the current-task state API
+  (`getStateFile`/`putStateFile`), per-effect mounts (`effects.mountables`),
+  virtual uid/gid, a disk-backed `/build`, and a private untrusted nix daemon
+  per effect (`effects.extraNixOptions`). Effects without `secretsMap` keep
+  receiving the whole secrets file.
