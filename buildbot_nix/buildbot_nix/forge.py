@@ -389,14 +389,6 @@ class GiteaClient:
         for repo in await self._paginated(
             f"{self.instance_url}/api/v1/user/repos?limit=100"
         ):
-            # Webhook management needs admin permission; without it an
-            # enabled project could never receive events.
-            if not (repo.get("permissions") or {}).get("admin", True):
-                logger.info(
-                    "skipping repo without admin permission",
-                    extra={"repo": f"{repo['owner']['login']}/{repo['name']}"},
-                )
-                continue
             topics_response = await self.http.get(
                 f"{self.instance_url}/api/v1/repos/"
                 f"{repo['owner']['login']}/{repo['name']}/topics",

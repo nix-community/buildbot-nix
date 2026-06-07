@@ -253,8 +253,8 @@ def test_gitea_discovery() -> None:
                         "permissions": None,
                     },
                     {
-                        # No admin permission: discovery must skip it
-                        # (webhook registration would always fail).
+                        # No admin permission: still discovered; hook
+                        # registration degrades to a manual-setup hint.
                         "id": 8,
                         "name": "readonly",
                         "owner": {"login": "acme"},
@@ -267,6 +267,8 @@ def test_gitea_discovery() -> None:
             )
         if path == "/api/v1/repos/acme/widget/topics":
             return httpx.Response(200, json={"topics": ["ci"]})
+        if path == "/api/v1/repos/acme/readonly/topics":
+            return httpx.Response(200, json={"topics": []})
         return httpx.Response(404)
 
     client = GiteaClient(
@@ -275,9 +277,8 @@ def test_gitea_discovery() -> None:
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     repos = asyncio.run(client.discover_repos())
-    assert len(repos) == 1
+    assert [r.forge_repo_id for r in repos] == ["7", "8"]
     assert repos[0].forge == "gitea"
-    assert repos[0].forge_repo_id == "7"
     assert repos[0].topics == ("ci",)
     assert repos[0].private
 
@@ -648,3 +649,46 @@ def test_gitea_status_post() -> None:
     )
     assert posted[0]["state"] == "failure"
     assert posted[0]["context"] == "buildbot/nix-build"
+
+
+def test_register_repo_hook_without_admin_warns(
+    postgres_dsn: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No admin permission on the repo: degrade to a manual-setup hint
+    instead of a stack trace."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/hooks"):
+            return httpx.Response(403, json={"message": "forbidden"})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await pool.fetchval(
+                """
+                INSERT INTO projects (forge, forge_repo_id, owner, name,
+                                      default_branch, url)
+                VALUES ('gitea', 'hook-403', 'acme', 'locked', 'main', 'u')
+                RETURNING id
+                """
+            )
+            client = GiteaClient(
+                "https://gitea.example.com",
+                "tkn",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            await register_repo_hook(
+                client,
+                GiteaWebhookSecrets(pool),
+                project_id,
+                "acme",
+                "locked",
+                "https://ci.example.com",
+            )
+        finally:
+            await pool.close()
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(run())
+    assert any("manually" in r.message for r in caplog.records)

@@ -16,6 +16,8 @@ import logging
 import secrets
 from typing import TYPE_CHECKING, Any
 
+from .forge import ForgeError
+
 if TYPE_CHECKING:
     import asyncpg
 
@@ -88,9 +90,21 @@ async def register_repo_hook(  # noqa: PLR0913
     target_url = hook_url(webhook_base_url)
     legacy_urls = legacy_hook_urls(webhook_base_url)
 
-    hooks: list[dict[str, Any]] = await client._paginated(  # noqa: SLF001
-        f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100"
-    )
+    try:
+        hooks: list[dict[str, Any]] = await client._paginated(  # noqa: SLF001
+            f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100"
+        )
+    except ForgeError as e:
+        if "403" not in str(e):
+            raise
+        # Hook management needs repo-admin permission; the project still
+        # works if the webhook is created manually.
+        logger.warning(
+            "no admin permission to manage webhooks; create one manually "
+            "for push, pull_request and pull_request_sync events",
+            extra={"repo": f"{owner}/{repo}", "url": target_url},
+        )
+        return
     existing_id: int | None = None
     for hook in hooks:
         url = (hook.get("config") or {}).get("url", "")
