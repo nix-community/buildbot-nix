@@ -326,6 +326,13 @@ def test_failure_aggregation(postgres_dsn: str, tmp_path: Path, upstream: Path) 
             assert build is not None
             assert await build_status(pool, build.id) == BuildStatus.FAILED
             assert reporter.events[-1][2] == BuildStatus.FAILED
+            error = await pool.fetchval(
+                "SELECT error FROM build_attributes"
+                " WHERE build_id = $1 AND attr = 'bad'",
+                build.id,
+            )
+            assert error is not None
+            assert "fake build output" in error
         finally:
             await pool.close()
 

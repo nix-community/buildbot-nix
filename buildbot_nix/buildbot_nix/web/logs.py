@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import re
 from typing import TYPE_CHECKING, NamedTuple
 
 from fastapi import APIRouter, HTTPException, Request
@@ -19,6 +18,12 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
+from ..ansi import (  # noqa: TID252
+    ANSI_PARTIAL_RE,
+    ANSI_TOKEN_RE,
+    CTRL_RE,
+    strip_ansi,
+)
 from ..executor import read_log  # noqa: TID252
 from ..scheduler import TERMINAL_FAILURES  # noqa: TID252
 from .api_routes import FailureSummary, clean_row
@@ -45,32 +50,6 @@ class LogRegistry:
 
     def get(self, build_id: int, attr: str) -> LogWriter | None:
         return self._writers.get((build_id, attr))
-
-
-# One token per escape sequence. Colons in SGR: ITU T.416 syntax for
-# extended colors (38:5:185), used by systemd among others. OSC is
-# BEL- or ST-terminated; charset selects and other two-character
-# escapes are matched so their final byte does not leak as text.
-_ANSI_TOKEN_RE = re.compile(
-    r"\x1b\[(?P<sgr>[0-9;:]*)m"
-    r"|\x1b\](?P<osc>[^\x07\x1b]*)(?:\x07|\x1b\\)"
-    # Ordered after SGR: a plain [0-9;:]*m parameter list is colors,
-    # anything else (private markers like ?<=>) falls through here.
-    r"|\x1b\[[0-9;:?<=>]*[@-~]"
-    r"|\x1b[()*+]."
-    r"|\x1b[^\[\]]"
-)
-# C0 controls that mean nothing in a log (tab/newline/CR stay).
-_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]")
-# An escape sequence cut off at the end of a chunk; OSC is held back
-# until its terminator arrives.
-_ANSI_PARTIAL_RE = re.compile(r"\x1b(\[[0-9;:?<=>]*|\][^\x07\x1b]*\x1b?)?\Z")
-
-
-def strip_ansi(text: str) -> str:
-    """Plain-text consumers (curl, scripts, agents) want clean text;
-    the HTML viewer renders the colored original."""
-    return _CTRL_RE.sub("", _ANSI_TOKEN_RE.sub("", text))
 
 
 _COLOR_CLASSES = {}
@@ -135,7 +114,7 @@ def _render_segment(segment: str, style: _Style) -> str:
     if not segment:
         return ""
     # Stripping C0 before tokenizing would eat OSC's BEL terminator.
-    out = html.escape(_CTRL_RE.sub("", segment))
+    out = html.escape(CTRL_RE.sub("", segment))
     classes = " ".join(c for c in (style.fg, "ansi-bold" if style.bold else None) if c)
     if classes:
         out = f'<span class="{classes}">{out}</span>'
@@ -152,7 +131,7 @@ def _ansi_convert(text: str, style: _Style) -> tuple[str, _Style]:
     the style left open at the end is returned for the next one."""
     out: list[str] = []
     pos = 0
-    for match in _ANSI_TOKEN_RE.finditer(text):
+    for match in ANSI_TOKEN_RE.finditer(text):
         out.append(_render_segment(text[pos : match.start()], style))
         pos = match.end()
         if match.group("sgr") is not None:
@@ -178,7 +157,7 @@ class AnsiHtmlStream:
     def feed(self, text: str) -> str:
         text = self._tail + text
         self._tail = ""
-        partial = _ANSI_PARTIAL_RE.search(text)
+        partial = ANSI_PARTIAL_RE.search(text)
         if partial:
             self._tail = text[partial.start() :]
             text = text[: partial.start()]

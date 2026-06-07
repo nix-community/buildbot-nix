@@ -52,6 +52,7 @@ STREAM_LIMIT = 16 * 1024 * 1024
 # Cap per-subscriber backlog so a stalled SSE client cannot buffer the
 # whole build output in memory; the oldest chunks are dropped.
 SUBSCRIBER_QUEUE_MAXSIZE = 256
+RECENT_BUFFER_SIZE = 4096
 
 # Batch log output into zstd frames of at least this size; one frame
 # per output line would make "compressed" logs larger than plaintext.
@@ -144,6 +145,8 @@ class LogWriter:
     _head_budget: int = field(init=False)
     _tail: deque[bytes] = field(default_factory=deque)
     _tail_size: int = 0
+    _recent: deque[bytes] = field(default_factory=deque)
+    _recent_size: int = 0
     _dropped: int = 0
     _subscribers: list[asyncio.Queue[bytes | None]] = field(default_factory=list)
     _frame_buffer: bytearray = field(default_factory=bytearray)
@@ -201,6 +204,10 @@ class LogWriter:
         if not data:
             return
         self.bytes_seen += len(data)
+        self._recent.append(data)
+        self._recent_size += len(data)
+        while self._recent_size > RECENT_BUFFER_SIZE and len(self._recent) > 1:
+            self._recent_size -= len(self._recent.popleft())
         for queue in self._subscribers:
             self._offer(queue, data)
         if self._head_budget > 0:
@@ -237,6 +244,12 @@ class LogWriter:
         frame = await asyncio.to_thread(self._compressor.compress, chunk)
         with self.path.open("ab") as f:
             f.write(frame)
+
+    def tail_lines(self, max_lines: int = 10, max_chars: int = 1500) -> str:
+        """The last lines of output, for failure excerpts."""
+        text = b"".join(self._recent).decode("utf-8", errors="replace")
+        lines = text.splitlines()[-max_lines:]
+        return "\n".join(lines)[-max_chars:]
 
     async def close(self) -> None:
         self.closed = True
