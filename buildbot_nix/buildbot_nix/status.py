@@ -21,8 +21,12 @@ Target URLs point at the service's own URL scheme
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import math
+import time
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
@@ -50,6 +54,42 @@ class StatusState(StrEnum):
     success = "success"
     failure = "failure"
     error = "error"
+
+
+class StatusPostError(Exception):
+    """HTTP-level status post failure; retry_after carries the forge's
+    Retry-After / rate-limit-reset hint in seconds, if any."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    value = response.headers.get("Retry-After")
+    if value is not None:
+        try:
+            seconds = float(value)
+            # float() accepts nan/inf; nan would poison every later
+            # min/max comparison down to asyncio.sleep.
+            if math.isfinite(seconds):
+                return max(0.0, seconds)
+        except ValueError:
+            with contextlib.suppress(TypeError, ValueError):
+                dt = parsedate_to_datetime(value)
+                return max(0.0, dt.timestamp() - time.time())
+    # GitHub primary rate limits: no Retry-After, only a reset epoch.
+    if response.headers.get("X-RateLimit-Remaining") == "0":
+        with contextlib.suppress(TypeError, ValueError):
+            reset = int(response.headers["X-RateLimit-Reset"])
+            return max(0.0, reset - time.time())
+    return None
+
+
+def _raise_for_status(response: httpx.Response, repo: str) -> None:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
+        msg = f"status post for {repo} failed: HTTP {response.status_code}"
+        raise StatusPostError(msg, retry_after=_retry_after_seconds(response))
 
 
 class CommitStatusPoster(Protocol):
@@ -97,11 +137,7 @@ class GitHubStatusPoster:
                 "target_url": target_url,
             },
         )
-        if response.status_code >= 400:  # noqa: PLR2004
-            logger.error(
-                "failed to post GitHub status",
-                extra={"repo": f"{owner}/{repo}", "status": response.status_code},
-            )
+        _raise_for_status(response, f"{owner}/{repo}")
 
 
 class GiteaStatusPoster:
@@ -128,11 +164,7 @@ class GiteaStatusPoster:
                 "target_url": target_url,
             },
         )
-        if response.status_code >= 400:  # noqa: PLR2004
-            logger.error(
-                "failed to post Gitea status",
-                extra={"repo": f"{owner}/{repo}", "status": response.status_code},
-            )
+        _raise_for_status(response, f"{owner}/{repo}")
 
 
 class GitlabStatusPoster:
@@ -167,11 +199,7 @@ class GitlabStatusPoster:
                 "target_url": target_url,
             },
         )
-        if response.status_code >= 400:  # noqa: PLR2004
-            logger.error(
-                "failed to post GitLab status",
-                extra={"repo": f"{owner}/{repo}", "status": response.status_code},
-            )
+        _raise_for_status(response, f"{owner}/{repo}")
 
 
 class FailedStatusStorage(Protocol):
@@ -251,13 +279,15 @@ class ForgeStatusReporter:
     def build_url(self, event: ChangeEvent, build: BuildRecord) -> str:
         return f"{self.base_url}/repos/{event.repo.forge}/{event.repo.name}/builds/{build.number}"
 
-    async def _post(
+    async def _post(  # noqa: PLR0913
         self,
         event: ChangeEvent,
         build: BuildRecord,
         context: str,
         state: StatusState,
         description: str,
+        *,
+        propagate: bool = False,
     ) -> None:
         poster = self.posters.get(event.repo.forge)
         if poster is None:
@@ -272,9 +302,12 @@ class ForgeStatusReporter:
                 description,
                 self.build_url(event, build),
             )
-        except (httpx.HTTPError, ForgeError):
-            # A transient forge/network failure must not propagate into
-            # the orchestrator task and leave builds stuck.
+        except (httpx.HTTPError, ForgeError, StatusPostError):
+            # Transient failures must not propagate into the
+            # orchestrator task and leave builds stuck — except the
+            # terminal summary, whose failure drives the queued retry.
+            if propagate:
+                raise
             logger.exception(
                 "failed to post commit status",
                 extra={"build_id": build.id, "context": context},
@@ -414,7 +447,12 @@ class ForgeStatusReporter:
                 else (build.tree_hash and "build failed") or "merge conflict"
             )
         await self._post(
-            event, build, "buildbot/nix-build", state, description or "failed"
+            event,
+            build,
+            "buildbot/nix-build",
+            state,
+            description or "failed",
+            propagate=True,
         )
 
     async def force_attrs_for(

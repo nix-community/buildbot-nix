@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from .config import ScheduleWhen
 from .db import BuildStatus
 from .effects import effects_context
-from .events import ChangeEvent, RepoInfo
+from .events import ChangeEvent, RepoInfo, StatusReporter
 from .executor import LogWriter
 from .forge import (
     GiteaClient,
@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from .polling import PolledRepository
     from .recovery import ResumableBuild
     from .repos import RepoRecord, RepoStore
+    from .scheduler import AttributeResult
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,81 @@ def repo_info(record: RepoRecord) -> RepoInfo:
         clone_url=record.url,
         default_branch=record.default_branch,
     )
+
+
+MAX_REPORT_ATTEMPTS = 5
+REPORT_BACKOFF_SECONDS = 30
+MAX_REPORT_DELAY_SECONDS = 3600
+
+
+def _report_payload(build_id: int, attempt: int, error: Exception) -> dict[str, Any]:
+    payload: dict[str, Any] = {"build_id": build_id, "attempt": attempt}
+    # Forges send Retry-After on rate limits; honoring it is required
+    # (e.g. GitHub secondary limits escalate when ignored).
+    retry_after = getattr(error, "retry_after", None)
+    if retry_after is not None:
+        payload["retry_at"] = time.time() + min(retry_after, MAX_REPORT_DELAY_SECONDS)
+    return payload
+
+
+def _report_delay(attempt: int, retry_at: float | None) -> float:
+    backoff = min(REPORT_BACKOFF_SECONDS * (attempt - 1), 300)
+    hinted = max(0.0, retry_at - time.time()) if retry_at is not None else 0.0
+    return min(max(backoff, hinted), MAX_REPORT_DELAY_SECONDS)
+
+
+@dataclass
+class RetryingReporter:
+    """Wraps the forge reporter: a failed terminal status post becomes
+    a queued retry instead of a stale pending commit status."""
+
+    inner: StatusReporter
+    service: CIService
+
+    async def build_started(self, event: ChangeEvent, build: BuildRecord) -> None:
+        await self.inner.build_started(event, build)
+
+    async def eval_finished(
+        self,
+        event: ChangeEvent,
+        build: BuildRecord,
+        *,
+        success: bool,
+        warnings: list[str],
+    ) -> None:
+        await self.inner.eval_finished(event, build, success=success, warnings=warnings)
+
+    async def eval_cancelled(self, event: ChangeEvent, build: BuildRecord) -> None:
+        await self.inner.eval_cancelled(event, build)
+
+    async def build_finished(  # noqa: PLR0913
+        self,
+        event: ChangeEvent,
+        build: BuildRecord,
+        status: str,
+        generation: int,
+        results: list[AttributeResult],
+        *,
+        attr_statuses: dict[str, str] | None = None,
+        attr_prefix: str = "checks",
+    ) -> None:
+        try:
+            await self.inner.build_finished(
+                event,
+                build,
+                status,
+                generation,
+                results,
+                attr_statuses=attr_statuses,
+                attr_prefix=attr_prefix,
+            )
+        except Exception as e:
+            logger.exception(
+                "status post failed; queueing a retry", extra={"build_id": build.id}
+            )
+            await self.service.enqueue_work(
+                "report", f"report-{build.id}", _report_payload(build.id, 1, e)
+            )
 
 
 @dataclass
@@ -284,6 +360,12 @@ class CIService:
             await self._rerun(payload["build_id"])
         elif item.kind == "effects":
             await self._restart_effects(payload["build_id"])
+        elif item.kind == "report":
+            await self._re_report(
+                payload["build_id"],
+                payload.get("attempt", 1),
+                payload.get("retry_at"),
+            )
         elif item.kind == "scheduled":
             await self._run_scheduled(
                 DueEffect(
@@ -296,6 +378,54 @@ class CIService:
         else:
             msg = f"unknown work kind {item.kind!r}"
             raise ValueError(msg)
+
+    async def _re_report(
+        self, build_id: int, attempt: int, retry_at: float | None = None
+    ) -> None:
+        """Re-post the build summary from database state. Waits for the
+        larger of the attempt backoff and the forge's Retry-After."""
+        delay = _report_delay(attempt, retry_at)
+        if delay > 0:
+            await asyncio.sleep(delay)
+        build = await self.orchestrator.db.get_build(build_id)
+        if build is None:
+            return
+        project = await self.repo_store.by_id(build.project_id)
+        if project is None:
+            return
+        event = ChangeEvent(
+            repo=repo_info(project),
+            branch=build.branch,
+            commit_sha=build.commit_sha,
+            pr_number=build.pr_number,
+        )
+        rows = await self.pool.fetch(
+            "SELECT attr, status FROM build_attributes WHERE build_id = $1", build_id
+        )
+        reporter = self.orchestrator.reporter
+        if isinstance(reporter, RetryingReporter):
+            # Post via the inner reporter: the wrapper would enqueue a
+            # competing attempt-1 item on failure.
+            reporter = reporter.inner
+        try:
+            # Empty results: only the summary is re-posted; per-attribute
+            # statuses were already posted (or cached) inline.
+            await reporter.build_finished(
+                event,
+                build,
+                build.status,
+                build.status_generation,
+                [],
+                attr_statuses={row["attr"]: row["status"] for row in rows},
+            )
+        except Exception as e:
+            if attempt < MAX_REPORT_ATTEMPTS:
+                await self.enqueue_work(
+                    "report",
+                    f"report-{build_id}",
+                    _report_payload(build_id, attempt + 1, e),
+                )
+            raise
 
     async def _restart_effects(self, build_id: int) -> None:
         if build_id in self.orchestrator.cancel_events:

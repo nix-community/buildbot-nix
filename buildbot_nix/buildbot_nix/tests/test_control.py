@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import asyncpg
 import httpx
@@ -18,7 +20,15 @@ from buildbot_nix.api_tokens import ApiTokenStore
 from buildbot_nix.auth import AuthzConfig, SessionSigner, User
 from buildbot_nix.bootstrap import build_service
 from buildbot_nix.config import Config
+from buildbot_nix.events import ChangeEvent, NullStatusReporter
 from buildbot_nix.forge_tokens import ForgeTokenStore
+from buildbot_nix.service import (
+    MAX_REPORT_ATTEMPTS,
+    RetryingReporter,
+    _report_delay,
+    repo_info,
+)
+from buildbot_nix.status import StatusPostError, _raise_for_status
 from buildbot_nix.web.app import create_app
 from buildbot_nix.web.control_routes import (
     create_control_api_router,
@@ -611,6 +621,131 @@ def test_webhook_secret_regeneration(harness: tuple) -> None:
     new_secret = loop.run_until_complete(stored())
     assert new_secret != "s3cret"  # noqa: S105 (seeded test value)
     assert new_secret in rotated.text  # shown exactly here, once
+
+
+def test_retry_after_parsing() -> None:
+    response = httpx.Response(429, headers={"Retry-After": "120"})
+    with pytest.raises(StatusPostError) as exc:
+        _raise_for_status(response, "acme/widget")
+    assert exc.value.retry_after == 120
+
+    # GitHub primary rate limit: reset epoch instead of Retry-After.
+    reset = int(time.time()) + 300
+    response = httpx.Response(
+        403,
+        headers={"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(reset)},
+    )
+    with pytest.raises(StatusPostError) as exc:
+        _raise_for_status(response, "acme/widget")
+    assert exc.value.retry_after is not None
+    assert 295 <= exc.value.retry_after <= 300
+
+    # Garbage hints must not poison the delay math.
+    for bogus in ("nan", "inf", "soon"):
+        response = httpx.Response(429, headers={"Retry-After": bogus})
+        with pytest.raises(StatusPostError) as exc:
+            _raise_for_status(response, "acme/widget")
+        assert exc.value.retry_after is None or math.isfinite(exc.value.retry_after)
+
+    _raise_for_status(httpx.Response(201), "acme/widget")  # must not raise
+
+
+def test_report_delay_honors_retry_after() -> None:
+    # The forge hint dominates the attempt backoff and is capped.
+    assert _report_delay(1, None) == 0
+    assert _report_delay(2, None) == 30
+    assert _report_delay(2, time.time() + 240) == pytest.approx(240, abs=2)
+    assert _report_delay(1, time.time() + 7200) == 3600
+
+
+def test_report_retry(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed terminal status post is retried from database state and
+    gives up after MAX_REPORT_ATTEMPTS instead of looping."""
+    monkeypatch.setattr("buildbot_nix.service.REPORT_BACKOFF_SECONDS", 0)
+
+    async def run() -> None:
+        config = Config(
+            db_url=postgres_dsn,
+            build_systems=["x86_64-linux"],
+            domain="ci.test",
+            url="http://ci.test",
+            state_dir=tmp_path / "state",
+        )
+        service, _app = await build_service(config)
+        pool = service.pool
+        try:
+            project_id = await pool.fetchval(
+                "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
+                "default_branch, enabled) VALUES "
+                "('github', '80', 'acme', 'widget', 'http://x', 'main', TRUE) "
+                "RETURNING id"
+            )
+            build_id = await pool.fetchval(
+                "INSERT INTO builds (project_id, number, branch, commit_sha, "
+                "tree_hash, status) VALUES "
+                "($1, 1, 'main', 'c9', 't9', 'succeeded') RETURNING id",
+                project_id,
+            )
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, status) "
+                "VALUES ($1, 'x86_64-linux.a', 'succeeded')",
+                build_id,
+            )
+
+            posts: list[dict] = []
+            fail = True
+
+            class FakeReporter(NullStatusReporter):
+                async def build_finished(  # noqa: PLR0913
+                    self,
+                    event: ChangeEvent,
+                    build: Any,
+                    status: str,
+                    generation: int,
+                    results: Any,
+                    *,
+                    attr_statuses: dict[str, str] | None = None,
+                    attr_prefix: str = "checks",
+                ) -> None:
+                    del event, status, generation, results, attr_prefix
+                    posts.append({"build": build.id, "attrs": attr_statuses})
+                    if fail:
+                        msg = "forge 502"
+                        raise RuntimeError(msg)
+
+            wrapper = RetryingReporter(FakeReporter(), service)
+            service.orchestrator.reporter = wrapper
+
+            build = await service.orchestrator.db.get_build(build_id)
+            assert build is not None
+            record = await service.repo_store.by_id(project_id)
+            assert record is not None
+            event = ChangeEvent(repo=repo_info(record), branch="main", commit_sha="c9")
+            # Inline post fails: the wrapper swallows and queues.
+            await wrapper.build_finished(event, build, "succeeded", 0, [])
+            fail = False
+            await service.drain_work()
+            assert [p["build"] for p in posts] == [build_id, build_id]
+            # The retry re-derives attribute state from the database.
+            assert posts[-1]["attrs"] == {"x86_64-linux.a": "succeeded"}
+
+            # Permanent failure: attempts are bounded.
+            posts.clear()
+            fail = True
+            await wrapper.build_finished(event, build, "succeeded", 0, [])
+            await service.drain_work()
+            assert len(posts) == MAX_REPORT_ATTEMPTS + 1  # inline + retries
+            failed = await pool.fetchval(
+                "SELECT count(*) FROM work_queue "
+                "WHERE kind = 'report' AND status = 'failed'"
+            )
+            assert failed == MAX_REPORT_ATTEMPTS
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
 
 
 def test_work_dispatch(postgres_dsn: str, tmp_path: Path) -> None:

@@ -79,6 +79,7 @@ if TYPE_CHECKING:
 from .service import (
     CIService,
     PullBasedCredentialsProvider,
+    RetryingReporter,
     resolve_credential_path,
 )
 
@@ -227,9 +228,6 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
         executor=executor,
         failed_build_cache=PostgresFailedBuildCache(pool),
     )
-    if reporter is not None:
-        orchestrator.reporter = reporter
-
     service = CIService(
         config=config,
         pool=pool,
@@ -240,6 +238,8 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
         gitlab=gitlab,
         credentials_providers=credentials_providers,
     )
+    if reporter is not None:
+        orchestrator.reporter = RetryingReporter(reporter, service)
 
     # Web application.
     app = create_app(

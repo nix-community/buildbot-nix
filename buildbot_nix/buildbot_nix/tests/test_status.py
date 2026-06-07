@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass, field
 
 import httpx
+import pytest
 
 from buildbot_nix.db import BuildRecord
 from buildbot_nix.events import ChangeEvent, RepoInfo
@@ -302,8 +303,9 @@ def test_attr_prefix_follows_repo_configuration() -> None:
 
 
 def test_poster_network_errors_do_not_propagate() -> None:
-    """Transport failures while posting must not wedge the build
-    pipeline (the orchestrator awaits the reporter inline)."""
+    """Transport failures on non-terminal posts must not wedge the
+    pipeline; the terminal summary propagates to drive the queued
+    retry (RetryingReporter catches it)."""
 
     class ExplodingPoster:
         async def post(self, *args: object, **kwargs: object) -> None:
@@ -314,10 +316,11 @@ def test_poster_network_errors_do_not_propagate() -> None:
     reporter = ForgeStatusReporter({"github": ExplodingPoster()}, store, "https://ci")
 
     async def run() -> None:
-        await reporter.build_started(EVENT, BUILD)
-        await reporter.build_finished(EVENT, BUILD, "succeeded", 1, [])
+        await reporter.build_started(EVENT, BUILD)  # must not raise
+        with pytest.raises(httpx.ConnectError):
+            await reporter.build_finished(EVENT, BUILD, "succeeded", 1, [])
 
-    asyncio.run(run())  # must not raise
+    asyncio.run(run())
 
 
 def test_gitlab_status_states() -> None:
