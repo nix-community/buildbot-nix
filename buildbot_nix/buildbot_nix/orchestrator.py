@@ -37,7 +37,7 @@ from .effects import (
     should_run_effects,
 )
 from .events import ChangeEvent, NullStatusReporter, RepoInfo, StatusReporter
-from .executor import LogWriter
+from .executor import LogWriter, failure_excerpt
 from .gitrepo import GitError, MergeConflictError, run_git
 from .memory import calculate_eval_workers
 from .models import NixEvalJobSuccess
@@ -789,7 +789,7 @@ class _OrchestratorExecutor:
         # web layer renders it, the API strips it.
         error = None
         if status == AttributeStatus.failed:
-            error = writer.tail_lines() or None
+            error = failure_excerpt(writer.tail_lines()) or None
         result = AttributeResult(
             attr=job.attr,
             status=status,

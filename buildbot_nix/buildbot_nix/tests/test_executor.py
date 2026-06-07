@@ -20,6 +20,7 @@ from buildbot_nix.executor import (
     LogWriter,
     NixBuildExecutor,
     build_nix_command,
+    failure_excerpt,
     is_transient_error,
     read_log,
     render_log_event,
@@ -497,3 +498,49 @@ def test_render_log_event_attributes_and_colors() -> None:
     assert render_log_event(b'@nix {"action":"stop","id":7}', activities) is None
     # Non-event output passes through.
     assert render_log_event(b"plain line\n", activities) == b"plain line\n"
+
+
+# As written by render_log_event: the builder's own lines arrive as
+# internal-json events and get a name> prefix; nix's prose error then
+# re-quotes the same lines with a bare "> ".
+NIX_FAILURE_TAIL = """\
+building '/nix/store/mxpvhwgqn3q6sl1lykymcj77z7a1iifi-fail-1.drv'
+fail-1> this build is supposed to fail
+error: build of '/nix/store/mxpvhwgqn3q6sl1lykymcj77z7a1iifi-fail-1.drv' failed: Cannot build '/nix/store/mxpvhwgqn3q6sl1lykymcj77z7a1iifi-fail-1.drv'.
+       Reason: builder failed with exit code 1.
+       Output paths:
+         /nix/store/wxpxl5abpxrr4ljnwj100nhijnbn2riz-fail-1
+       Last 1 log lines:
+       > this build is supposed to fail
+       For full logs, run:
+         nix log /nix/store/mxpvhwgqn3q6sl1lykymcj77z7a1iifi-fail-1.drv
+error: Cannot build '/nix/store/mxpvhwgqn3q6sl1lykymcj77z7a1iifi-fail-1.drv'.
+       Reason: builder failed with exit code 1.
+       Output paths:
+         /nix/store/wxpxl5abpxrr4ljnwj100nhijnbn2riz-fail-1
+"""
+
+
+def test_failure_excerpt_extracts_log_and_reason() -> None:
+    excerpt = failure_excerpt(NIX_FAILURE_TAIL)
+    lines = excerpt.splitlines()
+    # The structured (name-prefixed) line wins over nix's prose
+    # re-quote of the same text; the failure reason follows.
+    assert lines[0] == "fail-1> this build is supposed to fail"
+    assert lines[1] == "Reason: builder failed with exit code 1."
+    assert len([x for x in lines if "supposed to fail" in x]) == 1
+    # nix boilerplate is gone.
+    assert "Output paths" not in excerpt
+    assert "For full logs" not in excerpt
+    assert "Last 1 log lines" not in excerpt
+
+
+def test_failure_excerpt_without_log_lines_keeps_filtered_tail() -> None:
+    tail = (
+        "error: a 'aarch64-linux' with features {} is required to build x.drv\n"
+        "required (system, features): (aarch64-linux, [])\n"
+        "3 available machines:\n"
+    )
+    excerpt = failure_excerpt(tail)
+    assert "required to build" in excerpt
+    assert "3 available machines" in excerpt

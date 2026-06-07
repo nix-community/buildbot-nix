@@ -28,6 +28,7 @@ import io
 import json
 import logging
 import os
+import re
 import signal
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING
 
 import zstandard
 
+from .ansi import strip_ansi
 from .gcroots import safe_attr_filename
 from .scheduler import BuildOutcome
 
@@ -245,7 +247,7 @@ class LogWriter:
         with self.path.open("ab") as f:
             f.write(frame)
 
-    def tail_lines(self, max_lines: int = 10, max_chars: int = 1500) -> str:
+    def tail_lines(self, max_lines: int = 30, max_chars: int = 4000) -> str:
         """The last lines of output, for failure excerpts."""
         text = b"".join(self._recent).decode("utf-8", errors="replace")
         lines = text.splitlines()[-max_lines:]
@@ -302,6 +304,36 @@ def build_nix_command(
         str(out_link),
         f"{job.drv_path}^*",
     ]
+
+
+_QUOTED_LINE = re.compile(r"[^\s>]*> +(.*\S)")
+_EXCERPT_NOISE = re.compile(
+    r"Output paths:|/nix/store/\S+$|Last \d+ log lines:"
+    r"|For full logs, run:|nix log /nix/store/\S+$|building '/nix/store/"
+)
+
+
+def failure_excerpt(tail: str, max_lines: int = 8) -> str:
+    """The interesting part of a failed build's output: the builder's
+    log lines (name>-prefixed from internal-json, deduped against
+    nix's bare-'>' prose re-quote) plus one Reason line; without any,
+    the tail minus nix's boilerplate. Lines are matched ANSI-stripped
+    but emitted raw, so colors survive."""
+    quoted: dict[str, str] = {}
+    other: dict[str, str] = {}
+    reason = None
+    for line in tail.splitlines():
+        raw, plain = line.strip(), strip_ansi(line).strip()
+        if m := _QUOTED_LINE.match(plain):
+            quoted.setdefault(m.group(1), raw)
+        elif plain.startswith("Reason:"):
+            reason = raw
+        elif plain and not _EXCERPT_NOISE.match(plain):
+            other.setdefault(plain, raw)
+    lines = list((quoted or other).values())[-max_lines:]
+    if reason:
+        lines.append(reason)
+    return "\n".join(lines)
 
 
 # nix activity/result types (nix/util/logging.hh).
