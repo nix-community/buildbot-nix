@@ -101,6 +101,12 @@ status updates, and secure authentication.
 
 See the [Gitea documentation](./docs/GITEA.md) for setup instructions.
 
+##### GitLab Integration
+
+Token-based integration with per-repository webhooks and commit status updates.
+
+See the [GitLab documentation](./docs/GITLAB.md) for setup instructions.
+
 ##### Generic OIDC Authentication
 
 Buildbot-nix supports generic OpenID Connect (OIDC) authentication, allowing you

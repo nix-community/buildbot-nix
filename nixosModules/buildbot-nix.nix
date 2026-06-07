@@ -933,7 +933,8 @@ in
       ++
         lib.optional (!cfg.gitea.enable && options.services.buildbot-nix.gitea.tokenFile.isDefined)
           "buildbot-nix: gitea.* is configured but gitea.enable is false; Gitea projects will not appear. Set services.buildbot-nix.gitea.enable = true."
-        ++ lib.optional (!cfg.gitlab.enable && options.services.buildbot-nix.gitlab.tokenFile.isDefined)
+      ++
+        lib.optional (!cfg.gitlab.enable && options.services.buildbot-nix.gitlab.tokenFile.isDefined)
           "buildbot-nix: gitlab.* is configured but gitlab.enable is false; GitLab projects will not appear. Set services.buildbot-nix.gitlab.enable = true.";
 
     assertions = [

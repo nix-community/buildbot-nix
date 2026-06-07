@@ -96,3 +96,5 @@ equivalent.
 - Evaluation runs in a bwrap sandbox with a kernel-enforced memory cap
   (delegated cgroup v2 subtree).
 - Per-user API tokens for scripted access.
+- GitLab support (`services.buildbot-nix.gitlab`): token-based, with
+  per-repository webhooks and commit statuses. See docs/GITLAB.md.
