@@ -442,6 +442,25 @@ details.menu .menu-label {
 	gap: 0.75rem;
 	align-items: center;
 }
+.spinner {
+	flex: none;
+	width: 0.9rem;
+	height: 0.9rem;
+	border: 2px solid var(--border);
+	border-top-color: var(--run);
+	border-radius: 50%;
+	animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.spinner {
+		animation: none;
+	}
+}
 .progress-track {
 	flex: 1;
 	max-width: 28rem;

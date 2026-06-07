@@ -206,6 +206,7 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
 def test_running_build_shows_progress(client: WebClient) -> None:
     running = get(client, "/repos/github/acme/widget/builds/3").text
     assert 'class="progress-track"' in running
+    assert 'class="spinner"' in running
     assert "seg ok" in running  # settled attrs render as a green segment
     assert "3 of 3" in running  # seeded attrs are all settled
     finished = get(client, "/repos/github/acme/widget/builds/2").text

@@ -83,6 +83,7 @@
              aria-valuenow="{{ attrs_done }}"
              aria-valuemax="{{ attrs_total }}"
              aria-label="build progress">
+          <span class="spinner" aria-hidden="true"></span>
           <div class="progress-track">
             {% for cls, n in [("ok", group_counts.succeeded + group_counts.skipped),
               ("bad", group_counts.failed),
