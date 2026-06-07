@@ -21,6 +21,7 @@ from fastapi.responses import (
 
 from ..executor import read_log  # noqa: TID252
 from ..scheduler import TERMINAL_FAILURES  # noqa: TID252
+from .api_routes import FailureSummary, clean_row
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -261,7 +262,8 @@ async def _failure_summary(
     return {
         "status": build["status"],
         "error": build["error"],
-        "eval_warnings": build["eval_warnings"],
+        # clean_row decodes the JSONB column to a list.
+        "eval_warnings": clean_row(build)["eval_warnings"],
         "failures": failures,
     }
 
@@ -399,14 +401,26 @@ class _LogRoutes:
         )
 
 
+_BASE = "/repos/{forge}/{owner}/{name}/builds/{number}"
+
+
 def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
     router = APIRouter()
     routes = _LogRoutes(ctx, registry)
-    base = "/repos/{forge}/{owner}/{name}/builds/{number}"
-    router.get(f"{base}/logs/{{attr}}.txt")(routes.log_raw_text)
-    router.get(f"/api{base}/failures")(routes.build_failures)
-    router.get(f"{base}/logs/{{attr}}/stream")(routes.log_stream)
-    router.get(f"{base}/logs/{{attr}}", response_class=HTMLResponse)(routes.log_viewer)
+    router.get(f"{_BASE}/logs/{{attr}}.txt")(routes.log_raw_text)
+    router.get(f"{_BASE}/logs/{{attr}}/stream")(routes.log_stream)
+    router.get(f"{_BASE}/logs/{{attr}}", response_class=HTMLResponse)(routes.log_viewer)
+    return router
+
+
+def create_log_api_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
+    """The failure summary belongs to the documented /api surface,
+    unlike the HTML/plain-text log routes."""
+    router = APIRouter(tags=["api"])
+    routes = _LogRoutes(ctx, registry)
+    router.get(f"/api{_BASE}/failures", response_model=FailureSummary)(
+        routes.build_failures
+    )
     return router
 
 

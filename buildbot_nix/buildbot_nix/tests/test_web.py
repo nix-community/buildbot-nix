@@ -549,6 +549,11 @@ def test_openapi_docs(client: WebClient) -> None:
     # HTML pages and other non-API routes stay out of the spec.
     assert all(path.startswith("/api/") for path in spec["paths"])
     assert get(client, "/docs").status_code == 200
+    # Responses are typed: every GET documents a response schema.
+    for path, ops in spec["paths"].items():
+        schema = ops["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert schema not in ({}, None), path
+    assert "Build" in spec["components"]["schemas"]
 
 
 # --- live logs ---------------------------------------------------------

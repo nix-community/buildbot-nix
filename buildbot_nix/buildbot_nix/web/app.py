@@ -34,7 +34,7 @@ from ..recovery import check_db_health  # noqa: TID252
 from .api_routes import create_api_router
 from .auth_routes import SESSION_COOKIE
 from .events import EventBroker, create_events_router
-from .logs import LogRegistry, create_log_router
+from .logs import LogRegistry, create_log_api_router, create_log_router
 from .metrics import create_metrics_router
 from .queries import PAGE_SIZE, BuildFilters, WebQueries
 from .templating import STATIC_DIR, CachedStaticFiles, make_env
@@ -410,6 +410,7 @@ def create_app(
     registry = log_registry or LogRegistry()
     app.state.log_registry = registry
     app.include_router(create_log_router(ctx, registry), include_in_schema=False)
+    app.include_router(create_log_api_router(ctx, registry))
     app.include_router(create_metrics_router(pool), include_in_schema=False)
     app.include_router(create_api_router(ctx))
     # Last: the legacy catch-alls must not shadow real routes.
