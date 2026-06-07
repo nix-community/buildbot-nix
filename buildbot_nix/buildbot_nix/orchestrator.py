@@ -283,6 +283,8 @@ class Orchestrator:
         # build must not hold the eval slot to completion.
         cancel_event = self.cancel_events.setdefault(build.id, asyncio.Event())
 
+        jobs_queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+
         async def record_job_batch(jobs: list[NixEvalJob]) -> None:
             # Pending rows appear in the UI while the eval is running.
             await self.db.record_attributes(
@@ -294,11 +296,16 @@ class Orchestrator:
                     and job.system in self.config.build_systems
                 ],
             )
+            await jobs_queue.put(jobs)
 
         eval_task = asyncio.ensure_future(
             self.eval_runner.run(
                 worktree_path, branch_config, eval_settings, on_jobs=record_job_batch
             )
+        )
+        # Builds start as soon as the first eval batch arrives.
+        build_task = asyncio.create_task(
+            self._build_attributes(event, build, worktree_path, jobs_queue)
         )
         cancel_wait = asyncio.ensure_future(cancel_event.wait())
         try:
@@ -309,8 +316,12 @@ class Orchestrator:
             cancel_wait.cancel()
         if cancel_event.is_set() and not eval_task.done():
             eval_task.cancel()
+            build_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, EvalError):
                 await eval_task
+            with contextlib.suppress(asyncio.CancelledError):
+                await build_task
+            await self.db.settle_unfinished_attributes(build.id)
             await self.db.set_build_status(build.id, BuildStatus.CANCELLED)
             await self.reporter.build_finished(
                 event, build, BuildStatus.CANCELLED, build.status_generation, []
@@ -326,6 +337,10 @@ class Orchestrator:
                 "evaluation failed",
                 extra={"build_id": build.id, "error": str(e)},
             )
+            build_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await build_task
+            await self.db.settle_unfinished_attributes(build.id)
             await self.db.set_build_status(build.id, BuildStatus.FAILED, error=str(e))
             await self.reporter.eval_finished(event, build, success=False, warnings=[])
             await self.reporter.build_finished(
@@ -364,9 +379,12 @@ class Orchestrator:
             event, build, success=True, warnings=eval_result.warnings
         )
 
-        status = await self._build_attributes(
-            event, build, worktree_path, eval_result.jobs
-        )
+        # Re-send the complete eval result: the scheduler dedupes by
+        # attr, so this only schedules jobs a streamed batch missed
+        # (e.g. eval runners without on_jobs support).
+        await jobs_queue.put(list(eval_result.jobs))
+        await jobs_queue.put(None)
+        status = await build_task
         if status == BuildStatus.SUCCEEDED:
             await self._maybe_run_effects(event, build, worktree_path, branch_config)
 
@@ -375,11 +393,12 @@ class Orchestrator:
         event: ChangeEvent,
         build: BuildRecord,
         worktree_path: Path,
-        jobs: Sequence[NixEvalJob],
+        jobs: Sequence[NixEvalJob] | asyncio.Queue[list[NixEvalJob] | None],
     ) -> str:
         """Schedule the attribute builds, persist their results, and
         re-aggregate the build (shared by fresh builds and reruns).
-        Returns the aggregated build status."""
+        Accepts either a complete job list or a queue fed during an
+        ongoing evaluation. Returns the aggregated build status."""
         cancel_event = self.cancel_events.setdefault(build.id, asyncio.Event())
 
         async def record_early(result: AttributeResult) -> None:
@@ -398,7 +417,10 @@ class Orchestrator:
             build_url=f"{self.config.url}/repos/{event.repo.forge}/{event.repo.name}/builds/{build.number}",
             on_result=record_early,
         )
-        schedule_result = await scheduler.run(list(jobs))
+        if isinstance(jobs, asyncio.Queue):
+            schedule_result = await scheduler.run_incremental(jobs)
+        else:
+            schedule_result = await scheduler.run(list(jobs))
 
         # Persist results the executor adapter didn't already write
         # (failed_eval, dependency_failed, cached_failure, skips).

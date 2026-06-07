@@ -45,6 +45,9 @@ OOM_RETURN_CODES = (-9, 137)
 STREAM_LIMIT = 64 * 1024 * 1024
 
 JOB_BATCH_SIZE = 100
+# Flush a partial batch after this long without new output so trickling
+# evals still surface jobs promptly.
+JOB_FLUSH_INTERVAL = 1.0
 
 
 class EvalError(Exception):
@@ -377,7 +380,14 @@ async def _read_job_stream(
             await on_jobs(batch.copy())
             batch.clear()
 
-    async for raw in stdout:
+    while True:
+        try:
+            raw = await asyncio.wait_for(stdout.readline(), timeout=JOB_FLUSH_INTERVAL)
+        except TimeoutError:
+            await flush()
+            continue
+        if not raw:
+            break
         line = raw.decode(errors="replace").strip()
         if not line:
             continue

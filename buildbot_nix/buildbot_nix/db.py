@@ -260,6 +260,19 @@ class BuildDB:
             params,
         )
 
+    async def settle_unfinished_attributes(self, build_id: int) -> None:
+        """Mark pending/building rows cancelled. Builds that end without
+        a normal aggregation (eval failure, supersedure) must not leave
+        attributes that look like they are still running."""
+        await self.pool.execute(
+            """
+            UPDATE build_attributes
+            SET status = 'cancelled', finished_at = now()
+            WHERE build_id = $1 AND status IN ('pending', 'building')
+            """,
+            build_id,
+        )
+
     async def mark_attribute_building(
         self, build_id: int, attr: str, system: str | None, drv_path: str | None
     ) -> None:

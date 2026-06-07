@@ -33,6 +33,8 @@ from buildbot_nix.repo_config import BranchConfig
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from buildbot_nix.models import NixEvalJob
+
 
 def test_branch_config_defaults(tmp_path: Path) -> None:
     config = BranchConfig.load(tmp_path)
@@ -328,7 +330,7 @@ def test_eval_runner_streams_job_batches(
 
     batches: list[int] = []
 
-    async def on_jobs(jobs: list) -> None:  # type: ignore[type-arg]
+    async def on_jobs(jobs: list[NixEvalJob]) -> None:
         batches.append(len(jobs))
 
     settings = EvalSettings(
@@ -341,6 +343,48 @@ def test_eval_runner_streams_job_batches(
     assert sum(batches) == 250
     assert len(batches) > 1  # streamed in multiple batches
     assert max(batches) <= 100
+
+
+def test_eval_runner_flushes_partial_batch_on_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A slow eval that trickles jobs must not sit on a partial batch
+    # until the size threshold; the flush interval bounds the latency.
+    job = json.dumps(
+        {
+            "attr": "first",
+            "attrPath": ["first"],
+            "cacheStatus": "notBuilt",
+            "neededBuilds": [],
+            "neededSubstitutes": [],
+            "drvPath": "/nix/store/first.drv",
+            "name": "first",
+            "outputs": {"out": "/nix/store/first-out"},
+            "system": "x86_64-linux",
+        }
+    )
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "nix-eval-jobs"
+    second = job.replace("first", "second")
+    fake.write_text(f"#!/bin/sh\necho '{job}'\nsleep 3\necho '{second}'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    batches: list[int] = []
+
+    async def on_jobs(jobs: list[NixEvalJob]) -> None:
+        batches.append(len(jobs))
+
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", sandbox=False, systemd_scope=False
+    )
+    result = asyncio.run(
+        EvalRunner().run(tmp_path, BranchConfig(), settings, on_jobs=on_jobs)
+    )
+    assert len(result.jobs) == 2
+    # First job flushed alone during the sleep, second after EOF.
+    assert batches == [1, 1]
 
 
 def test_cgroup_limiter_retries_subtree_enable(tmp_path: Path) -> None:

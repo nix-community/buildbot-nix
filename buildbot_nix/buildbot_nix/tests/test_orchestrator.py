@@ -1053,3 +1053,50 @@ def test_linked_context_reported_on_eval_failure(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_eval_failure_settles_streamed_attributes(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    # Eval streams a batch (rows recorded as pending), then fails:
+    # the rows must not stay pending/building on the failed build.
+    def _test() -> None:
+        async def run() -> None:
+            sha = add_commit(upstream, "evstream")
+
+            class StreamingFailingEval:
+                async def run(
+                    self, *args: object, on_jobs: object = None, **kwargs: object
+                ) -> EvalResult:
+                    assert callable(on_jobs)
+                    await on_jobs([mk_job("streamed")])
+                    msg = "boom after streaming"
+                    raise EvalError(msg)
+
+            pool, orchestrator, _, project = await make_env(
+                postgres_dsn,
+                tmp_path,
+                upstream,
+                StreamingFailingEval(),
+                FakeExecutor(),
+                "evstream",
+            )
+            try:
+                build = await orchestrator.handle_change_event(
+                    ChangeEvent(repo=project, branch="main", commit_sha=sha)
+                )
+                assert build is not None
+                assert await build_status(pool, build.id) == BuildStatus.FAILED
+                rows = await pool.fetch(
+                    "SELECT attr, status FROM build_attributes WHERE build_id = $1",
+                    build.id,
+                )
+                assert {r["attr"]: r["status"] for r in rows} == {
+                    "streamed": "cancelled"
+                }
+            finally:
+                await pool.close()
+
+        asyncio.run(run())
+
+    _test()

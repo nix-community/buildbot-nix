@@ -390,3 +390,152 @@ def test_on_result_reports_skips_before_builds_finish() -> None:
     assert ("local", "skipped_local") in reported
     assert ("fresh", "succeeded") in reported
     assert {r.attr for r in result.results} == {"local", "fresh"}
+
+
+def test_streaming_builds_start_before_eval_finishes() -> None:
+    # Jobs from early batches must be dispatched while later batches
+    # (and the end-of-eval sentinel) are still outstanding.
+    first_built = asyncio.Event()
+
+    class SignallingExecutor(FakeExecutor):
+        async def build(self, job: NixEvalJobSuccess) -> BuildOutcome:
+            first_built.set()
+            return await super().build(job)
+
+    async def main() -> None:
+        executor = SignallingExecutor()
+        scheduler = JobScheduler(executor, [SYSTEM])
+        queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+        await queue.put([mk_job("early")])
+        run_task = asyncio.create_task(scheduler.run_incremental(queue))
+        # The first job must build without the sentinel being queued.
+        await asyncio.wait_for(first_built.wait(), timeout=5)
+        await queue.put([mk_job("late")])
+        await queue.put(None)
+        result = await asyncio.wait_for(run_task, timeout=5)
+        assert {r.attr for r in result.results} == {"early", "late"}
+        assert all(r.status == AttributeStatus.succeeded for r in result.results)
+
+    asyncio.run(main())
+
+
+def test_streaming_dependency_across_batches() -> None:
+    # A job arriving in a later batch can depend on one from an
+    # earlier batch that already finished; it must still build.
+    async def main() -> None:
+        executor = FakeExecutor()
+        scheduler = JobScheduler(executor, [SYSTEM])
+        queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+        await queue.put([mk_job("dep")])
+        await queue.put([mk_job("top", deps=["dep"])])
+        await queue.put(None)
+        result = await asyncio.wait_for(
+            asyncio.create_task(scheduler.run_incremental(queue)), timeout=5
+        )
+        assert {r.attr for r in result.results} == {"dep", "top"}
+        assert all(r.status == AttributeStatus.succeeded for r in result.results)
+
+    asyncio.run(main())
+
+
+def test_streaming_failed_dep_fails_late_dependent() -> None:
+    # A later-batch job depending on an already-failed job must be
+    # marked dependency_failed, not built.
+    dep_failed = asyncio.Event()
+
+    async def on_result(result: AttributeResult) -> None:
+        if result.attr == "dep":
+            dep_failed.set()
+
+    async def main() -> None:
+        executor = FakeExecutor({"dep": BuildOutcome.failure})
+        scheduler = JobScheduler(executor, [SYSTEM], on_result=on_result)
+        queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+        await queue.put([mk_job("dep")])
+        run_task = asyncio.create_task(scheduler.run_incremental(queue))
+        # Let the failure settle before the dependent arrives.
+        await asyncio.wait_for(dep_failed.wait(), timeout=5)
+        await queue.put([mk_job("top", deps=["dep"])])
+        await queue.put(None)
+        result = await asyncio.wait_for(run_task, timeout=5)
+        statuses = {r.attr: r.status for r in result.results}
+        assert statuses["dep"] == AttributeStatus.failed
+        assert statuses["top"] == AttributeStatus.dependency_failed
+        assert "top" not in executor.built
+
+    asyncio.run(main())
+
+
+def test_streaming_batch_order_does_not_leak_failed_dependency() -> None:
+    # Within one batch, a dependent listed before its dependency-failed
+    # sibling must still settle as dependency_failed, not build.
+    dep_failed = asyncio.Event()
+
+    async def on_result(result: AttributeResult) -> None:
+        if result.attr == "f":
+            dep_failed.set()
+
+    async def main() -> None:
+        executor = FakeExecutor({"f": BuildOutcome.failure})
+        scheduler = JobScheduler(executor, [SYSTEM], on_result=on_result)
+        queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+        await queue.put([mk_job("f")])
+        run_task = asyncio.create_task(scheduler.run_incremental(queue))
+        await asyncio.wait_for(dep_failed.wait(), timeout=5)
+        # "top" precedes "mid" in the batch; only "mid" depends on the
+        # failed job directly.
+        await queue.put([mk_job("top", deps=["mid"]), mk_job("mid", deps=["f"])])
+        await queue.put(None)
+        result = await asyncio.wait_for(run_task, timeout=5)
+        statuses = {r.attr: r.status for r in result.results}
+        assert statuses["mid"] == AttributeStatus.dependency_failed
+        assert statuses["top"] == AttributeStatus.dependency_failed
+        assert executor.built == ["f"]
+
+    asyncio.run(main())
+
+
+def test_streaming_pending_dependent_fails_when_late_dep_arrives_failed() -> None:
+    # A pending job whose dependency arrives in a later batch already
+    # dependency-failed must settle as dependency_failed, not dispatch.
+    f_failed = asyncio.Event()
+    a_settled = asyncio.Event()
+    release_r = asyncio.Event()
+    r_building = asyncio.Event()
+
+    async def on_result(result: AttributeResult) -> None:
+        if result.attr == "f":
+            f_failed.set()
+        if result.attr == "a":
+            a_settled.set()
+
+    class GatedExecutor(FakeExecutor):
+        async def build(self, job: NixEvalJobSuccess) -> BuildOutcome:
+            if job.attr == "r":
+                r_building.set()
+                await asyncio.wait_for(release_r.wait(), timeout=5)
+            return await super().build(job)
+
+    async def main() -> None:
+        executor = GatedExecutor({"f": BuildOutcome.failure})
+        scheduler = JobScheduler(executor, [SYSTEM], on_result=on_result)
+        queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+        await queue.put([mk_job("f"), mk_job("r")])
+        run_task = asyncio.create_task(scheduler.run_incremental(queue))
+        await asyncio.wait_for(f_failed.wait(), timeout=5)
+        await asyncio.wait_for(r_building.wait(), timeout=5)
+        # "top" is kept pending by the running "r" while its other
+        # dependency "a" arrives later, already dependency-failed.
+        await queue.put([mk_job("top", deps=["r", "a"])])
+        await queue.put([mk_job("a", deps=["f"])])
+        await queue.put(None)
+        # "top" must settle while "r" still runs; only then release.
+        await asyncio.wait_for(a_settled.wait(), timeout=5)
+        release_r.set()
+        result = await asyncio.wait_for(run_task, timeout=5)
+        statuses = {r.attr: r.status for r in result.results}
+        assert statuses["a"] == AttributeStatus.dependency_failed
+        assert statuses["top"] == AttributeStatus.dependency_failed
+        assert "top" not in executor.built
+
+    asyncio.run(main())
