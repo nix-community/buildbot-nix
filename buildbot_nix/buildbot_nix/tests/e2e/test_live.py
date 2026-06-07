@@ -49,6 +49,15 @@ def test_attribute_table_refreshes_while_building(
     row.locator(".status-icon.failed").wait_for(timeout=15_000)
     assert "flipped by e2e test" in page.content()
 
+    # Groups must stay expandable after a morph: the morphed-in lazy
+    # placeholder needs htmx processing or it never fetches.
+    group = page.locator("details.attr-group[data-group=succeeded]")
+    if group.get_attribute("open") is None:
+        group.locator("summary").click()
+    page.locator(
+        'details[data-group=succeeded] tr[data-attr="x86_64-linux.ok"]'
+    ).wait_for(timeout=15_000)
+
 
 def test_log_page_streams_live_output(page: Page, server: EngineServer) -> None:
     build_id = server.run(_build_id(server, 3))
