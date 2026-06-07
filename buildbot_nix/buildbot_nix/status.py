@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import httpx
 
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
     from .db import BuildRecord
     from .events import ChangeEvent
-    from .forge import GiteaClient, GitHubAppClient
+    from .forge import GiteaClient, GitHubAppClient, GitlabClient
     from .scheduler import AttributeResult
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,45 @@ class GiteaStatusPoster:
         if response.status_code >= 400:  # noqa: PLR2004
             logger.error(
                 "failed to post Gitea status",
+                extra={"repo": f"{owner}/{repo}", "status": response.status_code},
+            )
+
+
+class GitlabStatusPoster:
+    # GitLab has no "error" state; both map to failed.
+    _STATES: ClassVar[dict[StatusState, str]] = {
+        StatusState.pending: "pending",
+        StatusState.success: "success",
+        StatusState.failure: "failed",
+        StatusState.error: "failed",
+    }
+
+    def __init__(self, client: GitlabClient) -> None:
+        self.client = client
+
+    async def post(  # noqa: PLR0913
+        self,
+        owner: str,
+        repo: str,
+        sha: str,
+        context: str,
+        state: StatusState,
+        description: str,
+        target_url: str,
+    ) -> None:
+        response = await self.client.http.post(
+            f"{self.client.project_api_url(owner, repo)}/statuses/{sha}",
+            headers=self.client._headers(),  # noqa: SLF001
+            json={
+                "state": self._STATES[state],
+                "context": context,
+                "description": description[:255],
+                "target_url": target_url,
+            },
+        )
+        if response.status_code >= 400:  # noqa: PLR2004
+            logger.error(
+                "failed to post GitLab status",
                 extra={"repo": f"{owner}/{repo}", "status": response.status_code},
             )
 

@@ -6,16 +6,19 @@ stale-generation dropping (with fake posters and in-memory store)."""
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 
 import httpx
 
 from buildbot_nix.db import BuildRecord
 from buildbot_nix.events import ChangeEvent, RepoInfo
+from buildbot_nix.forge import GitlabClient
 from buildbot_nix.models import NixEvalJobError
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 from buildbot_nix.status import (
     ForgeStatusReporter,
+    GitlabStatusPoster,
     StatusState,
     attr_status_context,
     eval_description,
@@ -315,3 +318,33 @@ def test_poster_network_errors_do_not_propagate() -> None:
         await reporter.build_finished(EVENT, BUILD, "succeeded", 1, [])
 
     asyncio.run(run())  # must not raise
+
+
+def test_gitlab_status_states() -> None:
+    posted: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # raw_path: httpx decodes %2F in .path, hiding a broken encoding.
+        assert (
+            request.url.raw_path == b"/api/v4/projects/Mic92%2Fdotfiles/statuses/abc123"
+        )
+        posted.append(json.loads(request.content))
+        return httpx.Response(201, json={})
+
+    poster = GitlabStatusPoster(
+        GitlabClient(
+            "https://gitlab.com",
+            "t",
+            http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+    )
+
+    async def run() -> None:
+        for state in (StatusState.pending, StatusState.error):
+            await poster.post(
+                "Mic92", "dotfiles", "abc123", "nix-eval", state, "d" * 300, "u"
+            )
+
+    asyncio.run(run())
+    assert [p["state"] for p in posted] == ["pending", "failed"]
+    assert len(posted[0]["description"]) == 255
