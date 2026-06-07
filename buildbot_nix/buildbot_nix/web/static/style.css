@@ -61,7 +61,7 @@ pre,
 header {
 	display: flex;
 	gap: 1rem;
-	align-items: baseline;
+	align-items: center;
 	padding: 0.55rem 1.25rem;
 	border-bottom: 1px solid var(--border);
 	background: var(--card);
@@ -373,11 +373,48 @@ button {
 button:hover {
 	border-color: var(--run);
 }
+/* Account dropdown: everything but the core nav lives in here so
+   the bar stays one row at any width and provider count. */
+details.menu {
+	position: relative;
+}
+details.menu summary {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	cursor: pointer;
+	list-style: none;
+	color: var(--muted);
+	padding: 0.2rem 0.4rem;
+	border-radius: 6px;
+}
+details.menu summary::-webkit-details-marker {
+	display: none;
+}
+details.menu summary:hover {
+	background: var(--hover);
+}
+details.menu .menu-label {
+	font-size: 0.9rem;
+}
+.menu-panel {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 0.4rem);
+	z-index: 20;
+	display: grid;
+	gap: 0.6rem;
+	min-width: 13rem;
+	padding: 0.8rem 1rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+}
 .login-btn {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.45rem;
-	align-self: center;
 	background: var(--card);
 	border: 1px solid var(--border);
 	border-radius: 6px;
