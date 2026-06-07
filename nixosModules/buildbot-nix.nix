@@ -41,6 +41,7 @@ let
       state_dir = "/var/lib/buildbot-nix";
       use_https = cfg.useHTTPS;
       admins = cfg.admins;
+      private_repo_viewers = cfg.privateRepoViewers;
       eval_max_memory_size = cfg.evalMaxMemorySize;
       eval_worker_count = cfg.evalWorkerCount;
       build_concurrency = cfg.buildConcurrency;
@@ -423,6 +424,24 @@ in
         "gitea:bob" or "oidc:<issuer>:carol"; plain usernames never match.
       '';
       example = [ "github:alice" ];
+    };
+
+    privateRepoViewers = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.listOf lib.types.str);
+      default = { };
+      description = ''
+        Visibility of private repositories for logged-in users without
+        forge access (e.g. OIDC logins). Keys select repositories
+        ("forge:owner/repo", "forge:owner/*" or "*"; the most specific
+        key wins). Values are viewer rules: a provider-qualified
+        identity, "provider:*" for any authenticated user of that
+        provider, or "provider:group:<name>" matching the OIDC groups
+        claim (set oidc.mapping.groups and include the groups scope).
+      '';
+      example = {
+        "*" = [ "oidc:auth.example.com:group:ci" ];
+        "gitlab:acme/*" = [ "oidc:auth.example.com:*" ];
+      };
     };
 
     buildSystems = lib.mkOption {

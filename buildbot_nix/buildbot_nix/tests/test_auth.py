@@ -17,15 +17,19 @@ from buildbot_nix.auth import (
     SessionSigner,
     User,
     can_control_build,
+    can_view_private,
     gitea_oauth,
     github_oauth,
     is_admin,
     load_signing_keys,
+    matches_rule,
     oidc_provider,
+    relevant_groups,
     rotate_signing_key,
 )
 from buildbot_nix.web.auth_routes import (
     SESSION_COOKIE,
+    STATE_COOKIE,
     create_auth_router,
 )
 
@@ -405,3 +409,116 @@ def test_oidc_provider_honors_advertised_auth_methods() -> None:
     )
     # Absent means client_secret_basic per OIDC discovery spec.
     assert provider_for(None).client_auth == "basic"
+
+
+def test_viewer_rule_matching() -> None:
+    alice = User(provider="oidc:auth.example.com", username="alice", groups=("ci",))
+    assert matches_rule(alice, "oidc:auth.example.com:alice")
+    assert matches_rule(alice, "oidc:auth.example.com:*")
+    assert matches_rule(alice, "oidc:auth.example.com:group:ci")
+    assert not matches_rule(alice, "oidc:auth.example.com:group:ops")
+    assert not matches_rule(alice, "oidc:other.example.com:*")
+    assert not matches_rule(alice, "github:alice")
+    assert not matches_rule(alice, "alice")
+    assert not matches_rule(alice, "*")
+
+
+def test_can_view_private_per_repo_precedence() -> None:
+    viewers = {
+        "*": ["oidc:idp:group:everyone-private"],
+        "gitlab:acme/*": ["oidc:idp:*"],
+        "gitlab:acme/secret": ["github:audit-bot"],
+    }
+    org_user = User(provider="oidc:idp", username="bob")
+    everyone = User(provider="oidc:idp", username="eve", groups=("everyone-private",))
+    bot = User(provider="github", username="audit-bot")
+
+    assert not can_view_private(org_user, viewers, "gitlab", "acme", "secret")
+    assert can_view_private(bot, viewers, "gitlab", "acme", "secret")
+    assert can_view_private(org_user, viewers, "gitlab", "acme", "widget")
+    # Most specific key only, no union with "*": the global group rule
+    # does not leak into repos that define their own rules.
+    assert not can_view_private(bot, viewers, "gitlab", "acme", "widget")
+    assert can_view_private(everyone, viewers, "github", "other", "repo")
+    assert not can_view_private(None, viewers, "github", "other", "repo")
+    assert not can_view_private(org_user, {}, "gitlab", "acme", "widget")
+
+
+def test_session_carries_groups() -> None:
+    signer = SessionSigner([b"k" * 32])
+    user = User(provider="oidc:idp", username="alice", groups=("ci", "ops"))
+    token = signer.session_for(user)
+    restored = signer.user_from(token)
+    assert restored is not None
+    assert restored.groups == ("ci", "ops")
+
+
+def test_relevant_groups_keeps_only_rule_groups() -> None:
+    """LDAP users can be in dozens of groups; a signed cookie past
+    ~4KB hits header limits, so the session only carries groups that
+    a viewer rule can actually match."""
+    viewers = {
+        "*": ["oidc:idp:group:ci", "oidc:idp:alice"],
+        "gitlab:acme/*": ["oidc:idp:group:auditors"],
+    }
+    groups = ("ci", "auditors", *[f"unused-{i}" for i in range(100)])
+    assert relevant_groups(groups, viewers) == ("ci", "auditors")
+    assert relevant_groups(groups, {}) == ()
+
+
+def test_oauth_callback_filters_session_groups() -> None:
+    """The session cookie only carries groups a viewer rule can match."""
+    provider = OAuthProvider(
+        name="oidc",
+        authorize_url="https://id.test/auth",
+        token_url="https://id.test/token",  # noqa: S106
+        userinfo_url="https://id.test/userinfo",
+        client_id="cid",
+        client_secret="cs",  # noqa: S106
+        scope="openid groups",
+        username_field="preferred_username",
+        provider_id="oidc:id.test",
+        groups_field="groups",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/token":
+            return httpx.Response(200, json={"access_token": "at"})
+        if request.url.path == "/userinfo":
+            return httpx.Response(
+                200,
+                json={
+                    "preferred_username": "alice",
+                    "groups": ["ci"] + [f"noise-{i}" for i in range(40)],
+                },
+            )
+        return httpx.Response(404)
+
+    signer = SessionSigner([b"k"])
+    app = FastAPI()
+    app.include_router(
+        create_auth_router(
+            {"oidc": provider},
+            signer,
+            "https://ci.test",
+            DictVault(),
+            http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            private_repo_viewers={"*": ["oidc:id.test:group:ci"]},
+        )
+    )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://ci.test"
+        ) as client:
+            response = await client.get(
+                "/auth/oidc/callback?code=c&state=s",
+                headers=cookie_header({STATE_COOKIE: "s"}),
+            )
+            assert response.status_code in (302, 307)
+            session = response.cookies.get(SESSION_COOKIE)
+            user = signer.user_from(session)
+            assert user is not None
+            assert user.groups == ("ci",)
+
+    asyncio.run(run())

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
-from .auth import is_admin
+from .auth import can_view_private, is_admin
 
 if TYPE_CHECKING:
     import asyncpg
@@ -148,16 +148,32 @@ class VisibilityService:
         if is_admin(user, self.authz):
             return None
         rows = await self.pool.fetch(
-            "SELECT id, forge, forge_repo_id, private FROM projects"
+            "SELECT id, forge, forge_repo_id, owner, name, private FROM projects"
         )
         visible = [row["id"] for row in rows if not row["private"]]
+        # Configured viewer rules (e.g. OIDC users without forge tokens).
+        if user is not None:
+            visible.extend(
+                row["id"]
+                for row in rows
+                if row["private"]
+                and can_view_private(
+                    user,
+                    self.authz.private_repo_viewers,
+                    row["forge"],
+                    row["owner"],
+                    row["name"],
+                )
+            )
         access = await self._repo_access(user, token)
         if access is None:
             return visible
+        seen = set(visible)
         visible.extend(
             row["id"]
             for row in rows
             if row["private"]
+            and row["id"] not in seen
             and f"{row['forge']}:{row['forge_repo_id']}" in access.accessible
         )
         return visible

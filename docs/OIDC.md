@@ -148,6 +148,49 @@ Users are identified by their `preferred_username` claim. This means:
   claim
 - You can customize which claim is used via `mapping.username`
 
+## Private Repositories
+
+OIDC users have no forge token, so they only see public repositories by default.
+`privateRepoViewers` grants visibility (read-only; build control stays with
+`admins`):
+
+```nix
+services.buildbot-nix.privateRepoViewers = {
+  # Repository keys: "forge:owner/repo", "forge:owner/*" or "*";
+  # the most specific key wins.
+  "*" = [
+    # Any authenticated user of this provider.
+    "oidc:auth.example.com:*"
+  ];
+  "gitlab:acme/secret" = [
+    # Exact identity or OIDC groups claim.
+    "oidc:auth.example.com:alice"
+    "oidc:auth.example.com:group:auditors"
+  ];
+};
+```
+
+Group rules need the groups claim in the session: add the `groups` scope and set
+`mapping.groups = "groups"`.
+
+The owner segment of a repository key is any namespace: a user, an organization,
+or a nested GitLab group (`"gitlab:org/subgroup/*"`).
+
+Members of a GitHub/Gitea organization do not need viewer rules for their own
+organization's repositories: they log in with a forge token, and everything that
+token can access is visible to them. Viewer rules add visibility on top, for
+logins without forge access (OIDC) or for repositories outside a user's own
+forge permissions. The OIDC equivalent of an organization is a group rule
+(`"oidc:<issuer>:group:<name>"`).
+
+Two caveats around group rules:
+
+- Group membership is captured in the session at login, so revoking a group in
+  the identity provider takes effect on the next login or session expiry, not
+  immediately.
+- Personal API tokens carry an identity but no groups: exact and `provider:*`
+  rules apply to API requests, `group:` rules only to browser sessions.
+
 ## Groups Support
 
 To sync groups from your OIDC provider:

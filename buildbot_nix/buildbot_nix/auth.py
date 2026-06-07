@@ -25,7 +25,7 @@ import json
 import logging
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlencode
 
@@ -46,6 +46,8 @@ class User:
     provider: str  # "github" | "gitea" | "oidc:<issuer>"
     username: str
     avatar_url: str | None = None
+    # OIDC groups claim; drives "provider:group:<name>" viewer rules.
+    groups: tuple[str, ...] = ()
 
     @property
     def qualified(self) -> str:
@@ -103,9 +105,14 @@ class SessionSigner:
         return payload
 
     def session_for(self, user: User, session_id: str | None = None) -> str:
-        payload = {"provider": user.provider, "username": user.username}
+        payload: dict[str, Any] = {
+            "provider": user.provider,
+            "username": user.username,
+        }
         if user.avatar_url is not None:
             payload["avatar"] = user.avatar_url
+        if user.groups:
+            payload["groups"] = list(user.groups)
         if session_id is not None:
             # References the server-side forge-token row; the cookie is
             # signed, not encrypted, so the token itself never goes here.
@@ -122,6 +129,7 @@ class SessionSigner:
             provider=payload["provider"],
             username=payload["username"],
             avatar_url=payload.get("avatar"),
+            groups=tuple(payload.get("groups", ())),
         )
 
     def session_id_from(self, token: str | None) -> str | None:
@@ -186,6 +194,8 @@ def same_origin(request: Request, own_url: str) -> bool:
 class AuthzConfig:
     admins: list[str]  # provider-qualified
     allow_unauthenticated_control: bool = False
+    # Per-repo private visibility rules; see can_view_private.
+    private_repo_viewers: dict[str, list[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # is_admin matches User.qualified exactly, so unqualified entries
@@ -198,6 +208,57 @@ class AuthzConfig:
                     entry,
                     entry,
                 )
+
+
+def matches_rule(user: User, rule: str) -> bool:
+    """Provider-qualified viewer rules: exact "provider:username",
+    any-user "provider:*", or groups-claim "provider:group:<name>".
+    Unqualified entries never match (same as admins)."""
+    provider, sep, rest = rule.rpartition(":")
+    if not sep:
+        return False
+    if provider == user.provider:
+        return rest in ("*", user.username)
+    group_provider, group_sep, group_marker = provider.rpartition(":")
+    if group_sep and group_marker == "group":
+        # provider:group:<name>; rest is the group name
+        return group_provider == user.provider and rest in user.groups
+    return False
+
+
+def relevant_groups(
+    groups: tuple[str, ...], viewers: dict[str, list[str]]
+) -> tuple[str, ...]:
+    """Groups any viewer rule can match. The session cookie carries
+    these; the full OIDC claim can be dozens of LDAP groups and a
+    signed cookie past ~4KB hits header limits."""
+    referenced = {
+        rule.rpartition(":")[2]
+        for rules in viewers.values()
+        for rule in rules
+        if ":group:" in rule
+    }
+    return tuple(group for group in groups if group in referenced)
+
+
+def can_view_private(
+    user: User | None,
+    viewers: dict[str, list[str]],
+    forge: str,
+    owner: str,
+    name: str,
+) -> bool:
+    """Per-repo private visibility; the most specific key wins
+    ("forge:owner/repo" > "forge:owner/*" > "*"), like the per-repo
+    effects secrets."""
+    if user is None:
+        return False
+    rules = None
+    for key in (f"{forge}:{owner}/{name}", f"{forge}:{owner}/*", "*"):
+        rules = viewers.get(key)
+        if rules is not None:
+            break
+    return any(matches_rule(user, rule) for rule in rules or [])
 
 
 def is_admin(user: User | None, config: AuthzConfig) -> bool:
@@ -243,6 +304,8 @@ class OAuthProvider:
     username_field: str = "login"
     # Userinfo field carrying the avatar URL.
     avatar_field: str = "avatar_url"
+    # Userinfo field with group names (None = no group capture).
+    groups_field: str | None = None
     provider_id: str = ""  # User.provider value
     # GitHub/Gitea take credentials in the body; OIDC servers only
     # have to support client_secret_basic (RFC 6749 section 2.3.1).
@@ -313,10 +376,16 @@ class OAuthProvider:
             msg = f"userinfo response is missing {self.username_field!r}"
             raise OAuthError(msg) from exc
         avatar = info.get(self.avatar_field)
+        groups: tuple[str, ...] = ()
+        if self.groups_field is not None:
+            raw_groups = info.get(self.groups_field)
+            if isinstance(raw_groups, list):
+                groups = tuple(str(g) for g in raw_groups)
         return User(
             provider=self.provider_id or self.name,
             username=username,
             avatar_url=str(avatar) if avatar else None,
+            groups=groups,
         ), access_token
 
 
@@ -370,6 +439,7 @@ async def oidc_provider(  # noqa: PLR0913
     client_secret: str,
     scope: list[str],
     username_claim: str = "preferred_username",
+    groups_claim: str | None = None,
 ) -> OAuthProvider:
     """Generic OIDC via the discovery document. Identities are
     qualified as oidc:<issuer>:<username>."""
@@ -393,6 +463,7 @@ async def oidc_provider(  # noqa: PLR0913
         scope=" ".join(scope),
         client_auth=client_auth,
         username_field=username_claim,
+        groups_field=groups_claim,
         # Standard OIDC claim for the profile picture.
         avatar_field="picture",
         provider_id=f"oidc:{issuer}",

@@ -304,6 +304,9 @@ class Config(BaseModel):
     use_https: bool = False
     eval_max_memory_size: int = 4096
     admins: list[str] = []
+    # Private visibility for non-forge logins; key/rule syntax in
+    # docs/OIDC.md, semantics in auth.can_view_private.
+    private_repo_viewers: dict[str, list[str]] = {}
     eval_worker_count: int | None = None
     # Concurrent evaluations (global); default matches today's global eval lock.
     eval_concurrency: int = 1

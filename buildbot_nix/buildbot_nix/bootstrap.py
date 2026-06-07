@@ -132,6 +132,7 @@ async def _login_providers(config: Config) -> dict[str, OAuthProvider]:
                 config.oidc.client_secret,
                 config.oidc.scope,
                 username_claim=config.oidc.mapping.username,
+                groups_claim=config.oidc.mapping.groups,
             )
         except Exception:
             logger.exception("OIDC discovery failed; OIDC login disabled")
@@ -247,6 +248,7 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
     authz = AuthzConfig(
         admins=config.admins,
         allow_unauthenticated_control=config.allow_unauthenticated_control,
+        private_repo_viewers=config.private_repo_viewers,
     )
     signer = SessionSigner(
         load_signing_keys(config.state_dir), lifetime=config.session_lifetime
@@ -269,7 +271,13 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
     providers = await _login_providers(config)
     if providers:
         app.include_router(
-            create_auth_router(providers, signer, config.url, ctx.forge_tokens),
+            create_auth_router(
+                providers,
+                signer,
+                config.url,
+                ctx.forge_tokens,
+                private_repo_viewers=config.private_repo_viewers,
+            ),
             include_in_schema=False,
         )
         labels = {"github": "GitHub", "gitea": "Gitea"}

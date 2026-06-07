@@ -301,3 +301,30 @@ def test_metrics_unauthenticated_no_private_names(harness: tuple) -> None:
     assert "buildbot_nix_projects" in response.text
     # No private repo names leak into metrics.
     assert "secret" not in response.text
+
+
+def test_configured_viewers_see_private(harness: tuple) -> None:
+    """privateRepoViewers grants visibility to users without forge
+    tokens (e.g. OIDC logins)."""
+    _loop, client = harness
+    ctx = client._transport.app.state.web_context  # noqa: SLF001
+    saved = ctx.visibility.authz
+    ctx.visibility.authz = AuthzConfig(
+        admins=["github:root"],
+        private_repo_viewers={
+            "github:acme/secret": [
+                "oidc:idp:*",
+                "oidc:idp:group:auditors",
+            ]
+        },
+    )
+    try:
+        idp_user = User(provider="oidc:idp", username="dora")
+        assert get(harness, "/repos/github/acme/secret", idp_user).status_code == 200
+        auditor = User(provider="oidc:other", username="erik", groups=("auditors",))
+        # Different provider: neither rule matches.
+        assert get(harness, "/repos/github/acme/secret", auditor).status_code == 404
+        # Anonymous stays out.
+        assert get(harness, "/repos/github/acme/secret").status_code == 404
+    finally:
+        ctx.visibility.authz = saved

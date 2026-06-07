@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from ..auth import OAuthError, same_origin  # noqa: TID252
+from ..auth import OAuthError, relevant_groups, same_origin  # noqa: TID252
 
 if TYPE_CHECKING:
     from ..auth import OAuthProvider, SessionSigner  # noqa: TID252
@@ -29,12 +30,13 @@ def _check_callback_params(request: Request, code: str, state: str, error: str) 
         )
 
 
-def create_auth_router(
+def create_auth_router(  # noqa: PLR0913
     providers: dict[str, OAuthProvider],
     signer: SessionSigner,
     base_url: str,
     forge_tokens: TokenVault,
     http: httpx.AsyncClient | None = None,
+    private_repo_viewers: dict[str, list[str]] | None = None,
 ) -> APIRouter:
     router = APIRouter()
     http = http or httpx.AsyncClient()
@@ -79,6 +81,10 @@ def create_auth_router(
                 status_code=403,
                 detail=f"login failed ({exc}); please log in again",
             ) from exc
+        if user.groups:
+            user = replace(
+                user, groups=relevant_groups(user.groups, private_repo_viewers or {})
+            )
         session_id = secrets.token_urlsafe(32)
         await forge_tokens.save(session_id, access_token, signer.lifetime)
         response = RedirectResponse("/")
