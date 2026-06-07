@@ -52,6 +52,7 @@ class FakeFetcher:
 @pytest.fixture(scope="module")
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     with ephemeral_postgres(tmp_path_factory, "vis") as dsn:
+        asyncio.run(seed(dsn))
         yield dsn
 
 
