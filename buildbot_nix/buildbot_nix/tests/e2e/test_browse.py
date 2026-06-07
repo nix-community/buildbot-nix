@@ -28,12 +28,17 @@ def test_navigate_sidebar_to_failed_build(page: Page) -> None:
     page.locator('a[href$="/builds/2"]').first.click()
     page.wait_for_url("**/builds/2")
     content = page.content()
-    # Failed attributes sort first within their system group.
-    assert content.index("x86_64-linux.bad") < content.index("x86_64-linux.ok")
+    # Failures render inline, the succeeded bulk is collapsed.
+    assert "x86_64-linux.bad" in content
+    assert "x86_64-linux.ok" not in content
     # Inline error excerpt under the failed attribute.
     assert "builder failed loudly" in content
     # Commit links back to the forge.
     assert "https://github.com/acme/widget/commit/sha-2" in content
+
+    # Expanding the group lazy-loads its rows.
+    page.get_by_text("2 succeeded").click()
+    page.locator('tr[data-attr="x86_64-linux.ok"]').wait_for()
 
 
 def test_build_prev_next_navigation(page: Page) -> None:

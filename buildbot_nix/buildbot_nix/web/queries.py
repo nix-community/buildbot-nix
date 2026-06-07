@@ -287,6 +287,34 @@ class WebQueries:
             )
         )
 
+    async def attribute_counts(self, build_id: int) -> dict[str, int]:
+        """Attribute counts per status."""
+        rows = await self.pool.fetch(
+            "SELECT status, count(*) AS count FROM build_attributes"
+            " WHERE build_id = $1 GROUP BY status",
+            build_id,
+        )
+        return {r["status"]: r["count"] for r in rows}
+
+    async def attribute_page(
+        self, build_id: int, statuses: tuple[str, ...], limit: int, page: int
+    ) -> Page:
+        """One page of attributes with the given statuses, by name."""
+        rows = await self.pool.fetch(
+            """
+            SELECT a.*, l.path AS log_path, l.size_bytes AS log_size
+            FROM build_attributes a
+            LEFT JOIN logs l ON l.attribute_id = a.id
+            WHERE a.build_id = $1 AND a.status = any($2::text[])
+            ORDER BY a.attr LIMIT $3 OFFSET $4
+            """,
+            build_id,
+            list(statuses),
+            limit + 1,
+            (page - 1) * limit,
+        )
+        return Page(items=_rows(rows[:limit]), page=page, has_next=len(rows) > limit)
+
     async def attribute_history(
         self, project_id: int, attr: str, limit: int = 50
     ) -> list[dict[str, Any]]:

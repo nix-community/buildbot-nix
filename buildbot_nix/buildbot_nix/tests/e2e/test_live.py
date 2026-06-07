@@ -27,6 +27,8 @@ def test_attribute_table_refreshes_while_building(
     page: Page, server: EngineServer
 ) -> None:
     page.goto("/repos/github/acme/widget/builds/3")
+    # Succeeded attributes are collapsed; expand to lazy-load the rows.
+    page.get_by_text("succeeded", exact=False).first.click()
     row = page.locator('tr[data-attr="aarch64-linux.other"]')
     row.locator(".status-icon.succeeded").wait_for()
 
@@ -42,7 +44,8 @@ def test_attribute_table_refreshes_while_building(
         )
 
     server.run(fail_attribute())
-    # The status event pushes the updated attribute fragment.
+    # The status event refreshes the page; the failed attribute moves
+    # into the inline failure table.
     row.locator(".status-icon.failed").wait_for(timeout=15_000)
     assert "flipped by e2e test" in page.content()
 

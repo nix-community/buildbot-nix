@@ -1,0 +1,34 @@
+{% from "_macros.html" import status_icon %}
+{% for a in attributes %}
+  <tr data-attr="{{ a.attr | lower }}">
+    <td class="attr-status">{{ status_icon(a.status) }}</td>
+    <td class="attr-name">
+      {% if a.log_path or a.status in RUNNING_STATUSES %}
+        <a href="{{ build_path(project, build.number) }}/logs/{{ a.attr }}"><code>{{ a.attr }}</code></a>
+      {% else %}
+        <code>{{ a.attr }}</code>
+      {% endif %}
+    </td>
+    <td class="attr-duration">{{ a | duration }}</td>
+  </tr>
+  {% if a.error %}
+    <tr data-attr="{{ a.attr | lower }}">
+      <td colspan="3">
+        <details class="error">
+          <summary>{{ a.error | excerpt(160) }}</summary>
+          <pre class="error">{{ a.error }}</pre>
+        </details>
+      </td>
+    </tr>
+  {% endif %}
+{% endfor %}
+{% if more_url %}
+  <tr>
+    <td colspan="3"
+        class="muted"
+        hx-get="{{ more_url }}"
+        hx-trigger="intersect once"
+        hx-swap="outerHTML"
+        hx-target="closest tr">loading more…</td>
+  </tr>
+{% endif %}

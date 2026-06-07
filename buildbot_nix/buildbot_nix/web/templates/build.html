@@ -14,9 +14,12 @@
   {% if build.status in RUNNING_STATUSES %}
     {% set trigger = trigger ~ ", htmx:sseOpen from:body" %}
   {% endif %}
+  {# hx-disinherit: the lazy attribute-row fetches inside would
+     otherwise inherit hx-select="#main" and swap in nothing. #}
   <main id="main"
         hx-get="{{ build_path(project, build.number) }}"
         hx-select="#main"
+        hx-disinherit="hx-select hx-target hx-swap"
         hx-target="this"
         hx-swap="morph:outerHTML"
         hx-trigger="{{ trigger }}">

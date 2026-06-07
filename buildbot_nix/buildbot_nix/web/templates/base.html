@@ -61,8 +61,8 @@
     <script src="/static/vendor/sse.min.js?v={{ static_v }}"></script>
     <script src="/static/vendor/idiomorph-ext.min.js?v={{ static_v }}"></script>
     <script>
-      /* Attribute filter: client-side, the build page renders all
-         attributes. Re-applied after htmx swaps in fresh rows. */
+      /* Attribute filter: client-side over the loaded rows.
+         Re-applied after htmx swaps in fresh rows. */
       const afilter = document.querySelector("#attr-filter");
       if (afilter) {
         const apply = () => {
@@ -74,10 +74,18 @@
         afilter.addEventListener("input", apply);
         document.body.addEventListener("htmx:afterSwap", apply);
       }
-      document.body.addEventListener("click", (e) => {
-        if (!e.target.closest("[data-toggle-skipped]")) return;
-        for (const row of document.querySelectorAll("tr.skipped-row")) {
-          row.hidden = !row.hidden;
+      /* Morphs render the server state, which always closes the
+         attribute groups - an SSE refresh would snap them shut and
+         drop their lazily loaded rows. Reapply the open state after
+         swaps; the restored placeholder re-fetches fresh rows. */
+      const openGroups = new Set();
+      document.body.addEventListener("toggle", (e) => {
+        const g = e.target.closest?.("details.attr-group");
+        if (g) openGroups[g.open ? "add" : "delete"](g.dataset.group);
+      }, true);
+      document.body.addEventListener("htmx:afterSwap", () => {
+        for (const g of document.querySelectorAll("details.attr-group")) {
+          if (openGroups.has(g.dataset.group)) g.open = true;
         }
       });
     </script>

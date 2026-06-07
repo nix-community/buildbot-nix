@@ -51,6 +51,19 @@ if TYPE_CHECKING:
 # Upper bound for live row refreshes of deep-scrolled tables.
 MAX_ROWS = 500
 
+# Builds can have thousands of attributes: failures and running work
+# render inline, the rest collapses to counts and loads in pages.
+ATTR_PAGE = 200
+ATTR_GROUPS: dict[str, tuple[str, ...]] = {
+    "failed": ("failed", "failed_eval", "dependency_failed", "cached_failure"),
+    "building": ("building",),
+    "pending": ("pending",),
+    "cancelled": ("cancelled",),
+    "succeeded": ("succeeded",),
+    "skipped": ("skipped_local",),
+}
+INLINE_GROUPS = ("failed", "building")
+
 
 class WebContext:
     """Shared state for the routes; auth (5.3) extends this."""
@@ -305,14 +318,66 @@ class _PageRoutes:
         prev_number, next_number = await ctx.queries.neighbor_numbers(
             project["id"], number
         )
+        counts = await ctx.queries.attribute_counts(build["id"])
+        group_counts = {
+            group: sum(counts.get(s, 0) for s in statuses)
+            for group, statuses in ATTR_GROUPS.items()
+        }
+        inline = {
+            group: await ctx.queries.attribute_page(
+                build["id"], ATTR_GROUPS[group], ATTR_PAGE, 1
+            )
+            for group in INLINE_GROUPS
+            if group_counts[group]
+        }
         return ctx.render(
             "build.html",
             request=request,
             project=project,
             build=build,
-            attributes=await ctx.queries.attributes(build["id"]),
+            group_counts=group_counts,
+            inline=inline,
             prev_number=prev_number,
             next_number=next_number,
+        )
+
+    async def attribute_rows(  # noqa: PLR0913
+        self,
+        request: Request,
+        forge: str,
+        owner: str,
+        name: str,
+        number: int,
+        group: str,
+        page: int = 1,
+        limit: int = ATTR_PAGE,
+    ) -> HTMLResponse:
+        """Row fragments for one attribute group, infinite scroll."""
+        ctx = self.ctx
+        statuses = ATTR_GROUPS.get(group)
+        if statuses is None:
+            raise HTTPException(status_code=404)
+        project = await ctx.repo_or_404(forge, owner, name, request)
+        build = await ctx.queries.build_by_number(project["id"], number)
+        if build is None:
+            raise HTTPException(status_code=404)
+        limit = min(max(limit, 1), MAX_ROWS)
+        rows = await ctx.queries.attribute_page(
+            build["id"], statuses, limit, max(page, 1)
+        )
+        more_url = None
+        if rows.has_next:
+            more_url = (
+                f"/repos/{forge}/{owner}/{name}/builds/{number}/attrs"
+                f"?group={group}&page={rows.page + 1}&limit={limit}"
+            )
+        return ctx.render(
+            "_attr_rows.html",
+            request=request,
+            project=project,
+            build=build,
+            attributes=rows.items,
+            more_url=more_url,
         )
 
     async def attribute_history(
@@ -348,6 +413,10 @@ def create_router(ctx: WebContext) -> APIRouter:
         ("/repos/{forge}/{owner}/{name}", pages.repo_page),
         ("/repos/{forge}/{owner}/{name}/rows", pages.repo_rows),
         ("/repos/{forge}/{owner}/{name}/builds/{number}", pages.build_page),
+        (
+            "/repos/{forge}/{owner}/{name}/builds/{number}/attrs",
+            pages.attribute_rows,
+        ),
         ("/repos/{forge}/{owner}/{name}/attrs/{attr}", pages.attribute_history),
     ]
     for path, handler in html_pages:

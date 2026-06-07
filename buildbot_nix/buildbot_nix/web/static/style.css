@@ -259,18 +259,6 @@ h2 .status-icon {
 	border-style: dashed;
 	opacity: 0.6;
 }
-.link-btn {
-	padding: 0;
-	color: var(--muted);
-	background: none;
-	border: none;
-	font-size: 0.85rem;
-	text-decoration: underline;
-	cursor: pointer;
-}
-.link-btn:hover {
-	color: var(--fg);
-}
 
 /* Pill chrome on the build lists; headings keep plain text. No color
    here: it would outweigh the .status.<state> variants below (higher
@@ -303,6 +291,13 @@ pre.warning {
 }
 details summary {
 	cursor: pointer;
+}
+details.attr-group {
+	margin: 0.75rem 0;
+}
+details.attr-group summary {
+	color: var(--muted);
+	font-size: 0.85rem;
 }
 details.error summary {
 	color: var(--bad);

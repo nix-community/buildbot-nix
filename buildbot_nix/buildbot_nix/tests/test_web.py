@@ -119,9 +119,11 @@ def test_build_page(client: WebClient) -> None:
     response = get(client, "/repos/github/acme/widget/builds/2")
     assert response.status_code == 200
     text = response.text
-    # Attributes grouped by system, failed first.
-    assert text.index("x86_64-linux.bad") < text.index("x86_64-linux.ok")
-    assert "aarch64-linux" in text
+    # Failures render inline; the succeeded bulk is collapsed to a count.
+    assert "x86_64-linux.bad" in text
+    assert "x86_64-linux.ok" not in text
+    assert "2 succeeded" in text
+    assert "attrs?group=succeeded" in text
     # Inline error excerpt.
     assert "builder failed loudly" in text
     # Prev/next navigation.
@@ -129,6 +131,25 @@ def test_build_page(client: WebClient) -> None:
     assert "/builds/3" in text
     # Forge links.
     assert "https://github.com/acme/widget/commit/sha-2" in text
+
+
+def test_attribute_rows_fragment_paginates(client: WebClient) -> None:
+    base = "/repos/github/acme/widget/builds/2/attrs"
+    rows = get(client, f"{base}?group=succeeded")
+    assert rows.status_code == 200
+    assert "x86_64-linux.ok" in rows.text
+    assert "aarch64-linux.other" in rows.text
+
+    first = get(client, f"{base}?group=succeeded&limit=1").text
+    assert "aarch64-linux.other" in first  # alphabetical within the group
+    assert "x86_64-linux.ok" not in first
+    assert "page=2" in first  # load-more sentinel
+
+    second = get(client, f"{base}?group=succeeded&limit=1&page=2").text
+    assert "x86_64-linux.ok" in second
+    assert "page=3" not in second
+
+    assert get(client, f"{base}?group=nonsense").status_code == 404
 
 
 def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
