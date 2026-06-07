@@ -64,6 +64,9 @@ in
                       self._json([{"id": 1}])
                   elif path == "/installation/repositories":
                       self._json({"repositories": [REPO]})
+                  elif path == "/repos/acme/test-flake/pulls":
+                      # Reconciliation polls open PRs; none exist here.
+                      self._json([])
                   else:
                       self._json({"message": "not found"}, 404)
 
@@ -280,7 +283,7 @@ in
 
     with subtest("github: project discovered from fake forge"):
         def github_project_discovered(_ignore):
-            out = github.succeed("curl --fail -s http://127.0.0.1:8010/api/projects")
+            out = github.succeed("curl --fail -s http://127.0.0.1:8010/api/repos")
             projects = json.loads(out)
             print(projects)
             return any(
@@ -318,8 +321,8 @@ in
                 if s["state"] in ("success", "failure", "error")
             }
             return (
-                done.get("nix-eval") == "success"
-                and done.get("nix-build") == "success"
+                done.get("buildbot/nix-eval") == "success"
+                and done.get("buildbot/nix-build") == "success"
             )
 
         retry(github_statuses_posted, timeout_seconds=300)
@@ -367,8 +370,8 @@ in
                 if s["status"] in ("success", "failure", "error")
             }
             return (
-                done.get("nix-eval") == "success"
-                and done.get("nix-build") == "success"
+                done.get("buildbot/nix-eval") == "success"
+                and done.get("buildbot/nix-build") == "success"
             )
 
         retry(gitea_statuses_posted, timeout_seconds=300)
