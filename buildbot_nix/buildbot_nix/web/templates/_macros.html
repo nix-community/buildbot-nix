@@ -20,3 +20,27 @@
 {% macro ago(ts) -%}
   <time datetime="{{ ts.isoformat() }}" title="{{ ts }}">{{ ts | timeago }}</time>
 {%- endmacro %}
+{% macro status_pill(status) -%}
+  <span class="status {{ status }}">{{ status.replace('_', ' ') }}</span>
+{%- endmacro %}
+{# Pull-based projects carry a local path, not a web URL. #}
+{% macro project_link(p, class="") -%}
+  {%- if p.url.startswith("http") -%}
+    <a {% if class %}class="{{ class }}"{% endif %} href="{{ p.url }}">{{ repo_name(p.owner, p.name) }}</a>
+  {%- elif class -%}
+    <span class="{{ class }}">{{ repo_name(p.owner, p.name) }}</span>
+  {%- else -%}
+    {{ repo_name(p.owner, p.name) }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro toggle_form(p, q, label) -%}
+  <form method="post"
+        action="/admin/repos/{{ p.id }}/toggle"
+        hx-post="/admin/repos/{{ p.id }}/toggle"
+        hx-select="#main"
+        hx-target="#main"
+        hx-swap="morph:outerHTML">
+    <input type="hidden" name="q" value="{{ q }}">
+    <button class="toggle-btn">{{ label }}</button>
+  </form>
+{%- endmacro %}

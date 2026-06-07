@@ -17,7 +17,7 @@
         </td>
         <td>{{ repo_name(b.owner, b.project_name) }}</td>
         <td>
-          {{ status_icon(b.status) }}<a href="/repos/{{ b.forge }}/{{ b.owner }}/{{ b.project_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
+          {{ status_icon(b.status) }}<a href="{{ build_path(b, b.number) }}">#{{ b.number }}</a>
         </td>
         <td>{{ ref_link(b, b) }}</td>
         <td>{{ ago(b.created_at) }}</td>

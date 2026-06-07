@@ -1,15 +1,13 @@
 {% from "_macros.html" import status_icon, ref_link, commit_link, ago %}
-{% set row_owner = b["owner"] if "owner" in b else project.owner %}
-{% set
-row_name = b["project_name"] if "project_name" in b else project.name %}
-{% set row_project = b if "url" in b else project %}
+{# Activity-feed rows join the project columns onto the build row. #}
+{% set row = b if "owner" in b else project %}
 <tr data-id="{{ b.id }}">
   <td>
-    {{ status_icon(b.status) }}<a href="/repos/{{ row_project.forge }}/{{ row_owner }}/{{ row_name }}/builds/{{ b.number }}">#{{ b.number }}</a>
+    {{ status_icon(b.status) }}<a href="{{ build_path(row, b.number) }}">#{{ b.number }}</a>
   </td>
-  {% if "project_name" in b %}<td>{{ repo_name(row_owner, row_name) }}</td>{% endif %}
-  <td>{{ ref_link(row_project, b) }}</td>
-  <td>{{ commit_link(row_project, b.commit_sha) }}</td>
+  {% if "project_name" in b %}<td>{{ repo_name(b.owner, b.project_name) }}</td>{% endif %}
+  <td>{{ ref_link(row, b) }}</td>
+  <td>{{ commit_link(row, b.commit_sha) }}</td>
   <td>{{ ago(b.created_at) }}</td>
   <td>{{ b | duration }}</td>
 </tr>

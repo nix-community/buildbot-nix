@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_icon %}
+{% from "_macros.html" import status_icon, project_link %}
 {% block title %}
   {{ repo_name(project.owner, project.name) }}
 {% endblock title %}
@@ -14,12 +14,7 @@
           {{ status_icon(builds['items'][0].status, labelled=false) }}
           <span class="visually-hidden">latest build {{ builds['items'][0].status.replace('_', ' ') }}</span>
         {% endif %}
-        {# Pull-based projects carry a local path, not a web URL. #}
-        {% if project.url.startswith("http") %}
-          <a href="{{ project.url }}">{{ repo_name(project.owner, project.name) }}</a>
-        {% else %}
-          {{ repo_name(project.owner, project.name) }}
-        {% endif %}
+        {{ project_link(project) }}
       </h2>
       <form method="get" class="filters">
         <select name="status" aria-label="status">
@@ -35,7 +30,7 @@
                value="{{ ref }}">
         <button>filter</button>
       </form>
-      {% set rows_url = "/repos/" ~ project.forge ~ "/" ~ project.owner ~ "/" ~ project.name ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
+      {% set rows_url = repo_path(project) ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
       <table class="builds">
         <thead>
           <tr>

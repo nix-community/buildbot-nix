@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import commit_link, ago %}
+{% from "_macros.html" import commit_link, ago, status_pill %}
 {% block title %}
   {{ attr }} history
 {% endblock title %}
@@ -9,7 +9,7 @@ block body %}
   <section class="content">
     <h2>
       <code>{{ attr }}</code>
-      <small>in <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a></small>
+      <small>in <a href="{{ repo_path(project) }}">{{ repo_name(project.owner, project.name) }}</a></small>
     </h2>
     <table class="builds">
       <tr>
@@ -22,12 +22,10 @@ block body %}
       {% for h in history %}
         <tr>
           <td>
-            <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ h.build_number }}">#{{ h.build_number }}</a>
+            <a href="{{ build_path(project, h.build_number) }}">#{{ h.build_number }}</a>
           </td>
           <td>{{ h.branch }}</td>
-          <td>
-            <span class="status {{ h.status }}">{{ h.status.replace('_', ' ') }}</span>
-          </td>
+          <td>{{ status_pill(h.status) }}</td>
           <td>{{ commit_link(project, h.commit_sha) }}</td>
           <td>{{ ago(h.build_created_at) }}</td>
         </tr>

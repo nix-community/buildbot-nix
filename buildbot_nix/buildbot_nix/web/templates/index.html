@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_icon %}
+{% from "_macros.html" import status_icon, project_link, toggle_form %}
 {% block bodyattrs %}
   hx-ext="sse, morph" sse-connect="/events"
 {% endblock bodyattrs %}
@@ -41,7 +41,7 @@
           {% set max_secs = p.history | map(attribute='secs') | select | max | default(1, true) %}
           <div class="pipeline-row">
             <a class="pipeline{% if p.last_status %} {{ p.last_status }}{% endif %}"
-               href="/repos/{{ p.forge }}/{{ p.owner }}/{{ p.name }}">
+               href="{{ repo_path(p) }}">
               {{ status_icon(p.last_status or "", labelled=false) }}
               {% if p.last_status %}
                 <span class="visually-hidden">{{ p.last_status.replace('_', ' ') }}</span>
@@ -83,17 +83,7 @@
                 <span class="muted">reliability</span>
               </div>
             </a>
-            {% if toggleable is none or p.id in toggleable %}
-              <form method="post"
-                    action="/admin/repos/{{ p.id }}/toggle"
-                    hx-post="/admin/repos/{{ p.id }}/toggle"
-                    hx-select="#main"
-                    hx-target="#main"
-                    hx-swap="morph:outerHTML">
-                <input type="hidden" name="q" value="{{ q }}">
-                <button class="toggle-btn">disable</button>
-              </form>
-            {% endif %}
+            {% if toggleable is none or p.id in toggleable %}{{ toggle_form(p, q, "disable") }}{% endif %}
           </div>
         {% else %}
           {% if q %}
@@ -112,21 +102,9 @@
             <div class="pipeline-row disabled">
               <span class="pipeline">
                 <span class="dot" aria-hidden="true"></span>
-                {% if p.url.startswith("http") %}
-                  <a class="pipeline-name" href="{{ p.url }}">{{ repo_name(p.owner, p.name) }}</a>
-                {% else %}
-                  <span class="pipeline-name">{{ repo_name(p.owner, p.name) }}</span>
-                {% endif %}
+                {{ project_link(p, class="pipeline-name") }}
               </span>
-              <form method="post"
-                    action="/admin/repos/{{ p.id }}/toggle"
-                    hx-post="/admin/repos/{{ p.id }}/toggle"
-                    hx-select="#main"
-                    hx-target="#main"
-                    hx-swap="morph:outerHTML">
-                <input type="hidden" name="q" value="{{ q }}">
-                <button class="toggle-btn">enable</button>
-              </form>
+              {{ toggle_form(p, q, "enable") }}
             </div>
           {% endfor %}
         </div>

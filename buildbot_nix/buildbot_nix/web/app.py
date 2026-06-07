@@ -113,9 +113,19 @@ def duration_secs(value: float | None) -> str:
 
 def commit_url(project: dict[str, Any], sha: str) -> str:
     base = project["url"].removesuffix(".git")
-    if project["forge"] == "github":
-        return f"{base}/commit/{sha}"
+    # GitHub and Gitea share the commit URL scheme.
     return f"{base}/commit/{sha}"
+
+
+def repo_path(project: dict[str, Any]) -> str:
+    """Internal page path; accepts project rows and build rows joined
+    with the project (which carry the name as project_name)."""
+    name = project.get("name") or project["project_name"]
+    return f"/repos/{project['forge']}/{project['owner']}/{name}"
+
+
+def build_path(project: dict[str, Any], number: int) -> str:
+    return f"{repo_path(project)}/builds/{number}"
 
 
 def pr_url(project: dict[str, Any], pr_number: int) -> str:
@@ -157,6 +167,8 @@ def make_env() -> Environment:
     env.globals["repo_name"] = repo_name
     env.globals["pr_url"] = pr_url
     env.globals["branch_url"] = branch_url
+    env.globals["repo_path"] = repo_path
+    env.globals["build_path"] = build_path
     env.globals["RUNNING_STATUSES"] = RUNNING_STATUSES
     # Header login links; the service composition fills this in.
     env.globals["login_providers"] = []

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_icon %}
+{% from "_macros.html" import status_icon, status_pill %}
 {% block title %}
   {{ repo_name(project.owner,
     project.name) }} #{{ build.number }}
@@ -15,7 +15,7 @@
     {% set trigger = trigger ~ ", htmx:sseOpen from:body" %}
   {% endif %}
   <main id="main"
-        hx-get="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}"
+        hx-get="{{ build_path(project, build.number) }}"
         hx-select="#main"
         hx-target="this"
         hx-swap="morph:outerHTML"
@@ -24,17 +24,17 @@
       <div class="build-header">
         <div>
           <h2>
-            {{ status_icon(build.status, labelled=false) }}<a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}">{{ repo_name(project.owner, project.name) }}</a>
+            {{ status_icon(build.status, labelled=false) }}<a href="{{ repo_path(project) }}">{{ repo_name(project.owner, project.name) }}</a>
             build #{{ build.number }}
-            <span class="status {{ build.status }}">{{ build.status }}</span>
+            {{ status_pill(build.status) }}
             <span class="pager">
               {% if prev_number %}
-                <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ prev_number }}"
+                <a href="{{ build_path(project, prev_number) }}"
                    title="previous build"
                    rel="prev">← #{{ prev_number }}</a>
               {% endif %}
               {% if next_number %}
-                <a href="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ next_number }}"
+                <a href="{{ build_path(project, next_number) }}"
                    title="next build"
                    rel="next">#{{ next_number }} →</a>
               {% endif %}
@@ -54,17 +54,16 @@
         <div class="controls">
           {# Authorization is enforced server-side (admins, PR authors). #}
           {% if build.status in RUNNING_STATUSES %}
-            <form method="post"
-                  action="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/cancel">
+            <form method="post" action="{{ build_path(project, build.number) }}/cancel">
               <button>cancel</button>
             </form>
           {% else %}
             <form method="post"
-                  action="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/restart">
+                  action="{{ build_path(project, build.number) }}/restart">
               <button>restart</button>
             </form>
             <form method="post"
-                  action="/repos/{{ project.forge }}/{{ project.owner }}/{{ project.name }}/builds/{{ build.number }}/rebuild-failed">
+                  action="{{ build_path(project, build.number) }}/rebuild-failed">
               <button>rebuild failed</button>
             </form>
           {% endif %}
