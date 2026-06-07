@@ -1,13 +1,14 @@
 """Webhook ingestion.
 
-Endpoints `/webhooks/{github,gitea}` plus legacy buildbot aliases
-`/change_hook/{github,gitea}` (identical validation). GitHub payloads
-are verified against the App-level webhook secret
-(X-Hub-Signature-256); Gitea payloads against the per-repository
-secret stored in the database (X-Gitea-Signature). Deliveries are
+Endpoints `/webhooks/{github,gitea,gitlab}` plus legacy buildbot
+aliases `/change_hook/{github,gitea}` (identical validation). GitHub
+payloads are verified against the App-level webhook secret
+(X-Hub-Signature-256); Gitea and GitLab payloads against the
+per-repository secret stored in the database (HMAC X-Gitea-Signature
+vs. plain-token X-Gitlab-Token - GitLab does not sign). Deliveries are
 deduplicated by delivery GUID. A database outage makes handlers fail
-fast with 500 so the GitHub App redelivers (Gitea is backstopped by
-startup reconciliation).
+fast with 500 so the GitHub App redelivers (Gitea and GitLab are
+backstopped by startup reconciliation).
 
 All pull requests build (no trust gating — the Nix sandbox is the
 trust boundary); merge-queue branches always build.
@@ -231,6 +232,57 @@ def parse_gitea_event(  # noqa: PLR0911
 # --- FastAPI wiring -----------------------------------------------------------------
 
 
+def parse_gitlab_event(  # noqa: PLR0911
+    event_type: str, payload: dict[str, Any]
+) -> WebhookEvent | None:
+    repo_id = str((payload.get("project") or {}).get("id", ""))
+    if not repo_id:
+        return None
+    if event_type == "Push Hook":
+        ref = payload.get("ref", "")
+        if not ref.startswith("refs/heads/"):
+            return None
+        head = payload.get("after", "")
+        if not head or set(head) == {"0"}:
+            return None
+        head_commit: dict[str, Any] = next(
+            (
+                commit
+                for commit in payload.get("commits") or []
+                if (commit or {}).get("id") == head
+            ),
+            {},
+        )
+        return ChangeRequest(
+            forge="gitlab",
+            forge_repo_id=repo_id,
+            branch=ref.removeprefix("refs/heads/"),
+            commit_sha=head,
+            commit_message=head_commit.get("message", ""),
+        )
+    if event_type == "Merge Request Hook":
+        attrs = payload.get("object_attributes") or {}
+        number = attrs.get("iid")
+        if number is None:
+            return None
+        action = attrs.get("action", "")
+        if action == "close":
+            return PrClosed(forge="gitlab", forge_repo_id=repo_id, pr_number=number)
+        # No cancel on merge; see parse_github_event.
+        if action not in ("open", "update", "reopen"):
+            return None
+        # No commit_message; see parse_github_event.
+        return ChangeRequest(
+            forge="gitlab",
+            forge_repo_id=repo_id,
+            branch=attrs.get("target_branch", ""),
+            commit_sha=(attrs.get("last_commit") or {}).get("id", ""),
+            pr_number=number,
+            pr_author=f"gitlab:{(payload.get('user') or {}).get('username', '')}",
+        )
+    return None
+
+
 def parse_webhook_body(request: Request, body: bytes) -> dict[str, Any]:
     """Decode the webhook payload; malformed input is a client error
     (400), never a 500 that would trigger pointless redeliveries."""
@@ -257,7 +309,7 @@ class ChangeSink(Protocol):
     async def submit(self, event: WebhookEvent) -> None: ...
 
 
-class GiteaSecretStore(Protocol):
+class SecretStore(Protocol):
     async def secret_for_repo(self, forge_repo_id: str) -> str | None: ...
 
 
@@ -266,12 +318,14 @@ class _WebhookHandlers:
         self,
         sink: ChangeSink,
         github_webhook_secret: str | None,
-        gitea_secrets: GiteaSecretStore | None,
+        gitea_secrets: SecretStore | None,
+        gitlab_secrets: SecretStore | None,
         deduper: DeliveryDeduper,
     ) -> None:
         self.sink = sink
         self.github_webhook_secret = github_webhook_secret
         self.gitea_secrets = gitea_secrets
+        self.gitlab_secrets = gitlab_secrets
         self.deduper = deduper
 
     async def handle_github(self, request: Request) -> Response:
@@ -312,6 +366,25 @@ class _WebhookHandlers:
         event = parse_gitea_event(request.headers.get("X-Gitea-Event", ""), payload)
         return await self._dispatch(guid, event)
 
+    async def handle_gitlab(self, request: Request) -> Response:
+        if self.gitlab_secrets is None:
+            raise HTTPException(status_code=404, detail="gitlab not configured")
+        body = await request.body()
+        payload = parse_webhook_body(request, body)
+        repo_id = str((payload.get("project") or {}).get("id", ""))
+        try:
+            secret = await self.gitlab_secrets.secret_for_repo(repo_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="database unavailable") from e
+        token = request.headers.get("X-Gitlab-Token", "")
+        if secret is None or not hmac.compare_digest(secret, token):
+            raise HTTPException(status_code=403, detail="invalid token")
+        guid = request.headers.get("X-Gitlab-Event-UUID", "")
+        if self.deduper.is_duplicate(guid):
+            return Response(status_code=202, content="duplicate delivery")
+        event = parse_gitlab_event(request.headers.get("X-Gitlab-Event", ""), payload)
+        return await self._dispatch(guid, event)
+
     async def _dispatch(self, guid: str, event: WebhookEvent | None) -> Response:
         if event is None:
             self.deduper.record(guid)
@@ -335,16 +408,22 @@ class _WebhookHandlers:
 def create_webhook_router(
     sink: ChangeSink,
     github_webhook_secret: str | None,
-    gitea_secrets: GiteaSecretStore | None,
+    gitea_secrets: SecretStore | None,
+    gitlab_secrets: SecretStore | None = None,
     deduper: DeliveryDeduper | None = None,
 ) -> APIRouter:
     router = APIRouter()
     handlers = _WebhookHandlers(
-        sink, github_webhook_secret, gitea_secrets, deduper or DeliveryDeduper()
+        sink,
+        github_webhook_secret,
+        gitea_secrets,
+        gitlab_secrets,
+        deduper or DeliveryDeduper(),
     )
     # New paths plus legacy buildbot aliases with identical validation.
     for path in ("/webhooks/github", "/change_hook/github"):
         router.post(path)(handlers.handle_github)
     for path in ("/webhooks/gitea", "/change_hook/gitea"):
         router.post(path)(handlers.handle_gitea)
+    router.post("/webhooks/gitlab")(handlers.handle_gitlab)
     return router

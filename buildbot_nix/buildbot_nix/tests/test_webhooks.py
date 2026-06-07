@@ -26,6 +26,7 @@ from buildbot_nix.webhooks import (
     is_merge_queue_branch,
     parse_gitea_event,
     parse_github_event,
+    parse_gitlab_event,
     should_build_branch,
     verify_github_signature,
 )
@@ -260,7 +261,7 @@ class FakeSink:
         self.events.append(event)
 
 
-class FakeGiteaSecrets:
+class FakeSecrets:
     def __init__(self, secrets: dict[str, str], *, fail: bool = False) -> None:
         self.secrets = secrets
         self.fail = fail
@@ -273,12 +274,15 @@ class FakeGiteaSecrets:
 
 
 def make_client(
-    sink: FakeSink, gitea_secrets: FakeGiteaSecrets | None = None
+    sink: FakeSink, gitea_secrets: FakeSecrets | None = None
 ) -> httpx.AsyncClient:
     app = FastAPI()
     app.include_router(
         create_webhook_router(
-            sink, SECRET, gitea_secrets or FakeGiteaSecrets({"3": SECRET})
+            sink,
+            SECRET,
+            gitea_secrets or FakeSecrets({"3": SECRET}),
+            gitlab_secrets=FakeSecrets({"8": SECRET}),
         )
     )
     return httpx.AsyncClient(
@@ -519,5 +523,92 @@ def test_gitea_endpoint_per_repo_secret() -> None:
         assert bad.status_code == 403
         assert unknown.status_code == 403
         assert len(sink.events) == 1
+
+    asyncio.run(run())
+
+
+GITLAB_PUSH = {
+    "ref": "refs/heads/main",
+    "after": "abc",
+    "project": {"id": 8},
+    "commits": [{"id": "old", "message": "x"}, {"id": "abc", "message": "feat"}],
+}
+
+GITLAB_MR = {
+    "project": {"id": 8},
+    "user": {"username": "bob"},
+    "object_attributes": {
+        "iid": 4,
+        "action": "update",
+        "target_branch": "main",
+        "last_commit": {"id": "def"},
+    },
+}
+
+
+def test_parse_gitlab_events() -> None:
+    push = parse_gitlab_event("Push Hook", GITLAB_PUSH)
+    assert push == ChangeRequest(
+        forge="gitlab",
+        forge_repo_id="8",
+        branch="main",
+        commit_sha="abc",
+        commit_message="feat",
+    )
+    deleted = parse_gitlab_event("Push Hook", {**GITLAB_PUSH, "after": "0" * 40})
+    assert deleted is None
+
+    mr = parse_gitlab_event("Merge Request Hook", GITLAB_MR)
+    assert mr == ChangeRequest(
+        forge="gitlab",
+        forge_repo_id="8",
+        branch="main",
+        commit_sha="def",
+        pr_number=4,
+        pr_author="gitlab:bob",
+    )
+    closed = parse_gitlab_event(
+        "Merge Request Hook",
+        {**GITLAB_MR, "object_attributes": {"iid": 4, "action": "close"}},
+    )
+    assert closed == PrClosed(forge="gitlab", forge_repo_id="8", pr_number=4)
+    merged = parse_gitlab_event(
+        "Merge Request Hook",
+        {**GITLAB_MR, "object_attributes": {"iid": 4, "action": "merge"}},
+    )
+    assert merged is None
+
+
+def test_gitlab_endpoint_token_validation() -> None:
+    async def run() -> None:
+        sink = FakeSink()
+        async with make_client(sink) as client:
+            headers = {
+                "X-Gitlab-Event": "Push Hook",
+                "X-Gitlab-Event-UUID": "u1",
+                "Content-Type": "application/json",
+            }
+            body = json.dumps(GITLAB_PUSH).encode()
+            bad = await client.post(
+                "/webhooks/gitlab",
+                content=body,
+                headers={**headers, "X-Gitlab-Token": "wrong"},
+            )
+            assert bad.status_code == 403
+            ok = await client.post(
+                "/webhooks/gitlab",
+                content=body,
+                headers={**headers, "X-Gitlab-Token": SECRET},
+            )
+            assert ok.status_code == 202
+            dup = await client.post(
+                "/webhooks/gitlab",
+                content=body,
+                headers={**headers, "X-Gitlab-Token": SECRET},
+            )
+            assert dup.status_code == 202
+            assert dup.text == "duplicate delivery"
+        assert len(sink.events) == 1
+        assert sink.events[0].forge == "gitlab"
 
     asyncio.run(run())
