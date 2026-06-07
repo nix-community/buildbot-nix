@@ -39,19 +39,19 @@ def create_token_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/tokens", response_class=HTMLResponse)
-    async def tokens_page(request: Request) -> HTMLResponse:
+    @router.get("/settings", response_class=HTMLResponse)
+    async def settings_page(request: Request) -> HTMLResponse:
         user = ctx.current_user(request)
         if user is None:
             raise HTTPException(status_code=403, detail="login required")
         return ctx.render(
-            "tokens.html",
+            "settings.html",
             user=user,
             tokens=await store.list_for(user),
             new_token=None,
         )
 
-    @router.post("/tokens", response_class=HTMLResponse)
+    @router.post("/settings/tokens", response_class=HTMLResponse)
     async def create_token(
         request: Request,
         name: Annotated[str, Form()] = "",
@@ -65,13 +65,13 @@ def create_token_router(
         token = await store.create(user, name or "unnamed", _parse_expiry(expires_days))
         # Shown exactly once.
         return ctx.render(
-            "tokens.html",
+            "settings.html",
             user=user,
             tokens=await store.list_for(user),
             new_token=token,
         )
 
-    @router.post("/tokens/{token_id}/revoke")
+    @router.post("/settings/tokens/{token_id}/revoke")
     async def revoke_token(request: Request, token_id: int) -> RedirectResponse:
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
@@ -80,6 +80,6 @@ def create_token_router(
             raise HTTPException(status_code=403, detail="login required")
         if not await store.revoke(user, token_id):
             raise HTTPException(status_code=404)
-        return RedirectResponse("/tokens", status_code=303)
+        return RedirectResponse("/settings", status_code=303)
 
     return router

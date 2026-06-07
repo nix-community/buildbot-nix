@@ -354,7 +354,7 @@ def test_token_creation_with_expiry(harness: tuple) -> None:
     def create(data: dict) -> httpx.Response:
         return loop.run_until_complete(
             client.post(
-                "/tokens",
+                "/settings/tokens",
                 data=data,
                 cookies={"buildbot_nix_session": SIGNER.session_for(ALICE)},
                 headers={"Origin": "http://test"},

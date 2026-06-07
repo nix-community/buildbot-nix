@@ -1,18 +1,19 @@
 {% extends "base.html" %}
 {% block title %}
-  API tokens
+  Settings
 {% endblock title %}
 {% block body %}
   <main id="main">
     <section class="content">
       <h2>
-        API tokens <small>for {{ user.qualified }}</small>
+        Settings <small>for {{ user.qualified }}</small>
       </h2>
+      <h3>API tokens</h3>
       {% if new_token %}
         <pre class="error warning">Your new token (shown only once):
 {{ new_token }}</pre>
       {% endif %}
-      <form method="post" action="/tokens" class="filters">
+      <form method="post" action="/settings/tokens" class="filters">
         <input type="text"
                name="name"
                placeholder="token name"
@@ -39,7 +40,7 @@
             </td>
             <td>{{ t.expires_at or "never" }}</td>
             <td>
-              <form method="post" action="/tokens/{{ t.id }}/revoke">
+              <form method="post" action="/settings/tokens/{{ t.id }}/revoke">
                 <button>revoke</button>
               </form>
             </td>
