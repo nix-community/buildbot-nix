@@ -236,7 +236,7 @@ class GitHubFetchCredentialsProvider:
         _write_netrc_atomic(
             netrc, f"machine {host} login x-access-token password {token}\n"
         )
-        return FetchCredentials(netrc_file=netrc)
+        return FetchCredentials(netrc_file=netrc, token=token)
 
 
 def _write_netrc_atomic(netrc: Path, content: str) -> None:

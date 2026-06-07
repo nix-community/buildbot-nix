@@ -56,6 +56,8 @@ class FetchCredentials:
     """
 
     netrc_file: Path | None = None
+    # Raw forge token for hercules GitToken secret references.
+    token: str | None = None
     ssh_private_key_file: Path | None = None
     ssh_known_hosts_file: Path | None = None
 

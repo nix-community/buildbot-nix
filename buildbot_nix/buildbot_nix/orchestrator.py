@@ -37,6 +37,7 @@ from .effects import (
     run_effect,
     should_run_effects,
 )
+from .effects_state import TaskTokens
 from .events import ChangeEvent, NullStatusReporter, RepoInfo, StatusReporter
 from .executor import LogWriter, failure_excerpt
 from .gitrepo import GitError, MergeConflictError, run_git
@@ -94,6 +95,8 @@ class Orchestrator:
     canceller: CancellationManager = field(default_factory=CancellationManager)
     # Live log fan-out for the web frontend's SSE endpoints.
     log_registry: LogRegistry = field(default_factory=LogRegistry)
+    # Per-run bearer tokens for the hercules state API.
+    task_tokens: TaskTokens = field(default_factory=TaskTokens)
     # Second contexts attached to an in-flight build, for status fan-out.
     linked_events: dict[int, list[ChangeEvent]] = field(default_factory=dict)
 
@@ -388,7 +391,9 @@ class Orchestrator:
         await jobs_queue.put(None)
         status = await build_task
         if status == BuildStatus.SUCCEEDED:
-            await self._maybe_run_effects(event, build, worktree_path, branch_config)
+            await self._maybe_run_effects(
+                event, build, worktree_path, branch_config, credentials
+            )
 
     async def _build_attributes(
         self,
@@ -546,6 +551,7 @@ class Orchestrator:
         build: BuildRecord,
         worktree_path: Path,
         branch_config: BranchConfig,
+        credentials: FetchCredentials | None = None,
     ) -> None:
         repo = event.repo
         if not should_run_effects(
@@ -571,7 +577,14 @@ class Orchestrator:
                 repo.repo,
             ),
             extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
+            default_branch=repo.default_branch,
+            git_token=credentials.token if credentials is not None else None,
+            api_base_url=self.config.url,
+            project_id=str(repo.id),
+            mountables_file=self.config.effects_mountables_file,
         )
+        task_token = self.task_tokens.issue(build.project_id)
+        ctx.task_token = task_token
         try:
             for name in await list_effects(ctx):
                 await self._run_one_effect(ctx, build, name)
@@ -579,6 +592,8 @@ class Orchestrator:
             # OSError: buildbot-effects not installed; effects are
             # best-effort and must not fail the (already reported) build.
             logger.exception("effects execution failed", extra={"build_id": build.id})
+        finally:
+            self.task_tokens.revoke(task_token)
 
     @asynccontextmanager
     async def _open_log(

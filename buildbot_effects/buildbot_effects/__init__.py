@@ -358,6 +358,25 @@ def virtual_ids(drv_env: dict[str, str]) -> tuple[int, int]:
     return uid, gid
 
 
+def _task_env(
+    drv_env: dict[str, str], opts: EffectsOptions | None
+) -> tuple[dict[str, str], str]:
+    """Sandbox env plus the state API token ("dummy" without one,
+    like the agent's local mode)."""
+    env = sandbox_env(drv_env)
+    token = "dummy"  # noqa: S105 (placeholder, not a credential)
+    if opts is not None:
+        if opts.api_base_url:
+            env["HERCULES_CI_API_BASE_URL"] = opts.api_base_url
+        if opts.project_id:
+            env["HERCULES_CI_PROJECT_ID"] = opts.project_id
+        if opts.project_path:
+            env["HERCULES_CI_PROJECT_PATH"] = opts.project_path
+        if opts.task_token_file is not None:
+            token = opts.task_token_file.read_text().strip()
+    return env, token
+
+
 def run_effects(  # noqa: PLR0913
     drv_path: str,
     drv: dict[str, Any],
@@ -365,6 +384,7 @@ def run_effects(  # noqa: PLR0913
     secrets: dict[str, Any] | None = None,
     extra_sandbox_paths: list[Path] | None = None,
     bind_mounts: list[tuple[str, str, bool]] | None = None,
+    opts: EffectsOptions | None = None,
     debug: bool = False,
 ) -> None:
     if secrets is None:
@@ -380,7 +400,7 @@ def run_effects(  # noqa: PLR0913
         *args,
     ]
     drv_env = drv.get("env", {})
-    env = sandbox_env(drv_env)
+    env, task_token = _task_env(drv_env, opts)
     uid, gid = virtual_ids(drv_env)
     clear_env: set[str] = set()
     bwrap = shutil.which("bwrap")
@@ -454,7 +474,7 @@ def run_effects(  # noqa: PLR0913
 
     with NamedTemporaryFile() as tmp:
         secrets = secrets.copy()
-        secrets["hercules-ci"] = {"data": {"token": "dummy"}}
+        secrets["hercules-ci"] = {"data": {"token": task_token}}
         tmp.write(json.dumps(secrets).encode())
         tmp.flush()
         bubblewrap_cmd.extend(

@@ -89,9 +89,22 @@ class EffectsContext:
     secret_name: str | None = None
     extra_sandbox_paths: list[Path] = field(default_factory=list)
     timeout: float = DEFAULT_TIMEOUT
+    default_branch: str | None = None
+    # Forge token resolving hercules GitToken secret references.
+    git_token: str | None = None
+    # Hercules state API (served by the engine) + project metadata.
+    api_base_url: str | None = None
+    task_token: str | None = None
+    project_id: str | None = None
+    mountables_file: Path | None = None
 
 
 def _effects_args(ctx: EffectsContext, secrets_file: Path | None) -> list[str]:
+    optional = []
+    if ctx.default_branch is not None:
+        optional += ["--default-branch", ctx.default_branch]
+    if ctx.mountables_file is not None:
+        optional += ["--mountables-file", str(ctx.mountables_file)]
     return [
         "--rev",
         ctx.rev,
@@ -99,6 +112,7 @@ def _effects_args(ctx: EffectsContext, secrets_file: Path | None) -> list[str]:
         ctx.branch,
         "--repo",
         ctx.repo,
+        *optional,
         *[
             arg
             for path in ctx.extra_sandbox_paths
@@ -203,24 +217,45 @@ async def run_effect(
     """Run one effect; returns success. The secrets file is written
     outside the checkout (parent directory, like the buildbot setup)
     and removed afterwards."""
-    secrets_file: Path | None = None
-    if ctx.secret_name is not None:
-        secrets_file = (
-            ctx.worktree_path.parent / f"{ctx.worktree_path.name}-secrets.json"
-        )
+    side_files: list[Path] = []
+
+    def _side_file(suffix: str, content: str) -> Path:
         # Deploy credentials: 0600 only. touch() applies the mode just
         # on creation, so drop any leftover file first.
-        secrets_file.unlink(missing_ok=True)
-        secrets_file.touch(mode=0o600)
-        secrets_file.write_text(_read_secret_file(ctx.secret_name))
+        path = ctx.worktree_path.parent / f"{ctx.worktree_path.name}-{suffix}"
+        path.unlink(missing_ok=True)
+        path.touch(mode=0o600)
+        path.write_text(content)
+        side_files.append(path)
+        return path
+
+    secrets_file: Path | None = None
+    if ctx.secret_name is not None:
+        secrets_file = _side_file("secrets.json", _read_secret_file(ctx.secret_name))
+    extra: list[str] = []
+    if ctx.git_token is not None:
+        extra += ["--git-token-file", str(_side_file("git-token", ctx.git_token))]
+    if ctx.task_token is not None:
+        extra += ["--task-token-file", str(_side_file("task-token", ctx.task_token))]
+    if ctx.api_base_url is not None:
+        extra += ["--api-base-url", ctx.api_base_url]
+    if ctx.project_id is not None:
+        extra += ["--project-id", ctx.project_id]
+    extra += ["--project-path", ctx.repo]
     try:
         returncode, _, _ = await _run(
-            ["buildbot-effects", "run", *_effects_args(ctx, secrets_file), effect],
+            [
+                "buildbot-effects",
+                "run",
+                *_effects_args(ctx, secrets_file),
+                *extra,
+                effect,
+            ],
             ctx.worktree_path,
             log_write,
             time_limit=ctx.timeout,
         )
         return returncode == 0
     finally:
-        if secrets_file is not None:
-            secrets_file.unlink(missing_ok=True)
+        for path in side_files:
+            path.unlink(missing_ok=True)

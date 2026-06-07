@@ -240,7 +240,9 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     )
 
     # Web application.
-    app = create_app(pool, config.state_dir, orchestrator.log_registry)
+    app = create_app(
+        pool, config.state_dir, orchestrator.log_registry, orchestrator.task_tokens
+    )
     ctx = app.state.web_context
     authz = AuthzConfig(
         admins=config.admins,

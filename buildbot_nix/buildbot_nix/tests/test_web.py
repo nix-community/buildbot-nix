@@ -19,6 +19,7 @@ import pytest
 import zstandard
 
 from buildbot_nix.db import BuildStatus
+from buildbot_nix.effects_state import TaskTokens
 from buildbot_nix.executor import LogWriter
 from buildbot_nix.scheduler import AttributeStatus
 from buildbot_nix.web.app import create_app
@@ -29,6 +30,7 @@ from buildbot_nix.web.logs import (
     render_log_lines,
     strip_ansi,
 )
+from buildbot_nix.web.state_routes import create_state_router
 from buildbot_nix.web.templating import timeago
 
 from .e2e.support import seed
@@ -861,3 +863,34 @@ def test_effect_changes_notify_build_events(client: WebClient) -> None:
     payloads = [json.loads(r) for r in received]
     assert [p["status"] for p in payloads] == ["running", "succeeded"]
     assert all(p["effect"] == "fxlive" for p in payloads)
+
+
+def test_effects_state_api(client: WebClient, tmp_path: Path) -> None:
+    tokens = TaskTokens()
+    client.app.include_router(create_state_router(tmp_path, tokens))
+    token = tokens.issue(7)
+
+    auth = {"Authorization": f"Bearer {token}"}
+    url = "/api/v1/current-task/state/known-hosts/data"
+
+    async def run() -> None:
+        assert (await client.http.get(url)).status_code == 401
+        assert (await client.http.get(url, headers=auth)).status_code == 404
+        put = await client.http.put(url, headers=auth, content=b"host key\n")
+        assert put.status_code == 200
+        got = await client.http.get(url, headers=auth)
+        assert got.status_code == 200
+        assert got.content == b"host key\n"
+        # quote() keeps dots: "." and ".." would resolve to the
+        # project directory and its parent (reachable via %2E%2E).
+        for dots in ("%2E%2E", "%2E"):
+            dot_url = f"/api/v1/current-task/state/{dots}/data"
+            put = await client.http.put(dot_url, headers=auth, content=b"x")
+            assert put.status_code == 400
+        # Revoked token: effects cannot reach the API after their run.
+        tokens.revoke(token)
+        assert (await client.http.get(url, headers=auth)).status_code == 401
+
+    client.loop.run_until_complete(run())
+    # Scoped under the project directory, name percent-encoded.
+    assert (tmp_path / "effects-state" / "7" / "known-hosts").exists()

@@ -82,12 +82,14 @@ class NetrcFetchCredentialsProvider:
         self._netrc = Path(tempfile.mkdtemp(prefix="forge-netrc-")) / "netrc"
         self._netrc.touch(mode=0o600)
         self._netrc.write_text(f"machine {host} login oauth2 password {token}\n")
+        self._token = token
         self.ssh_private_key_file = ssh_private_key_file
         self.ssh_known_hosts_file = ssh_known_hosts_file
 
     async def get(self, repo_url: str) -> FetchCredentials:  # noqa: ARG002
         return FetchCredentials(
             netrc_file=self._netrc,
+            token=self._token,
             ssh_private_key_file=self.ssh_private_key_file,
             ssh_known_hosts_file=self.ssh_known_hosts_file,
         )

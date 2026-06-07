@@ -327,6 +327,9 @@ class EngineConfig(BaseModel):
 
     effects_per_repo_secrets: dict[str, str] = {}
     effects_extra_sandbox_paths: list[Path] = []
+    # JSON file with named mountables effects may request via
+    # __hci_effect_mounts: {name: {source, readOnly, condition}}.
+    effects_mountables_file: Path | None = None
     show_trace_on_failure: bool = False
     cache_failed_builds: bool = False
     allow_unauthenticated_control: bool = False

@@ -64,6 +64,10 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
         default_branch=base.default_branch,
         git_token_file=base.git_token_file,
         mountables_file=base.mountables_file,
+        api_base_url=base.api_base_url,
+        task_token_file=base.task_token_file,
+        project_id=base.project_id,
+        project_path=base.project_path,
         debug=base.debug,
         extra_sandbox_paths=base.extra_sandbox_paths,
     )
@@ -79,6 +83,10 @@ def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
         default_branch=getattr(args, "default_branch", None),
         git_token_file=getattr(args, "git_token_file", None),
         mountables_file=getattr(args, "mountables_file", None),
+        api_base_url=getattr(args, "api_base_url", None),
+        task_token_file=getattr(args, "task_token_file", None),
+        project_id=getattr(args, "project_id", None),
+        project_path=getattr(args, "project_path", None),
         debug=args.debug,
         extra_sandbox_paths=args.extra_sandbox_path,
     )
@@ -124,6 +132,7 @@ def run_command(args: argparse.Namespace) -> None:
             drv,
             secrets=select_secrets(drv, secrets, options),
             bind_mounts=select_mounts(drv, options),
+            opts=options,
             debug=options.debug,
             extra_sandbox_paths=options.extra_sandbox_paths,
         )
@@ -175,6 +184,7 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
             drv,
             secrets=select_secrets(drv, secrets, options),
             bind_mounts=select_mounts(drv, options),
+            opts=options,
             debug=options.debug,
             extra_sandbox_paths=options.extra_sandbox_paths,
         )
@@ -223,6 +233,26 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         "--mountables-file",
         type=Path,
         help="JSON file with mountables effects may request via __hci_effect_mounts",
+    )
+    parser.add_argument(
+        "--api-base-url",
+        type=str,
+        help="Hercules state API base URL (HERCULES_CI_API_BASE_URL)",
+    )
+    parser.add_argument(
+        "--task-token-file",
+        type=Path,
+        help="File with the bearer token for the state API",
+    )
+    parser.add_argument(
+        "--project-id",
+        type=str,
+        help="Value for HERCULES_CI_PROJECT_ID",
+    )
+    parser.add_argument(
+        "--project-path",
+        type=str,
+        help="Value for HERCULES_CI_PROJECT_PATH",
     )
     parser.add_argument(
         "--extra-sandbox-path",

@@ -17,5 +17,9 @@ class EffectsOptions:
     default_branch: str | None = None
     git_token_file: Path | None = None
     mountables_file: Path | None = None
+    api_base_url: str | None = None
+    task_token_file: Path | None = None
+    project_id: str | None = None
+    project_path: str | None = None
     debug: bool = False
     extra_sandbox_paths: list[Path] = field(default_factory=list)

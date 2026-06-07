@@ -201,3 +201,23 @@ def test_run_effect_extra_sandbox_paths(tmp_path: Path, fake_effects: Path) -> N
     asyncio.run(run_effect(ctx, "deploy"))
     calls = (fake_effects / "calls").read_text()
     assert f"--extra-sandbox-path {tmp_path / 'extra'}" in calls
+
+
+def test_run_effect_passes_task_flags(tmp_path: Path, fake_effects: Path) -> None:
+    ctx = make_ctx(tmp_path)
+    ctx.default_branch = "main"
+    ctx.git_token = "forge-tok"  # noqa: S105
+    ctx.task_token = "task-tok"  # noqa: S105
+    ctx.api_base_url = "https://ci.example"
+    ctx.project_id = "42"
+    assert asyncio.run(run_effect(ctx, "deploy"))
+    call = (tmp_path / "calls").read_text().splitlines()[-1]
+    assert "--default-branch main" in call
+    assert "--git-token-file" in call
+    assert "--task-token-file" in call
+    assert "--api-base-url https://ci.example" in call
+    assert "--project-id 42" in call
+    assert "--project-path" in call
+    # Token side files are cleaned up after the run.
+    assert not list(tmp_path.glob("*git-token*"))
+    assert not list(tmp_path.glob("*task-token*"))
