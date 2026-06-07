@@ -44,6 +44,7 @@ DEFAULT_SESSION_LIFETIME = 30 * 24 * 60 * 60
 class User:
     provider: str  # "github" | "gitea" | "oidc:<issuer>"
     username: str
+    avatar_url: str | None = None
 
     @property
     def qualified(self) -> str:
@@ -102,6 +103,8 @@ class SessionSigner:
 
     def session_for(self, user: User, session_id: str | None = None) -> str:
         payload = {"provider": user.provider, "username": user.username}
+        if user.avatar_url is not None:
+            payload["avatar"] = user.avatar_url
         if session_id is not None:
             # References the server-side forge-token row; the cookie is
             # signed, not encrypted, so the token itself never goes here.
@@ -114,7 +117,11 @@ class SessionSigner:
         payload = self.verify(token)
         if payload is None or "provider" not in payload or "username" not in payload:
             return None
-        return User(provider=payload["provider"], username=payload["username"])
+        return User(
+            provider=payload["provider"],
+            username=payload["username"],
+            avatar_url=payload.get("avatar"),
+        )
 
     def session_id_from(self, token: str | None) -> str | None:
         if not token:
@@ -233,6 +240,8 @@ class OAuthProvider:
     scope: str
     # Field of the userinfo response carrying the username.
     username_field: str = "login"
+    # Userinfo field carrying the avatar URL.
+    avatar_field: str = "avatar_url"
     provider_id: str = ""  # User.provider value
 
     def authorize_redirect(self, redirect_uri: str, state: str) -> str:
@@ -286,12 +295,16 @@ class OAuthProvider:
             msg = f"userinfo endpoint returned HTTP {userinfo.status_code}"
             raise OAuthError(msg)
         try:
-            username = str(userinfo.json()[self.username_field])
+            info = userinfo.json()
+            username = str(info[self.username_field])
         except (ValueError, KeyError) as exc:
             msg = f"userinfo response is missing {self.username_field!r}"
             raise OAuthError(msg) from exc
+        avatar = info.get(self.avatar_field)
         return User(
-            provider=self.provider_id or self.name, username=username
+            provider=self.provider_id or self.name,
+            username=username,
+            avatar_url=str(avatar) if avatar else None,
         ), access_token
 
 
@@ -361,5 +374,7 @@ async def oidc_provider(  # noqa: PLR0913
         client_secret=client_secret,
         scope=" ".join(scope),
         username_field=username_claim,
+        # Standard OIDC claim for the profile picture.
+        avatar_field="picture",
         provider_id=f"oidc:{issuer}",
     )

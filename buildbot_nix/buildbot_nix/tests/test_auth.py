@@ -61,6 +61,18 @@ def test_session_roundtrip() -> None:
     assert signer.user_from(token + "x") is None
 
 
+def test_session_carries_avatar() -> None:
+    signer = SessionSigner([b"k1"])
+    user = User(
+        provider="gitea",
+        username="bob",
+        avatar_url="https://gitea.test/avatars/123",
+    )
+    roundtripped = signer.user_from(signer.session_for(user))
+    assert roundtripped is not None
+    assert roundtripped.avatar_url == "https://gitea.test/avatars/123"
+
+
 def test_session_expiry() -> None:
     signer = SessionSigner([b"k1"], lifetime=-1)
     token = signer.session_for(ALICE)
@@ -140,7 +152,13 @@ def test_oauth_login_flow() -> None:
             return httpx.Response(200, json={"access_token": "at"})
         if request.url.path == "/user":
             assert request.headers["Authorization"] == "Bearer at"
-            return httpx.Response(200, json={"login": "alice"})
+            return httpx.Response(
+                200,
+                json={
+                    "login": "alice",
+                    "avatar_url": "https://avatars.test/alice",
+                },
+            )
         return httpx.Response(404)
 
     app = FastAPI()
@@ -171,7 +189,10 @@ def test_oauth_login_flow() -> None:
             )
             assert callback.status_code == 307
             session = callback.cookies[SESSION_COOKIE]
-            assert signer.user_from(session) == ALICE
+            session_user = signer.user_from(session)
+            assert session_user is not None
+            assert session_user.qualified == ALICE.qualified
+            assert session_user.avatar_url == "https://avatars.test/alice"
             # The forge token lives server-side; the cookie only carries
             # an opaque session id.
             payload = signer.verify(session)

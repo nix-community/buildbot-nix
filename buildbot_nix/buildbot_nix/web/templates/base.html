@@ -22,6 +22,13 @@
       <a href="/builds">builds</a>
       <span class="header-spacer"></span>
       {% if user %}
+        {% if user.avatar_url %}
+          <img class="avatar"
+               src="{{ user.avatar_url }}"
+               alt=""
+               width="24"
+               height="24">
+        {% endif %}
         <span class="muted">{{ user.qualified }}</span>
         <a href="/settings">settings</a>
         <form action="/logout" method="post">
