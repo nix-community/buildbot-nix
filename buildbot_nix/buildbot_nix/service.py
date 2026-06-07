@@ -6,6 +6,7 @@ ingestion, web frontend, pollers, and background maintenance loops.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -14,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .config import ScheduleWhen
 from .db import BuildStatus
 from .effects import effects_context
 from .events import ChangeEvent, RepoInfo
@@ -45,6 +47,7 @@ from .webhooks import (
     WebhookEvent,
     should_build_branch,
 )
+from .work_queue import WorkItem, WorkQueue
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
@@ -139,6 +142,8 @@ class CIService:
     # which any logged-in user can press.
     _discovery_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _last_discovery: float = 0.0
+    # Wakes the dispatcher early on local enqueues and completions.
+    _work_event: asyncio.Event = field(default_factory=asyncio.Event)
 
     def _credentials_provider(self, forge: str) -> CredentialsProvider:
         return self.credentials_providers.get(forge, _STATIC_CREDENTIALS)
@@ -197,12 +202,79 @@ class CIService:
             self._last_discovery = time.monotonic()
 
     async def restart_build(self, build_id: int) -> None:
-        await self._restart(build_id, attr=None)
+        await self.enqueue_work("restart", f"build-{build_id}", {"build_id": build_id})
 
     async def restart_attribute(self, build_id: int, attr: str) -> None:
-        await self._restart(build_id, attr=attr)
+        await self.enqueue_work(
+            "restart", f"build-{build_id}", {"build_id": build_id, "attr": attr}
+        )
 
     async def restart_effects(self, build_id: int) -> None:
+        await self.enqueue_work("effects", f"build-{build_id}", {"build_id": build_id})
+
+    async def enqueue_work(
+        self, kind: str, dedup_key: str, payload: dict[str, Any]
+    ) -> None:
+        await WorkQueue(self.pool).enqueue(kind, dedup_key, payload)
+        self._work_event.set()
+
+    async def work_loop(self) -> None:
+        """Single dispatcher: claims queued intent and executes it."""
+        queue = WorkQueue(self.pool)
+        while True:
+            try:
+                item = await queue.claim_next()
+            except Exception:
+                logger.exception("work claim failed")
+                item = None
+            if item is None:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._work_event.wait(), timeout=5)
+                self._work_event.clear()
+                continue
+            self._spawn(self._execute_work(queue, item))
+
+    async def drain_work(self) -> None:
+        """Execute claimable work to completion (tests)."""
+        queue = WorkQueue(self.pool)
+        while (item := await queue.claim_next()) is not None:
+            await self._execute_work(queue, item)
+
+    async def _execute_work(self, queue: WorkQueue, item: WorkItem) -> None:
+        try:
+            await self._dispatch_work(item)
+        except Exception as e:
+            logger.exception("work item failed", extra={"work_id": item.id})
+            await queue.finish(item.id, error=str(e) or type(e).__name__)
+        else:
+            await queue.finish(item.id)
+        finally:
+            # A deferred same-key item may be claimable now.
+            self._work_event.set()
+
+    async def _dispatch_work(self, item: WorkItem) -> None:
+        payload = item.payload
+        if item.kind == "restart":
+            await self._restart(payload["build_id"], payload.get("attr"))
+        elif item.kind == "rerun":
+            # Crash recovery: resume pending attributes, no reset.
+            await self._locked_rerun(payload["build_id"])
+        elif item.kind == "effects":
+            await self._restart_effects(payload["build_id"])
+        elif item.kind == "scheduled":
+            await self._run_scheduled(
+                DueEffect(
+                    project_id=payload["project_id"],
+                    schedule_name=payload["schedule_name"],
+                    effect=payload["effect"],
+                    when=ScheduleWhen.model_validate(payload["when"]),
+                )
+            )
+        else:
+            msg = f"unknown work kind {item.kind!r}"
+            raise ValueError(msg)
+
+    async def _restart_effects(self, build_id: int) -> None:
         if build_id in self.orchestrator.cancel_events:
             return  # build (or an effects rerun) still running
         build = await self.orchestrator.db.get_build(build_id)
@@ -213,7 +285,7 @@ class CIService:
             return
         info = repo_info(project)
         credentials = await self._credentials_provider(info.forge).get(info.clone_url)
-        self._spawn(self.orchestrator.rerun_effects(info, build, credentials))
+        await self.orchestrator.rerun_effects(info, build, credentials)
 
     async def _restart(self, build_id: int, attr: str | None) -> None:
         """Reset attributes (one or all) and re-run only the pending jobs
@@ -259,10 +331,7 @@ class CIService:
             "started_at = NULL, finished_at = NULL WHERE id = $1",
             build_id,
         )
-        await self._rerun_pending(build_id)
-
-    async def _rerun_pending(self, build_id: int) -> None:
-        self._spawn(self._locked_rerun(build_id))
+        await self._locked_rerun(build_id)
 
     async def _locked_rerun(self, build_id: int) -> None:
         lock = self._rerun_locks.setdefault(build_id, asyncio.Lock())
@@ -534,6 +603,7 @@ class CIService:
                     row["id"] for row in await self.pool.fetch("SELECT id FROM builds")
                 }
                 cleanup_orphan_log_dirs(build_ids, self.config.state_dir)
+                await WorkQueue(self.pool).cleanup(self.config.retention_days)
                 await self.orchestrator.repos.cleanup()
                 await self.orchestrator.repos.gc()
             except Exception:
@@ -553,9 +623,16 @@ class CIService:
                             "effect": due.effect,
                         },
                     )
-                    # Execution runs a default-branch checkout via
-                    # buildbot-effects run-scheduled.
-                    self._spawn(self._run_scheduled(due))
+                    await self.enqueue_work(
+                        "scheduled",
+                        f"scheduled-{due.project_id}-{due.schedule_name}-{due.effect}",
+                        {
+                            "project_id": due.project_id,
+                            "schedule_name": due.schedule_name,
+                            "effect": due.effect,
+                            "when": due.when.model_dump(exclude_none=True),
+                        },
+                    )
             except Exception:
                 logger.exception("scheduled-effects sweep failed")
             # Sleep to the next minute boundary: is_due matches exactly

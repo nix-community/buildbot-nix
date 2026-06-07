@@ -69,6 +69,7 @@ from .webhooks import (
     ChangeRequest,
     create_webhook_router,
 )
+from .work_queue import WorkQueue
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -333,7 +334,9 @@ async def _startup(service: CIService) -> None:
             "recovering build",
             extra={"build_id": resumable.build_id, "remaining": len(remaining)},
         )
-        await service._rerun_pending(resumable.build_id)  # noqa: SLF001
+        await service.enqueue_work(
+            "rerun", f"build-{resumable.build_id}", {"build_id": resumable.build_id}
+        )
 
 
 async def _run_startup(service: CIService) -> None:
@@ -349,11 +352,16 @@ async def _run_startup(service: CIService) -> None:
 async def run_service(config: Config) -> None:
     service, app = await build_service(config)
 
+    # Before the dispatcher starts: settling later would requeue work
+    # that a running dispatcher legitimately claimed in the meantime.
+    await WorkQueue(service.pool).settle_interrupted()
+
     # Startup can take minutes; it must not keep uvicorn from binding.
     tasks = [
         asyncio.create_task(_run_startup(service)),
         asyncio.create_task(service.maintenance_loop()),
         asyncio.create_task(service.scheduled_effects_loop()),
+        asyncio.create_task(service.work_loop()),
     ]
 
     poller: PollingService | None = None

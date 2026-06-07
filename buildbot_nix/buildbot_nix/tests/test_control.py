@@ -518,6 +518,7 @@ def test_restart_clears_failed_cache_and_guards_running(
             # Running build: restart refuses, cache row stays.
             service.orchestrator.cancel_events[build_id] = asyncio.Event()
             await service.restart_build(build_id)
+            await service.drain_work()
             assert await pool.fetchval("SELECT count(*) FROM failed_builds") == 1
             assert (
                 await pool.fetchval(
@@ -530,6 +531,7 @@ def test_restart_clears_failed_cache_and_guards_running(
             # Not running: cache cleared, attributes reset.
             del service.orchestrator.cancel_events[build_id]
             await service.restart_build(build_id)
+            await service.drain_work()
             assert await pool.fetchval("SELECT count(*) FROM failed_builds") == 0
             assert (
                 await pool.fetchval(
@@ -606,6 +608,49 @@ def test_webhook_secret_regeneration(harness: tuple) -> None:
     assert new_secret in rotated.text  # shown exactly here, once
 
 
+def test_work_dispatch(postgres_dsn: str, tmp_path: Path) -> None:
+    """The dispatcher reconstructs payloads and fails unknown kinds."""
+
+    async def run() -> None:
+        config = Config(
+            db_url=postgres_dsn,
+            build_systems=["x86_64-linux"],
+            domain="ci.test",
+            url="http://ci.test",
+            state_dir=tmp_path / "state",
+        )
+        service, _app = await build_service(config)
+        pool = service.pool
+        try:
+            await pool.execute("TRUNCATE work_queue")
+            # Scheduled payload roundtrip; the unknown project makes
+            # execution a no-op, but parsing must succeed.
+            await service.enqueue_work(
+                "scheduled",
+                "scheduled-999-s-e",
+                {
+                    "project_id": 999,
+                    "schedule_name": "s",
+                    "effect": "e",
+                    "when": {"minute": 5, "dayOfWeek": ["Mon"]},
+                },
+            )
+            await service.enqueue_work("bogus", "k", {})
+            await service.drain_work()
+            rows = await pool.fetch(
+                "SELECT kind, status, error FROM work_queue ORDER BY id"
+            )
+            assert [(r["kind"], r["status"]) for r in rows] == [
+                ("scheduled", "done"),
+                ("bogus", "failed"),
+            ]
+            assert "unknown work kind" in rows[1]["error"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
     """A full restart re-runs effects: clear the started-flag and the
     previous run's rows, or the page keeps showing stale results."""
@@ -640,6 +685,7 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
             )
 
             await service.restart_build(build_id)
+            await service.drain_work()
             assert not await pool.fetchval(
                 "SELECT effects_started FROM builds WHERE id = $1", build_id
             )
@@ -663,6 +709,7 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
                 "UPDATE builds SET effects_started = TRUE WHERE id = $1", build_id
             )
             await service.restart_attribute(build_id, "x86_64-linux.a")
+            await service.drain_work()
             assert await pool.fetchval(
                 "SELECT effects_started FROM builds WHERE id = $1", build_id
             )

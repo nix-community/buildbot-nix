@@ -198,6 +198,7 @@ def test_restart_eval_failed_build_reevaluates(
 
             service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
             await service.restart_build(build_id)
+            await service.drain_work()
             # A restart only queues; the rerun sets the real status.
             status = await pool.fetchval(
                 "SELECT status FROM builds WHERE id = $1", build_id
@@ -254,6 +255,7 @@ def test_restart_failed_eval_attribute_reevaluates(
 
             service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
             await service.restart_build(build_id)
+            await service.drain_work()
             # A restart only queues; the rerun sets the real status.
             status = await pool.fetchval(
                 "SELECT status FROM builds WHERE id = $1", build_id
@@ -499,6 +501,7 @@ def test_startup_reevaluates_interrupted_eval(
 
             service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
             await _startup(service)
+            await service.drain_work()
             await asyncio.gather(*service._tasks)  # noqa: SLF001
 
             # The shared database may hold other tests' unfinished builds.
@@ -546,6 +549,7 @@ def test_reeval_failure_marks_build_failed(
 
             service.orchestrator.run_build = broken_run_build  # type: ignore[method-assign]
             await service.restart_build(build_id)
+            await service.drain_work()
             await asyncio.gather(*service._tasks, return_exceptions=True)  # noqa: SLF001
 
             row = await pool.fetchrow(
