@@ -28,6 +28,7 @@ from buildbot_nix.forge import (
 from buildbot_nix.gitea_hooks import (
     register_repo_hook,
 )
+from buildbot_nix.gitlab_hooks import register_repo_hook as gitlab_register_repo_hook
 from buildbot_nix.hook_secrets import WebhookSecrets
 from buildbot_nix.reconcile import gitea_heads, reconcile_repo
 from buildbot_nix.repos import RepoStore
@@ -743,3 +744,72 @@ def test_gitlab_discovery() -> None:
         client.project_api_url("group/sub", "tool")
         == "https://gitlab.example.com/api/v4/projects/group%2Fsub%2Ftool"
     )
+
+
+def test_gitlab_hook_registration(postgres_dsn: str) -> None:
+    hooks: list[dict] = []
+    created: list[dict] = []
+    updated: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.raw_path.startswith(b"/api/v4/projects/acme%2Fwidget/hooks")
+        if request.method == "GET":
+            return httpx.Response(200, json=hooks)
+        if request.method == "POST":
+            created.append(json.loads(request.content))
+            return httpx.Response(201, json={})
+        if request.method == "PUT":
+            updated.append(
+                (request.url.path.rsplit("/", 1)[-1], json.loads(request.content))
+            )
+            return httpx.Response(200, json={})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await pool.fetchval(
+                """
+                INSERT INTO projects (forge, forge_repo_id, owner, name,
+                                      default_branch, url)
+                VALUES ('gitlab', 'glhook-1', 'acme', 'widget', 'main', 'u')
+                RETURNING id
+                """
+            )
+            secrets_store = WebhookSecrets(pool, "gitlab")
+            client = GitlabClient(
+                "https://gitlab.example.com",
+                "tkn",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            await gitlab_register_repo_hook(
+                client,
+                secrets_store,
+                project_id,
+                "acme",
+                "widget",
+                "https://ci.example.com",
+            )
+            assert len(created) == 1
+            hook = created[0]
+            assert hook["url"] == "https://ci.example.com/webhooks/gitlab"
+            assert hook["push_events"]
+            assert hook["merge_requests_events"]
+            assert hook["token"] == await secrets_store.secret_for_repo("glhook-1")
+
+            # An existing hook is updated in place to re-sync the secret.
+            hooks[:] = [{"id": 9, "url": "https://ci.example.com/webhooks/gitlab"}]
+            await gitlab_register_repo_hook(
+                client,
+                secrets_store,
+                project_id,
+                "acme",
+                "widget",
+                "https://ci.example.com",
+            )
+            assert len(created) == 1
+            assert updated[0][0] == "9"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
