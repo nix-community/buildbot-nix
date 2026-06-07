@@ -218,7 +218,8 @@ class EngineService:
             attr,
         )
         await self.pool.execute(
-            "UPDATE build_attributes SET status = 'pending', error = NULL "
+            "UPDATE build_attributes SET status = 'pending', error = NULL, "
+            "started_at = NULL, finished_at = NULL "
             "WHERE build_id = $1 AND ($2::text IS NULL OR attr = $2)",
             build_id,
             attr,
@@ -228,7 +229,8 @@ class EngineService:
         # Clearing finished_at keeps retention cleanup off a build
         # that is about to rerun.
         await self.pool.execute(
-            "UPDATE builds SET status = 'pending', finished_at = NULL WHERE id = $1",
+            "UPDATE builds SET status = 'pending', "
+            "started_at = NULL, finished_at = NULL WHERE id = $1",
             build_id,
         )
         await self._rerun_pending(build_id)

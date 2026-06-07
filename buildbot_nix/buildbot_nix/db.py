@@ -207,9 +207,11 @@ class BuildDB:
                     WHEN started_at IS NULL AND $2 <> 'pending' THEN now()
                     ELSE started_at
                 END,
+                -- Invariant: non-terminal states never carry finished_at,
+                -- else reruns show negative durations.
                 finished_at = CASE
                     WHEN $2 IN ('succeeded', 'failed', 'cancelled') THEN now()
-                    ELSE finished_at
+                    ELSE NULL
                 END
             WHERE id = $1
             """,
@@ -285,7 +287,8 @@ class BuildDB:
             VALUES ($1, $2, $3, $4, 'building', now())
             ON CONFLICT (build_id, attr) DO UPDATE SET
                 status = 'building',
-                started_at = now()
+                started_at = now(),
+                finished_at = NULL
             """,
             build_id,
             attr,
