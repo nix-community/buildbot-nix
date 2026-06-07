@@ -458,8 +458,10 @@ details.menu .menu-label {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
+	/* A frozen ring reads as a rendering glitch; slow, small rotation
+	   is acceptable under reduced motion. */
 	.spinner {
-		animation: none;
+		animation-duration: 3s;
 	}
 }
 .progress-track {
