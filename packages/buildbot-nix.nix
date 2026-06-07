@@ -22,7 +22,7 @@
   dejavu_fonts,
   lib,
 }:
-buildPythonPackage {
+buildPythonPackage (finalAttrs: {
   name = "buildbot-nix";
   pyproject = true;
   src = ./../buildbot_nix;
@@ -39,6 +39,15 @@ buildPythonPackage {
   ];
 
   buildInputs = [ nix ];
+
+  # Tests run in passthru.tests.pytest to keep the test closure
+  # (playwright browsers, postgresql) out of the package build.
+  doCheck = false;
+
+  passthru.tests.pytest = finalAttrs.finalPackage.overrideAttrs {
+    name = "buildbot-nix-tests";
+    doCheck = true;
+  };
 
   nativeCheckInputs = [
     git
@@ -70,4 +79,4 @@ buildPythonPackage {
     license = lib.licenses.mit;
     maintainers = [ lib.maintainers.mic92 ];
   };
-}
+})

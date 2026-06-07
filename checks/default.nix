@@ -13,6 +13,7 @@ let
 in
 {
   treefmt = (inputs.treefmt-nix.lib.evalModule pkgs ../formatter/treefmt.nix).config.build.check self;
+  buildbot-nix-tests = self.packages.${pkgs.stdenv.hostPlatform.system}.buildbot-nix.tests.pytest;
 }
 // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   buildbot-nix = import ./buildbot-nix.nix checkArgs;
