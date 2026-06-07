@@ -30,6 +30,8 @@ from buildbot_nix.web.control_routes import (
 )
 from buildbot_nix.web.token_routes import create_token_router
 
+from .support import cookie_header
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -182,7 +184,7 @@ def post(
         cookies["buildbot_nix_session"] = SIGNER.session_for(user)
     headers = {"Origin": origin} if origin else {}
     return loop.run_until_complete(
-        client.post(url, cookies=cookies, headers=headers, data=data)
+        client.post(url, headers=headers | cookie_header(cookies), data=data)
     )
 
 
@@ -390,8 +392,8 @@ def test_token_creation_with_expiry(harness: tuple) -> None:
             client.post(
                 "/settings/tokens",
                 data=data,
-                cookies={"buildbot_nix_session": SIGNER.session_for(ALICE)},
-                headers={"Origin": "http://test"},
+                headers={"Origin": "http://test"}
+                | cookie_header({"buildbot_nix_session": SIGNER.session_for(ALICE)}),
             )
         )
 

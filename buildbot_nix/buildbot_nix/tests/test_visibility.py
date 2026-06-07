@@ -24,6 +24,8 @@ from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.visibility import AccessCache, RepoAccess, VisibilityService
 from buildbot_nix.web.app import create_app
 
+from .support import cookie_header
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -168,7 +170,7 @@ def get(
             session_id = secrets.token_urlsafe(8)
             loop.run_until_complete(vault.save(session_id, token, 3600))
         cookies["buildbot_nix_session"] = SIGNER.session_for(user, session_id)
-    return loop.run_until_complete(client.get(url, cookies=cookies))
+    return loop.run_until_complete(client.get(url, headers=cookie_header(cookies)))
 
 
 CAROL = User(provider="github", username="carol")

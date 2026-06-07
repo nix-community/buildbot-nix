@@ -27,6 +27,8 @@ from buildbot_nix.web.auth_routes import (
     create_auth_router,
 )
 
+from .support import cookie_header
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -185,7 +187,7 @@ def test_oauth_login_flow() -> None:
 
             callback = await client.get(
                 f"/auth/github/callback?code=thecode&state={state}",
-                cookies={"buildbot_nix_oauth_state": state},
+                headers=cookie_header({"buildbot_nix_oauth_state": state}),
             )
             assert callback.status_code == 307
             session = callback.cookies[SESSION_COOKIE]
@@ -205,14 +207,14 @@ def test_oauth_login_flow() -> None:
             # Bad state rejected.
             bad = await client.get(
                 "/auth/github/callback?code=x&state=wrong",
-                cookies={"buildbot_nix_oauth_state": state},
+                headers=cookie_header({"buildbot_nix_oauth_state": state}),
             )
             assert bad.status_code == 403
 
             # User cancelled on the authorize page: no code, error param.
             cancelled = await client.get(
                 f"/auth/github/callback?error=access_denied&state={state}",
-                cookies={"buildbot_nix_oauth_state": state},
+                headers=cookie_header({"buildbot_nix_oauth_state": state}),
             )
             assert cancelled.status_code == 403
 
@@ -223,8 +225,8 @@ def test_oauth_login_flow() -> None:
             assert cross.status_code == 403
             ok = await client.post(
                 "/logout",
-                headers={"Origin": "https://ci.test"},
-                cookies={SESSION_COOKIE: session},
+                headers={"Origin": "https://ci.test"}
+                | cookie_header({SESSION_COOKIE: session}),
             )
             assert ok.status_code == 303
             # Logout invalidates the server-side forge token.
@@ -265,7 +267,7 @@ def test_oauth_callback_handles_token_exchange_errors() -> None:
         ) as client:
             response = await client.get(
                 "/auth/github/callback?code=stale&state=s",
-                cookies={"buildbot_nix_oauth_state": "s"},
+                headers=cookie_header({"buildbot_nix_oauth_state": "s"}),
             )
             assert response.status_code == 403
             assert "bad_verification_code" in response.text
@@ -273,7 +275,7 @@ def test_oauth_callback_handles_token_exchange_errors() -> None:
             # Userinfo body missing the username field: also 403, not 500.
             response = await client.get(
                 "/auth/github/callback?code=ok&state=s",
-                cookies={"buildbot_nix_oauth_state": "s"},
+                headers=cookie_header({"buildbot_nix_oauth_state": "s"}),
             )
             assert response.status_code == 403
             assert "userinfo" in response.json()["detail"]
