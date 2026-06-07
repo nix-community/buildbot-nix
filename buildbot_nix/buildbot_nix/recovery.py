@@ -77,7 +77,7 @@ async def check_db_health(pool: asyncpg.Pool) -> bool:
     """Backs the HTTP health endpoint."""
     try:
         await pool.fetchval("SELECT 1")
-    except Exception:  # noqa: BLE001
+    except (TimeoutError, asyncpg.PostgresError, OSError):
         return False
     return True
 

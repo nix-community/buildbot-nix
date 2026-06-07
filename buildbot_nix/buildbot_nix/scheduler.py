@@ -196,7 +196,12 @@ def compute_job_closures(
 
 
 def _success_result(
-    job: NixEvalJobSuccess, status: AttributeStatus, **kw: str | None
+    job: NixEvalJobSuccess,
+    status: AttributeStatus,
+    *,
+    error: str | None = None,
+    dependency_attr: str | None = None,
+    first_failure_url: str | None = None,
 ) -> AttributeResult:
     return AttributeResult(
         attr=job.attr,
@@ -205,7 +210,9 @@ def _success_result(
         out_path=job.outputs.get("out"),
         drv_path=job.drvPath,
         system=job.system,
-        **kw,  # type: ignore[arg-type]
+        error=error,
+        dependency_attr=dependency_attr,
+        first_failure_url=first_failure_url,
     )
 
 
