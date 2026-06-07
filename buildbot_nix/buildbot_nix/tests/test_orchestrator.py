@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from buildbot_nix.db import BuildRecord
+    from buildbot_nix.effects import EffectsContext
     from buildbot_nix.models import NixEvalJobSuccess
 
 pytestmark = pytest.mark.skipif(
@@ -996,8 +997,19 @@ def test_rerun_effects_runs_effects_again(
                 "VALUES ($1, 'removed', 'failed')",
                 build.id,
             )
+            discovered: list[str] = []
+
+            async def fake_discover(ctx: EffectsContext) -> list:
+                discovered.append(ctx.rev)
+                return []
+
+            monkeypatch.setattr(
+                "buildbot_nix.orchestrator.discover_schedules", fake_discover
+            )
             await orchestrator.rerun_effects(project, build)
             assert ran == ["deploy", "deploy"]
+            # Restarts must refresh schedules too, not only fresh pushes.
+            assert discovered
             rows = await pool.fetch(
                 "SELECT name, status FROM build_effects WHERE build_id = $1",
                 build.id,

@@ -454,11 +454,7 @@ class Orchestrator:
         )
         self.cancel_events.pop(build.id, None)
 
-        if (
-            status == BuildStatus.SUCCEEDED
-            and event.pr_number is None
-            and event.branch == event.repo.default_branch
-        ):
+        if status == BuildStatus.SUCCEEDED:
             await self._refresh_schedules(event, worktree_path)
         return status
 
@@ -466,6 +462,8 @@ class Orchestrator:
         """Persist `onSchedule` definitions after a successful
         default-branch build; the service's scheduled-effects loop only
         sweeps what is stored here."""
+        if event.pr_number is not None or event.branch != event.repo.default_branch:
+            return
         try:
             ctx = EffectsContext(
                 worktree_path=worktree_path,
@@ -570,6 +568,7 @@ class Orchestrator:
                         BranchConfig.load(worktree_path),
                         credentials,
                     )
+                    await self._refresh_schedules(event, worktree_path)
         finally:
             self.canceller.complete(build.id)
             self.cancel_events.pop(build.id, None)
@@ -609,6 +608,7 @@ class Orchestrator:
                     BranchConfig.load(worktree_path),
                     credentials,
                 )
+                await self._refresh_schedules(event, worktree_path)
         finally:
             self.cancel_events.pop(build.id, None)
 
