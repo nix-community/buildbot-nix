@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -23,10 +22,11 @@ from buildbot_nix.config import (
     PullBasedRepository,
 )
 from buildbot_nix.forge import DiscoveredRepo
-from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.scheduled import DueEffect, ScheduleWhen
 from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
 from buildbot_nix.webhooks import ChangeRequest
+
+from .support import ephemeral_postgres
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -38,38 +38,8 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    datadir = tmp_path_factory.mktemp("pgdata")
-    sockdir = tmp_path_factory.mktemp("pgsock")
-    subprocess.run(  # noqa: S603
-        ["initdb", "-D", str(datadir), "-U", "test", "--auth=trust"],
-        check=True,
-        capture_output=True,
-    )
-    proc = subprocess.Popen(  # noqa: S603
-        ["postgres", "-D", str(datadir), "-k", str(sockdir), "-c", "listen_addresses="],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while not Path(sockdir, ".s.PGSQL.5432").exists():
-            if time.monotonic() > deadline:
-                msg = "postgres did not start"
-                raise RuntimeError(msg)
-            time.sleep(0.1)
-        subprocess.run(  # noqa: S603
-            ["createdb", "-h", str(sockdir), "-U", "test", "svc"],
-            check=True,
-            capture_output=True,
-        )
-        dsn = f"postgresql://test@/svc?host={sockdir}"
-        asyncio.run(apply_migrations(dsn))
+    with ephemeral_postgres(tmp_path_factory, "svc") as dsn:
         yield dsn
-    finally:
-        # Immediate shutdown: SIGTERM is postgres "smart" shutdown and
-        # would wait forever for any lingering test connection.
-        proc.send_signal(signal.SIGQUIT)
-        proc.wait()
 
 
 def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> EngineConfig:

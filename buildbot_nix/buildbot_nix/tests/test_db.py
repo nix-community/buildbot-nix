@@ -1,15 +1,12 @@
 """Schema CRUD tests against an ephemeral Postgres instance."""
 
-# ruff: noqa: S603 (subprocess calls use fixed argument lists)
+
 # ruff: noqa: PLR2004 (literal values in test assertions are fine)
 
 from __future__ import annotations
 
 import asyncio
 import shutil
-import subprocess
-import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -20,7 +17,7 @@ from buildbot_nix.failed_builds import PostgresFailedBuildCache
 from buildbot_nix.migrations import apply_migrations, load_migrations
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 
-from .support import mk_job
+from .support import ephemeral_postgres, mk_job
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -31,51 +28,9 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    datadir = tmp_path_factory.mktemp("pgdata")
-    sockdir = tmp_path_factory.mktemp("pgsock")
-    subprocess.run(
-        ["initdb", "-D", str(datadir), "-U", "test", "--auth=trust"],
-        check=True,
-        capture_output=True,
-    )
-    proc = subprocess.Popen(
-        [
-            "postgres",
-            "-D",
-            str(datadir),
-            "-k",
-            str(sockdir),
-            "-c",
-            "listen_addresses=",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while True:
-            if Path(sockdir, ".s.PGSQL.5432").exists():
-                break
-            if time.monotonic() > deadline:
-                msg = "postgres did not start"
-                raise RuntimeError(msg)
-            time.sleep(0.1)
-        subprocess.run(
-            ["createdb", "-h", str(sockdir), "-U", "test", "engine"],
-            check=True,
-            capture_output=True,
-        )
-        yield f"postgresql://test@/engine?host={sockdir}"
-    finally:
-        proc.terminate()
-        proc.wait()
-
-
-@pytest.fixture
-def migrated_dsn(postgres_dsn: str) -> str:
-    asyncio.run(apply_migrations(postgres_dsn))
-    return postgres_dsn
+def migrated_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    with ephemeral_postgres(tmp_path_factory, "engine") as dsn:
+        yield dsn
 
 
 async def _connect(dsn: str) -> asyncpg.Connection:

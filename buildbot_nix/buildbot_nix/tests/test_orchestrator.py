@@ -9,9 +9,7 @@ import asyncio
 import os
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -23,7 +21,6 @@ from buildbot_nix.db import BuildDB, BuildStatus
 from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
 from buildbot_nix.memory import calculate_eval_workers
-from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.nix_eval import EvalError, EvalResult
 from buildbot_nix.orchestrator import Orchestrator
 from buildbot_nix.scheduler import (
@@ -32,10 +29,11 @@ from buildbot_nix.scheduler import (
     BuildOutcome,
 )
 
-from .support import mk_job
+from .support import ephemeral_postgres, mk_job
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     from buildbot_nix.db import BuildRecord
     from buildbot_nix.models import NixEvalJobSuccess
@@ -51,36 +49,8 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    datadir = tmp_path_factory.mktemp("pgdata")
-    sockdir = tmp_path_factory.mktemp("pgsock")
-    subprocess.run(  # noqa: S603
-        ["initdb", "-D", str(datadir), "-U", "test", "--auth=trust"],
-        check=True,
-        capture_output=True,
-    )
-    proc = subprocess.Popen(  # noqa: S603
-        ["postgres", "-D", str(datadir), "-k", str(sockdir), "-c", "listen_addresses="],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while not Path(sockdir, ".s.PGSQL.5432").exists():
-            if time.monotonic() > deadline:
-                msg = "postgres did not start"
-                raise RuntimeError(msg)
-            time.sleep(0.1)
-        subprocess.run(  # noqa: S603
-            ["createdb", "-h", str(sockdir), "-U", "test", "orch"],
-            check=True,
-            capture_output=True,
-        )
-        dsn = f"postgresql://test@/orch?host={sockdir}"
-        asyncio.run(apply_migrations(dsn))
+    with ephemeral_postgres(tmp_path_factory, "orch") as dsn:
         yield dsn
-    finally:
-        proc.terminate()
-        proc.wait()
 
 
 def git(repo: Path, *args: str) -> str:

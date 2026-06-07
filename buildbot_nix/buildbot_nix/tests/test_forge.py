@@ -10,8 +10,6 @@ import base64
 import json
 import shutil
 import subprocess
-import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -30,7 +28,6 @@ from buildbot_nix.gitea_hooks import (
     GiteaWebhookSecrets,
     register_repo_hook,
 )
-from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.reconcile import gitea_heads, reconcile_repo
 from buildbot_nix.repos import RepoStore
 from buildbot_nix.status import (
@@ -39,8 +36,11 @@ from buildbot_nix.status import (
     StatusState,
 )
 
+from .support import ephemeral_postgres
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 
 def repo(owner: str, name: str, topics: tuple[str, ...] = ()) -> DiscoveredRepo:
@@ -289,36 +289,8 @@ def test_gitea_discovery() -> None:
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     if shutil.which("initdb") is None:
         pytest.skip("postgresql not available")
-    datadir = tmp_path_factory.mktemp("pgdata")
-    sockdir = tmp_path_factory.mktemp("pgsock")
-    subprocess.run(  # noqa: S603
-        ["initdb", "-D", str(datadir), "-U", "test", "--auth=trust"],
-        check=True,
-        capture_output=True,
-    )
-    proc = subprocess.Popen(  # noqa: S603
-        ["postgres", "-D", str(datadir), "-k", str(sockdir), "-c", "listen_addresses="],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while not Path(sockdir, ".s.PGSQL.5432").exists():
-            if time.monotonic() > deadline:
-                msg = "postgres did not start"
-                raise RuntimeError(msg)
-            time.sleep(0.1)
-        subprocess.run(  # noqa: S603
-            ["createdb", "-h", str(sockdir), "-U", "test", "forge"],
-            check=True,
-            capture_output=True,
-        )
-        dsn = f"postgresql://test@/forge?host={sockdir}"
-        asyncio.run(apply_migrations(dsn))
+    with ephemeral_postgres(tmp_path_factory, "forge") as dsn:
         yield dsn
-    finally:
-        proc.terminate()
-        proc.wait()
 
 
 def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:

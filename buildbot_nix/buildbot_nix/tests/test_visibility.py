@@ -8,9 +8,6 @@ from __future__ import annotations
 import asyncio
 import secrets
 import shutil
-import subprocess
-import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -20,11 +17,10 @@ import pytest
 from buildbot_nix.api_tokens import ApiTokenStore
 from buildbot_nix.auth import AuthzConfig, SessionSigner, User
 from buildbot_nix.forge_tokens import ForgeTokenStore
-from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.visibility import AccessCache, RepoAccess, VisibilityService
 from buildbot_nix.web.app import create_app
 
-from .support import cookie_header
+from .support import cookie_header, ephemeral_postgres
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -55,37 +51,8 @@ class FakeFetcher:
 
 @pytest.fixture(scope="module")
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    datadir = tmp_path_factory.mktemp("pgdata")
-    sockdir = tmp_path_factory.mktemp("pgsock")
-    subprocess.run(  # noqa: S603
-        ["initdb", "-D", str(datadir), "-U", "test", "--auth=trust"],
-        check=True,
-        capture_output=True,
-    )
-    proc = subprocess.Popen(  # noqa: S603
-        ["postgres", "-D", str(datadir), "-k", str(sockdir), "-c", "listen_addresses="],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while not Path(sockdir, ".s.PGSQL.5432").exists():
-            if time.monotonic() > deadline:
-                msg = "postgres did not start"
-                raise RuntimeError(msg)
-            time.sleep(0.1)
-        subprocess.run(  # noqa: S603
-            ["createdb", "-h", str(sockdir), "-U", "test", "vis"],
-            check=True,
-            capture_output=True,
-        )
-        dsn = f"postgresql://test@/vis?host={sockdir}"
-        asyncio.run(apply_migrations(dsn))
-        asyncio.run(seed(dsn))
+    with ephemeral_postgres(tmp_path_factory, "vis") as dsn:
         yield dsn
-    finally:
-        proc.terminate()
-        proc.wait()
 
 
 async def seed(dsn: str) -> None:

@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from .support import EngineServer, ephemeral_postgres, run_sync, seed
+from buildbot_nix.tests.support import ephemeral_postgres, run_sync
+
+from .support import EngineServer, seed
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

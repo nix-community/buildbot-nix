@@ -6,11 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import subprocess
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -22,7 +19,6 @@ from buildbot_nix.auth import AuthzConfig, SessionSigner, User
 from buildbot_nix.bootstrap import build_service
 from buildbot_nix.config import EngineConfig
 from buildbot_nix.forge_tokens import ForgeTokenStore
-from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.web.app import create_app
 from buildbot_nix.web.control_routes import (
     create_control_api_router,
@@ -30,10 +26,11 @@ from buildbot_nix.web.control_routes import (
 )
 from buildbot_nix.web.token_routes import create_token_router
 
-from .support import cookie_header
+from .support import cookie_header, ephemeral_postgres
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 pytestmark = pytest.mark.skipif(
     shutil.which("initdb") is None, reason="postgresql not available"
@@ -73,37 +70,9 @@ class FakeBackend:
 
 @pytest.fixture(scope="module")
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    datadir = tmp_path_factory.mktemp("pgdata")
-    sockdir = tmp_path_factory.mktemp("pgsock")
-    subprocess.run(  # noqa: S603
-        ["initdb", "-D", str(datadir), "-U", "test", "--auth=trust"],
-        check=True,
-        capture_output=True,
-    )
-    proc = subprocess.Popen(  # noqa: S603
-        ["postgres", "-D", str(datadir), "-k", str(sockdir), "-c", "listen_addresses="],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while not Path(sockdir, ".s.PGSQL.5432").exists():
-            if time.monotonic() > deadline:
-                msg = "postgres did not start"
-                raise RuntimeError(msg)
-            time.sleep(0.1)
-        subprocess.run(  # noqa: S603
-            ["createdb", "-h", str(sockdir), "-U", "test", "ctl"],
-            check=True,
-            capture_output=True,
-        )
-        dsn = f"postgresql://test@/ctl?host={sockdir}"
-        asyncio.run(apply_migrations(dsn))
+    with ephemeral_postgres(tmp_path_factory, "ctl") as dsn:
         asyncio.run(seed(dsn))
         yield dsn
-    finally:
-        proc.terminate()
-        proc.wait()
 
 
 async def seed(dsn: str) -> None:

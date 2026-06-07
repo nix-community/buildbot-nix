@@ -28,7 +28,8 @@ from buildbot_nix.web.logs import (
 )
 from buildbot_nix.web.templating import timeago
 
-from .e2e.support import ephemeral_postgres, seed
+from .e2e.support import seed
+from .support import ephemeral_postgres
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

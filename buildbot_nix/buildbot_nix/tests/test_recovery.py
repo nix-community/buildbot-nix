@@ -6,16 +6,13 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import subprocess
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
 import pytest
 
 from buildbot_nix.db import BuildDB
-from buildbot_nix.migrations import apply_migrations
 from buildbot_nix.recovery import (
     DatabaseUnavailableError,
     cleanup_old_builds,
@@ -25,8 +22,11 @@ from buildbot_nix.recovery import (
     settle_already_built,
 )
 
+from .support import ephemeral_postgres
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 pytestmark = pytest.mark.skipif(
     shutil.which("initdb") is None, reason="postgresql not available"
@@ -35,36 +35,8 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    datadir = tmp_path_factory.mktemp("pgdata")
-    sockdir = tmp_path_factory.mktemp("pgsock")
-    subprocess.run(  # noqa: S603
-        ["initdb", "-D", str(datadir), "-U", "test", "--auth=trust"],
-        check=True,
-        capture_output=True,
-    )
-    proc = subprocess.Popen(  # noqa: S603
-        ["postgres", "-D", str(datadir), "-k", str(sockdir), "-c", "listen_addresses="],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while not Path(sockdir, ".s.PGSQL.5432").exists():
-            if time.monotonic() > deadline:
-                msg = "postgres did not start"
-                raise RuntimeError(msg)
-            time.sleep(0.1)
-        subprocess.run(  # noqa: S603
-            ["createdb", "-h", str(sockdir), "-U", "test", "recovery"],
-            check=True,
-            capture_output=True,
-        )
-        dsn = f"postgresql://test@/recovery?host={sockdir}"
-        asyncio.run(apply_migrations(dsn))
+    with ephemeral_postgres(tmp_path_factory, "recovery") as dsn:
         yield dsn
-    finally:
-        proc.terminate()
-        proc.wait()
 
 
 async def make_build(pool: asyncpg.Pool, name: str) -> int:
