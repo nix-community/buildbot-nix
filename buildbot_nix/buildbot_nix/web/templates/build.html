@@ -105,14 +105,9 @@
                aria-label="search attributes"
                hx-get="{{ build_path(project, build.number) }}/attrs"
                hx-trigger="input changed delay:300ms, search"
-               hx-target="#attr-search tbody"
+               hx-target="#attributes"
                hx-swap="innerHTML">
       </p>
-      <table class="attrs" id="attr-search" hx-preserve>
-        <caption class="visually-hidden">search results</caption>
-        <tbody>
-        </tbody>
-      </table>
       <div id="attributes">{% include "_attributes.html" %}</div>
     </section>
   </main>

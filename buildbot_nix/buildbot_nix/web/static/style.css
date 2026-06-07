@@ -440,9 +440,6 @@ button:hover {
 		animation: none;
 	}
 }
-#attr-search:not(:has(tr)) {
-	display: none;
-}
 /* Fitts: small inline links get a larger hit area. */
 .pager a {
 	padding: 0.35rem 0.4rem;

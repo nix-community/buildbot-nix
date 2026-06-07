@@ -144,3 +144,14 @@ def test_no_horizontal_overflow_on_mobile(page: Page) -> None:
             " - document.documentElement.clientWidth"
         )
         assert overflow == 0, f"{path} overflows by {overflow}px"
+
+
+def test_attribute_search_filters_groups(page: Page) -> None:
+    page.goto("/repos/github/acme/widget/builds/2")
+    page.fill("#attr-filter", "other")
+    group = page.locator("details.attr-group[data-group=succeeded]")
+    group.locator("text=1 succeeded").wait_for()
+    assert group.get_attribute("open") is not None
+    assert group.locator("text=aarch64-linux.other").is_visible()
+    page.fill("#attr-filter", "")
+    page.locator("text=2 succeeded").wait_for()

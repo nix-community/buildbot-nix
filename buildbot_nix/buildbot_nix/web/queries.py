@@ -35,6 +35,10 @@ def _like_escape(query: str) -> str:
     return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _like_pattern(q: str | None) -> str | None:
+    return f"%{_like_escape(q)}%" if q else None
+
+
 # Display order: failures first, then running, then the rest.
 FAILED_FIRST_ORDER = """
     CASE
@@ -292,17 +296,26 @@ class WebQueries:
             )
         )
 
-    async def attribute_counts(self, build_id: int) -> dict[str, int]:
-        """Attribute counts per status."""
+    async def attribute_counts(
+        self, build_id: int, q: str | None = None
+    ) -> dict[str, int]:
+        """Attribute counts per status, optionally name-filtered."""
         rows = await self.pool.fetch(
             "SELECT status, count(*) AS count FROM build_attributes"
-            " WHERE build_id = $1 GROUP BY status",
+            " WHERE build_id = $1 AND ($2::text IS NULL OR attr ILIKE $2)"
+            " GROUP BY status",
             build_id,
+            _like_pattern(q),
         )
         return {r["status"]: r["count"] for r in rows}
 
     async def attribute_page(
-        self, build_id: int, statuses: tuple[str, ...], limit: int, page: int
+        self,
+        build_id: int,
+        statuses: tuple[str, ...],
+        limit: int,
+        page: int,
+        q: str | None = None,
     ) -> Page:
         """One page of attributes with the given statuses, by name."""
         rows = await self.pool.fetch(
@@ -311,34 +324,16 @@ class WebQueries:
             FROM build_attributes a
             LEFT JOIN logs l ON l.attribute_id = a.id
             WHERE a.build_id = $1 AND a.status = any($2::text[])
+              AND ($5::text IS NULL OR a.attr ILIKE $5)
             ORDER BY a.attr LIMIT $3 OFFSET $4
             """,
             build_id,
             list(statuses),
             limit + 1,
             (page - 1) * limit,
+            _like_pattern(q),
         )
         return Page(items=_rows(rows[:limit]), page=page, has_next=len(rows) > limit)
-
-    async def attribute_search(
-        self, build_id: int, q: str, limit: int = 100
-    ) -> list[dict[str, Any]]:
-        """Attributes matching a substring, across all statuses."""
-        pattern = "%" + _like_escape(q) + "%"
-        return _rows(
-            await self.pool.fetch(
-                """
-                SELECT a.*, l.path AS log_path, l.size_bytes AS log_size
-                FROM build_attributes a
-                LEFT JOIN logs l ON l.attribute_id = a.id
-                WHERE a.build_id = $1 AND a.attr ILIKE $2
-                ORDER BY a.attr LIMIT $3
-                """,
-                build_id,
-                pattern,
-                limit,
-            )
-        )
 
     async def attribute_history(
         self, project_id: int, attr: str, limit: int = 50

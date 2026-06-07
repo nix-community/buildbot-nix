@@ -36,7 +36,6 @@ from .support import ephemeral_postgres
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from fastapi import FastAPI
 
@@ -744,11 +743,19 @@ def test_event_broker_pushes_status_changes(
 
 
 def test_attribute_search(client: WebClient) -> None:
+    # Results keep the group structure, opened and filtered.
     found = get(client, "/repos/github/acme/widget/builds/2/attrs?q=bad")
     assert "x86_64-linux.bad" in found.text
     assert "x86_64-linux.ok" not in found.text
+    assert "1 failed" in found.text
+    assert "succeeded" not in found.text
+    by_name = get(client, "/repos/github/acme/widget/builds/2/attrs?q=other")
+    assert "1 succeeded" in by_name.text
+    assert "open>" in by_name.text
+    # Clearing the query restores the unfiltered view.
     empty = get(client, "/repos/github/acme/widget/builds/2/attrs?q=")
-    assert "data-attr" not in empty.text
+    assert "2 succeeded" in empty.text
+    assert "attrs?group=succeeded" in empty.text
 
 
 def test_css_covers_every_status() -> None:

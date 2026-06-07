@@ -75,13 +75,19 @@
         const g = e.target.closest?.("details.attr-group");
         if (g) openGroups[g.open ? "add" : "delete"](g.dataset.group);
       }, true);
-      document.body.addEventListener("htmx:afterSwap", () => {
+      document.body.addEventListener("htmx:afterSwap", (e) => {
         for (const g of document.querySelectorAll("details.attr-group")) {
           if (openGroups.has(g.dataset.group)) g.open = true;
           /* idiomorph swaps in the lazy placeholder without htmx
              processing; without this the intersect trigger never
              arms and the group stays on "loading". */
           htmx.process(g);
+        }
+        /* SSE morphs render the unfiltered groups; refire an active
+           search. Guarded on #main so the search swap can't loop. */
+        const filter = document.querySelector("#attr-filter");
+        if (e.detail.target.id === "main" && filter?.value) {
+          htmx.trigger(filter, "search");
         }
       });
     </script>

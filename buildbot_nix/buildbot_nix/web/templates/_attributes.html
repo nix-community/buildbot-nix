@@ -1,7 +1,9 @@
-{% if group_counts.values() | sum == 0 %}<p class="muted">no attributes (yet)</p>{% endif %}
+{% if group_counts.values() | sum == 0 %}
+  <p class="muted">{{ "no matches" if q else "no attributes (yet)" }}</p>
+{% endif %}
 {% for group, count in group_counts.items() %}
   {% if count %}
-    {% if group in inline %}
+    {% if group in inline and not q %}
       <div class="attr-scroll">
         <table class="attrs">
           <caption class="visually-hidden">{{ group }} attributes</caption>
@@ -13,20 +15,27 @@
         </table>
       </div>
     {% else %}
-      <details class="attr-group" data-group="{{ group }}">
+      <details class="attr-group" data-group="{{ group }}" {% if q %}open{% endif %}>
         <summary>{{ count }} {{ "already built" if group == "skipped" else group }}</summary>
         <div class="attr-scroll">
           <table class="attrs">
             <caption class="visually-hidden">{{ group }} attributes</caption>
             {% include "_attr_head.html" %}
-            <tr>
-              <td colspan="3"
-                  class="muted"
-                  hx-get="{{ build_path(project, build.number) }}/attrs?group={{ group }}"
-                  hx-trigger="intersect once"
-                  hx-swap="outerHTML"
-                  hx-target="closest tr">loading…</td>
-            </tr>
+            {% if group in inline %}
+              {% with attributes = inline[group].items,
+                group = group, page = 1, has_next = inline[group].has_next %}
+                {% include "_attr_rows.html" %}
+              {% endwith %}
+            {% else %}
+              <tr>
+                <td colspan="3"
+                    class="muted"
+                    hx-get="{{ build_path(project, build.number) }}/attrs?group={{ group }}"
+                    hx-trigger="intersect once"
+                    hx-swap="outerHTML"
+                    hx-target="closest tr">loading…</td>
+              </tr>
+            {% endif %}
           </table>
         </div>
       </details>

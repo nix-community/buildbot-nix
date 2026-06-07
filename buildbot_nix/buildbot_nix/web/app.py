@@ -41,7 +41,7 @@ from .auth_routes import SESSION_COOKIE
 from .events import EventBroker, create_events_router
 from .logs import LogRegistry, create_log_api_router, create_log_router
 from .metrics import create_metrics_router
-from .queries import PAGE_SIZE, BuildFilters, Page, WebQueries
+from .queries import PAGE_SIZE, BuildFilters, WebQueries
 from .templating import STATIC_DIR, CachedStaticFiles, make_env
 
 if TYPE_CHECKING:
@@ -336,18 +336,7 @@ class _PageRoutes:
         prev_number, next_number = await ctx.queries.neighbor_numbers(
             project["id"], number
         )
-        counts = await ctx.queries.attribute_counts(build["id"])
-        group_counts = {
-            group: sum(counts.get(s, 0) for s in statuses)
-            for group, statuses in ATTR_GROUPS.items()
-        }
-        inline = {
-            group: await ctx.queries.attribute_page(
-                build["id"], ATTR_GROUPS[group], ATTR_PAGE, 1
-            )
-            for group in INLINE_GROUPS
-            if group_counts[group]
-        }
+        group_counts, inline = await self._grouped_attributes(build["id"], None)
         total = sum(group_counts.values())
         return ctx.render(
             "build.html",
@@ -375,7 +364,8 @@ class _PageRoutes:
         page: int = 1,
         limit: int = ATTR_PAGE,
     ) -> HTMLResponse:
-        """Row fragments: one group's infinite-scroll page, or a search."""
+        """One group's infinite-scroll rows, or the full grouped
+        fragment filtered by a search query."""
         ctx = self.ctx
         statuses = ATTR_GROUPS.get(group) if group else None
         if statuses is None and q is None:
@@ -386,14 +376,10 @@ class _PageRoutes:
             raise HTTPException(status_code=404)
         limit = min(max(limit, 1), MAX_ROWS)
         if statuses is None:
-            items = (
-                await ctx.queries.attribute_search(build["id"], q, limit) if q else []
-            )
-            rows = Page(items=items, page=1, has_next=False)
-        else:
-            rows = await ctx.queries.attribute_page(
-                build["id"], statuses, limit, max(page, 1)
-            )
+            return await self._attribute_groups(request, project, build, q or None)
+        rows = await ctx.queries.attribute_page(
+            build["id"], statuses, limit, max(page, 1), q or None
+        )
         return ctx.render(
             "_attr_rows.html",
             request=request,
@@ -401,9 +387,50 @@ class _PageRoutes:
             build=build,
             attributes=rows.items,
             group=group,
+            q=q or None,
             page=rows.page,
             limit=limit if limit != ATTR_PAGE else None,
             has_next=rows.has_next,
+        )
+
+    async def _grouped_attributes(
+        self, build_id: int, q: str | None
+    ) -> tuple[dict[str, int], dict[str, Any]]:
+        """Per-group counts plus eagerly loaded first pages: the inline
+        groups normally, every matching group under a search query."""
+        counts = await self.ctx.queries.attribute_counts(build_id, q)
+        group_counts = {
+            group: sum(counts.get(s, 0) for s in statuses)
+            for group, statuses in ATTR_GROUPS.items()
+        }
+        eager = tuple(ATTR_GROUPS) if q else INLINE_GROUPS
+        inline = {
+            group: await self.ctx.queries.attribute_page(
+                build_id, ATTR_GROUPS[group], ATTR_PAGE, 1, q
+            )
+            for group in eager
+            if group_counts[group]
+        }
+        return group_counts, inline
+
+    async def _attribute_groups(
+        self,
+        request: Request,
+        project: dict[str, Any],
+        build: dict[str, Any],
+        q: str | None,
+    ) -> HTMLResponse:
+        """The grouped attribute fragment; a query filters every group
+        and renders all of them eagerly opened."""
+        group_counts, inline = await self._grouped_attributes(build["id"], q)
+        return self.ctx.render(
+            "_attributes.html",
+            request=request,
+            project=project,
+            build=build,
+            group_counts=group_counts,
+            inline=inline,
+            q=q,
         )
 
     async def attribute_history(
