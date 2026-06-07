@@ -17,4 +17,5 @@ in
 }
 // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   buildbot-nix = import ./buildbot-nix.nix checkArgs;
+  buildbot-nix-gitlab = import ./buildbot-nix-gitlab.nix checkArgs;
 }
