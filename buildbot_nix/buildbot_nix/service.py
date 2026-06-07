@@ -58,7 +58,10 @@ logger = logging.getLogger(__name__)
 
 _STATIC_CREDENTIALS = StaticCredentialsProvider()
 
-DISCOVERY_INTERVAL = 15 * 60
+# Repo metadata rarely changes; the UI refresh button covers the
+# "I just created a repo" case without waiting for the next tick.
+DISCOVERY_INTERVAL = 60 * 60
+REFRESH_COOLDOWN = 60
 MAINTENANCE_INTERVAL = 60 * 60
 
 
@@ -126,6 +129,11 @@ class EngineService:
     # Per-build serialization of reruns; the cancel_events guard alone
     # is racy (it is only set once a rerun reaches _build_attributes).
     _rerun_locks: dict[int, asyncio.Lock] = field(default_factory=dict)
+    # Discovery must not run concurrently (upserts, webhook
+    # registration); the timestamp debounces the UI refresh button,
+    # which any logged-in user can press.
+    _discovery_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _last_discovery: float = 0.0
 
     def _credentials_provider(self, forge: str) -> CredentialsProvider:
         return self.credentials_providers.get(forge, _STATIC_CREDENTIALS)
@@ -175,6 +183,13 @@ class EngineService:
         self._spawn(self.orchestrator.handle_change_event(event, credentials))
 
     # -- ControlBackend ---------------------------------------------------
+
+    async def refresh_projects(self) -> None:
+        async with self._discovery_lock:
+            if time.monotonic() - self._last_discovery < REFRESH_COOLDOWN:
+                return
+            await self.discover_once()
+            self._last_discovery = time.monotonic()
 
     async def restart_build(self, build_id: int) -> None:
         await self._restart(build_id, attr=None)
@@ -363,7 +378,9 @@ class EngineService:
         reconciled = False
         while True:
             try:
-                await self.discover_once()
+                async with self._discovery_lock:
+                    await self.discover_once()
+                    self._last_discovery = time.monotonic()
                 if not reconciled:
                     # Startup reconciliation needs discovery first
                     # (GitHub installation tokens are learned during

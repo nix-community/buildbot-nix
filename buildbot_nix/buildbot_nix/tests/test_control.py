@@ -48,6 +48,7 @@ class FakeBackend:
     attr_restarts: list[tuple[int, str]] = field(default_factory=list)
     cancelled: list[int] = field(default_factory=list)
     attr_cancels: list[tuple[int, str]] = field(default_factory=list)
+    refreshes: int = 0
 
     async def restart_build(self, build_id: int) -> None:
         self.restarted.append(build_id)
@@ -60,6 +61,9 @@ class FakeBackend:
 
     async def cancel_attribute(self, build_id: int, attr: str) -> None:
         self.attr_cancels.append((build_id, attr))
+
+    async def refresh_projects(self) -> None:
+        self.refreshes += 1
 
 
 @pytest.fixture(scope="module")
@@ -268,6 +272,25 @@ def test_admin_project_toggle(harness: tuple) -> None:
     response = post(harness, "/admin/repos/1/toggle", ROOT, data={"q": "wid get"})
     assert response.status_code == 303
     assert response.headers["location"] == "/?q=wid%20get"
+
+
+def test_repo_refresh(harness: tuple) -> None:
+    # Anonymous rejected: discovery hits forge APIs.
+    assert post(harness, "/admin/repos/refresh").status_code == 403
+    assert BACKEND.refreshes == 0
+
+    # Any logged-in user may refresh, not only admins.
+    response = post(harness, "/admin/repos/refresh", ALICE, data={"q": "wid get"})
+    assert response.status_code == 303
+    assert response.headers["location"] == "/?q=wid%20get"
+    assert BACKEND.refreshes == 1
+
+    # Cross-origin rejected.
+    assert (
+        post(harness, "/admin/repos/refresh", ROOT, origin="http://evil").status_code
+        == 403
+    )
+    assert BACKEND.refreshes == 1
 
 
 def test_api_enable_disable(harness: tuple) -> None:

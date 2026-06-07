@@ -33,6 +33,8 @@ class ControlBackend(Protocol):
 
     async def cancel_attribute(self, build_id: int, attr: str) -> None: ...
 
+    async def refresh_projects(self) -> None: ...
+
 
 FAILED_STATUSES = ("failed", "failed_eval", "dependency_failed", "cached_failure")
 
@@ -159,6 +161,21 @@ class _ControlRoutes:
         )
         return {"owner": owner, "name": name, "enabled": enabled}
 
+    async def refresh_repos(
+        self, request: Request, q: Annotated[str, Form()] = ""
+    ) -> RedirectResponse:
+        """Re-run forge discovery on demand (background sync is hourly).
+        Any logged-in user: the typical case is surfacing a freshly
+        created repo in the enable search. Anonymous requests are
+        rejected and the backend debounces, so outsiders cannot hammer
+        the forge APIs."""
+        if not same_origin(request, self.own_url):
+            raise HTTPException(status_code=403, detail="cross-origin request")
+        if await self.ctx.request_user(request) is None:
+            raise HTTPException(status_code=403, detail="login required")
+        await self.backend.refresh_projects()
+        return RedirectResponse(f"/?q={quote(q)}" if q else "/", status_code=303)
+
     async def toggle_repo(
         self, request: Request, project_id: int, q: Annotated[str, Form()] = ""
     ) -> RedirectResponse:
@@ -188,5 +205,6 @@ def create_control_router(
     router.post(f"{base}/cancel")(routes.cancel)
     router.post("/api/repos/{forge}/{owner}/{name}/enable")(routes.api_set_enabled)
     router.post("/api/repos/{forge}/{owner}/{name}/disable")(routes.api_set_enabled)
+    router.post("/admin/repos/refresh")(routes.refresh_repos)
     router.post("/admin/repos/{project_id}/toggle")(routes.toggle_repo)
     return router

@@ -35,6 +35,17 @@
                hx-target="#main"
                hx-swap="morph:outerHTML"
                {% if toggleable is none or toggleable %} aria-label="filter repositories or find new ones to enable" placeholder="filter repositories · search to add new ones" {% else %} aria-label="filter repositories" placeholder="filter repositories" {% endif %}>
+        {% if user %}
+          <form method="post"
+                action="/admin/repos/refresh"
+                hx-post="/admin/repos/refresh"
+                hx-select="#main"
+                hx-target="#main"
+                hx-swap="morph:outerHTML">
+            <input type="hidden" name="q" value="{{ q }}">
+            <button class="toggle-btn" title="re-scan forges for new repositories">refresh repos</button>
+          </form>
+        {% endif %}
       </p>
       <div class="pipelines">
         {% for p in projects %}
