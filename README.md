@@ -44,20 +44,7 @@ For a practical NixOS example, see
 ## Migrating from the buildbot-based versions
 
 This major release replaces the buildbot master/worker pair with a single
-service. When upgrading:
-
-- `services.buildbot-nix.master.*` options rename automatically to
-  `services.buildbot-nix.*` (with deprecation warnings); the module aliases
-  `nixosModules.buildbot-master` and `nixosModules.buildbot-worker` keep old
-  imports evaluating. Options without an engine equivalent raise descriptive
-  errors.
-- Removed: `workersFile`/worker passwords, `localWorkers`, the oauth2-proxy
-  `accessMode.fullyPrivate` mode, `httpbasicauth`, and GitHub token
-  authentication (use a GitHub App).
-- Build history does not migrate; the engine starts with a fresh PostgreSQL
-  schema (local PostgreSQL is provisioned by default).
-- Private repositories are hidden from unauthorized users by the built-in login,
-  replacing the oauth2-proxy workaround.
+service. See the [changelog](./CHANGELOG.md) for the full upgrade guide.
 
 ## Using Buildbot in Your Project
 

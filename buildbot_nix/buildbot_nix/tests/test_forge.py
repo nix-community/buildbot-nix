@@ -92,9 +92,16 @@ def test_topic_does_not_filter_discovery() -> None:
 # --- GitHub client ---------------------------------------------------------------
 
 
-def github_transport() -> httpx.MockTransport:
+def github_transport(
+    hook_url: str = "https://buildbot.example.com/webhooks/github",
+    events: tuple[str, ...] = ("push", "pull_request"),
+) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path == "/app":
+            return httpx.Response(200, json={"events": list(events)})
+        if path == "/app/hook/config":
+            return httpx.Response(200, json={"url": hook_url})
         if path == "/app/installations":
             return httpx.Response(200, json=[{"id": 11}, {"id": 22}])
         if path.startswith("/app/installations/") and path.endswith("/access_tokens"):
@@ -138,6 +145,28 @@ def github_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> GitHubAppC
         private_key_file=key,
         http=httpx.AsyncClient(transport=github_transport()),
     )
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
+def test_github_webhook_check_ok(github_client: GitHubAppClient) -> None:
+    problems = asyncio.run(
+        github_client.check_app_webhook("https://buildbot.example.com")
+    )
+    assert problems == []
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
+def test_github_webhook_check_misconfigured(
+    github_client: GitHubAppClient,
+) -> None:
+    github_client.http = httpx.AsyncClient(
+        transport=github_transport(hook_url="", events=("push",))
+    )
+    problems = asyncio.run(
+        github_client.check_app_webhook("https://buildbot.example.com")
+    )
+    assert any("webhook URL" in p for p in problems)
+    assert any("pull_request" in p for p in problems)
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")

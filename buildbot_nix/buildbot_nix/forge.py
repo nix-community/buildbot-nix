@@ -207,6 +207,47 @@ class GitHubAppClient:
             next_url = response.links.get("next", {}).get("url")
         return results
 
+    async def check_app_webhook(self, base_url: str) -> list[str]:
+        """Return problems with the GitHub App's webhook configuration.
+
+        All events arrive via the App-level webhook (no per-repo hooks),
+        so a missing URL or event subscription silently disables CI.
+        """
+        expected = f"{base_url.rstrip('/')}/webhooks/github"
+        legacy = f"{base_url.rstrip('/')}/change_hook/github"
+        jwt = await self._app_jwt()
+        headers = {
+            "Authorization": f"Bearer {jwt}",
+            "Accept": "application/vnd.github+json",
+        }
+        problems: list[str] = []
+        response = await self.http.get(
+            f"{self.api_url}/app/hook/config", headers=headers
+        )
+        if response.status_code >= 400:  # noqa: PLR2004
+            msg = f"failed to fetch app webhook config: {response.status_code} {response.text}"
+            raise ForgeError(msg)
+        url = response.json().get("url") or ""
+        if url not in (expected, legacy):
+            problems.append(
+                f"GitHub App webhook URL is {url!r}, expected {expected!r}; "
+                "set it in the app settings and mark the webhook Active"
+            )
+        response = await self.http.get(f"{self.api_url}/app", headers=headers)
+        if response.status_code >= 400:  # noqa: PLR2004
+            msg = (
+                f"failed to fetch app metadata: {response.status_code} {response.text}"
+            )
+            raise ForgeError(msg)
+        events = set(response.json().get("events") or [])
+        problems.extend(
+            f"GitHub App is not subscribed to the {required!r} event; "
+            "enable it under the app's 'Permissions & events' settings"
+            for required in ("push", "pull_request")
+            if required not in events
+        )
+        return problems
+
     async def list_installations(self) -> list[int]:
         installations = await self._paginated(
             f"{self.api_url}/app/installations?per_page=100", await self._app_jwt()

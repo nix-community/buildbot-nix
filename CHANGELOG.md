@@ -45,8 +45,16 @@ OAuth callback URLs change: update your GitHub App / Gitea application to
 (`buildbot/nix-eval`, `buildbot/nix-build ...`), so branch protection rules keep
 working. Statuses link to the new web UI.
 
-**Webhooks.** Nothing to do: the old endpoints (`/change_hook/github`,
-`/change_hook/gitea`) still work as aliases.
+**Webhooks.** The old endpoints (`/change_hook/github`, `/change_hook/gitea`)
+still work as aliases. However, per-repository GitHub webhooks are no longer
+created: events arrive through the App-level webhook. Enable the webhook on your
+GitHub App (Active, URL `https://<domain>/webhooks/github`, secret matching
+`webhookSecretFile`, events `push` and `pull_request`); see
+[docs/GITHUB.md](./docs/GITHUB.md). Subscribing to the `pull_request` event
+requires the "Pull requests: Read-only" repository permission. Adding a
+permission must be accepted on every installation of the app (your user account
+and each organization) under Settings → GitHub Apps → Configure. The engine logs
+a warning at startup if the app is misconfigured.
 
 **Per-repository config.** `buildbot-nix.toml` is unchanged.
 

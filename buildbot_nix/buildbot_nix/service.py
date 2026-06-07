@@ -419,6 +419,14 @@ class EngineService:
                     extra={"project": f"{project.owner}/{project.name}"},
                 )
 
+    async def _warn_github_webhook_misconfig(self, github: GitHubAppClient) -> None:
+        try:
+            base = self.config.webhook_base_url or self.config.url
+            for problem in await github.check_app_webhook(base):
+                logger.warning("github app misconfigured: %s", problem)
+        except Exception:
+            logger.exception("github app webhook check failed")
+
     async def discover_once(self) -> None:
         if self.config.pull_based is not None:
             await self.repo_store.sync_pull_based(
@@ -432,6 +440,7 @@ class EngineService:
         # sync_discovered); it must not hard-filter discovery, otherwise
         # untagged repos never appear in the admin UI.
         if self.github is not None and self.config.github is not None:
+            await self._warn_github_webhook_misconfig(self.github)
             repos += filter_repos(
                 replace(self.config.github.filters, topic=None),
                 await self.github.discover_repos(),

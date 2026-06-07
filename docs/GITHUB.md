@@ -14,7 +14,9 @@ secure authentication.
 2. Configure the app with these settings:
    - **GitHub App Name**: `buildbot-nix-<org>` (or any unique name)
    - **Homepage URL**: `https://buildbot.<your-domain>`
-   - **Webhook**: Disable (buildbot-nix creates webhooks per repository)
+   - **Webhook**: Enable (Active) and set:
+     - **Webhook URL**: `https://buildbot.<your-domain>/webhooks/github`
+     - **Webhook secret**: the same value as `webhookSecretFile` below
    - **Callback URL** (optional, for OAuth):
      `https://buildbot.<your-domain>/auth/github/callback`
 
@@ -23,9 +25,15 @@ secure authentication.
      - Contents: Read-only (to clone repositories)
      - Commit statuses: Read and write (to report build status)
      - Metadata: Read-only (basic repository info)
-     - Webhooks: Read and write (to automatically create webhooks)
+     - Pull requests: Read-only (required to subscribe to the pull_request
+       event)
    - **Organization Permissions** (if app is for an organization):
      - Members: Read-only (to verify organization membership for access control)
+   - **Subscribe to events**: Push, Pull request
+
+   Note: when adding permissions to an existing app, every installation (your
+   user account and each organization) must accept the new permissions under
+   Settings → GitHub Apps → Configure before events are delivered.
 
 4. After creating the app:
    - Note the **App ID**
@@ -71,12 +79,11 @@ For each repository you want to build:
    - Go to repository settings
    - Add the topic (e.g., `buildbot-nix`) to enable builds
 
-2. **Automatic webhook creation**:
-   - Buildbot-nix automatically creates webhooks when:
-     - Projects are loaded on startup
-     - The project list is manually reloaded
-   - The webhook will be created at:
-     `https://buildbot.<your-domain>/change_hook/github`
+2. **Webhook delivery**:
+   - GitHub delivers push and pull_request events through the App-level webhook
+     configured in Step 1; no per-repository webhooks are created.
+   - The endpoint is `https://buildbot.<your-domain>/webhooks/github` (the
+     legacy `/change_hook/github` path also works).
 
 ## How It Works
 
@@ -84,8 +91,8 @@ For each repository you want to build:
   tokens for repository-specific operations
 - **Project Discovery**: Automatically discovers repositories the app has access
   to, filtered by topic if configured
-- **Webhook Management**: Automatically creates and manages webhooks for push
-  and pull_request events
+- **Webhook Delivery**: Push and pull_request events arrive via the GitHub App
+  webhook; the payload signature is verified with the webhook secret
 - **Status Updates**: Reports build status back to GitHub commits and pull
   requests
 - **Access Control**:
@@ -99,8 +106,9 @@ For each repository you want to build:
   - The repository has the configured topic (if filtering by topic)
   - Reload projects manually through the Buildbot UI
 
-- **Webhooks not created**: Verify the app has webhook write permission for the
-  repository
+- **No builds on push**: Verify the App webhook is Active, its URL points to
+  `https://buildbot.<your-domain>/webhooks/github`, and its secret matches
+  `webhookSecretFile`. Check recent deliveries under the app's "Advanced" tab.
 
 - **Authentication issues**: Ensure the private key file is readable by the
   buildbot service
