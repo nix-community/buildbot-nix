@@ -28,18 +28,18 @@ def mk_job(
     attr: str,
     *,
     deps: list[str] | None = None,
-    cache_status: CacheStatus = CacheStatus.notBuilt,
+    cache_status: CacheStatus = CacheStatus.not_built,
     system: str = SYSTEM,
     out: str | None = None,
 ) -> NixEvalJobSuccess:
     drv = f"/nix/store/{attr}.drv"
     return NixEvalJobSuccess(
         attr=attr,
-        attrPath=attr.split("."),
-        cacheStatus=cache_status,
-        neededBuilds=[drv, *(f"/nix/store/{d}.drv" for d in (deps or []))],
-        neededSubstitutes=[],
-        drvPath=drv,
+        attr_path=attr.split("."),
+        cache_status=cache_status,
+        needed_builds=[drv, *(f"/nix/store/{d}.drv" for d in (deps or []))],
+        needed_substitutes=[],
+        drv_path=drv,
         name=attr,
         outputs={"out": out or f"/nix/store/{attr}-out"},
         system=system,
@@ -88,8 +88,8 @@ def test_topological_order() -> None:
     # c depends on b depends on a.
     a, b, c = mk_job("a"), mk_job("b", deps=["a"]), mk_job("c", deps=["b"])
     closures = compute_job_closures([c, a, b])
-    assert closures[c.drvPath] == {b.drvPath}
-    assert closures[b.drvPath] == {a.drvPath}
+    assert closures[c.drv_path] == {b.drv_path}
+    assert closures[b.drv_path] == {a.drv_path}
     order = sort_jobs_by_closures([c, a, b], closures)
     assert [j.attr for j in order] == ["a", "b", "c"]
 
@@ -170,7 +170,7 @@ def test_cached_jobs_scheduled_for_substitution() -> None:
 
 
 def test_failed_eval_records() -> None:
-    bad = NixEvalJobError(error="boom", attr="bad", attrPath=["bad"])
+    bad = NixEvalJobError(error="boom", attr="bad", attr_path=["bad"])
     good = mk_job("good")
     executor = FakeExecutor()
     result = run_scheduler(JobScheduler(executor, [SYSTEM]), [bad, good])
@@ -186,8 +186,8 @@ def test_cached_failure_skip() -> None:
     job = mk_job("flaky")
     cache = FakeCache(
         {
-            job.drvPath: CachedFailure(
-                drv_path=job.drvPath,
+            job.drv_path: CachedFailure(
+                drv_path=job.drv_path,
                 time=datetime(2026, 1, 1, tzinfo=UTC),
                 url="http://ci/builds/1",
             )
@@ -209,8 +209,8 @@ def test_cached_failure_propagates_to_dependents() -> None:
     top = mk_job("top", deps=["base"])
     cache = FakeCache(
         {
-            base.drvPath: CachedFailure(
-                drv_path=base.drvPath, time=datetime(2026, 1, 1, tzinfo=UTC), url="u"
+            base.drv_path: CachedFailure(
+                drv_path=base.drv_path, time=datetime(2026, 1, 1, tzinfo=UTC), url="u"
             )
         }
     )
@@ -228,8 +228,8 @@ def test_rebuild_clears_cached_failure_and_builds() -> None:
     job = mk_job("flaky")
     cache = FakeCache(
         {
-            job.drvPath: CachedFailure(
-                drv_path=job.drvPath, time=datetime(2026, 1, 1, tzinfo=UTC), url="u"
+            job.drv_path: CachedFailure(
+                drv_path=job.drv_path, time=datetime(2026, 1, 1, tzinfo=UTC), url="u"
             )
         }
     )
@@ -239,7 +239,7 @@ def test_rebuild_clears_cached_failure_and_builds() -> None:
         [job],
     )
     assert executor.built == ["flaky"]
-    assert cache.removed == [job.drvPath]
+    assert cache.removed == [job.drv_path]
     assert result.success  # type: ignore[attr-defined]
 
 
@@ -253,7 +253,7 @@ def test_failure_recorded_in_cache() -> None:
         ),
         [job],
     )
-    assert cache.added == [(job.drvPath, "http://ci/b/2")]
+    assert cache.added == [(job.drv_path, "http://ci/b/2")]
 
 
 def test_cancelled_not_recorded_in_cache_and_propagates_cancelled() -> None:
@@ -282,7 +282,7 @@ def test_force_attr_builds_local_job() -> None:
 
 
 def test_mixed_eval_results_independent() -> None:
-    bad = NixEvalJobError(error="nope", attr="bad", attrPath=["bad"])
+    bad = NixEvalJobError(error="nope", attr="bad", attr_path=["bad"])
     a = mk_job("a")
     b = mk_job("b", deps=["a"])
     executor = FakeExecutor()
@@ -350,11 +350,11 @@ def test_post_build_failure_not_cached_and_dependents_build() -> None:
 def test_cached_failure_error_includes_url() -> None:
     job = mk_job("a")
     cached = CachedFailure(
-        drv_path=job.drvPath,
+        drv_path=job.drv_path,
         time=datetime(2026, 1, 1, tzinfo=UTC),
         url="https://ci.example/builds/1",
     )
-    cache = FakeCache({job.drvPath: cached})
+    cache = FakeCache({job.drv_path: cached})
     result = run_scheduler(
         JobScheduler(FakeExecutor(), [SYSTEM], failed_build_cache=cache), [job]
     )

@@ -116,11 +116,11 @@ def upstream(tmp_path: Path) -> Path:
 def mk_job(attr: str, system: str = "x86_64-linux") -> NixEvalJobSuccess:
     return NixEvalJobSuccess(
         attr=attr,
-        attrPath=[attr],
-        cacheStatus=CacheStatus.notBuilt,
-        neededBuilds=[],
-        neededSubstitutes=[],
-        drvPath=f"/nix/store/{attr}.drv",
+        attr_path=[attr],
+        cache_status=CacheStatus.not_built,
+        needed_builds=[],
+        needed_substitutes=[],
+        drv_path=f"/nix/store/{attr}.drv",
         name=attr,
         outputs={"out": f"/nix/store/{attr}-out"},
         system=system,
@@ -527,7 +527,7 @@ def test_aggregation_generation_monotonic(postgres_dsn: str, tmp_path: Path) -> 
                     attr="x",
                     status=AttributeStatus.failed,
                     job=job,
-                    drv_path=job.drvPath,
+                    drv_path=job.drv_path,
                     system=job.system,
                 ),
             )
@@ -540,7 +540,7 @@ def test_aggregation_generation_monotonic(postgres_dsn: str, tmp_path: Path) -> 
                     attr="x",
                     status=AttributeStatus.succeeded,
                     job=job,
-                    drv_path=job.drvPath,
+                    drv_path=job.drv_path,
                     system=job.system,
                 ),
             )

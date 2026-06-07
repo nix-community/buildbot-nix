@@ -284,7 +284,7 @@ def build_nix_command(
         "--accept-flake-config",
         "--out-link",
         str(out_link),
-        f"{job.drvPath}^*",
+        f"{job.drv_path}^*",
     ]
 
 

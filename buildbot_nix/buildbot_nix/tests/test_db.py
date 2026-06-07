@@ -281,11 +281,11 @@ async def _mk_project(pool: asyncpg.Pool, name: str) -> int:
 def _job(attr: str, out: str | None = None) -> NixEvalJobSuccess:
     return NixEvalJobSuccess(
         attr=attr,
-        attrPath=[attr],
-        cacheStatus=CacheStatus.notBuilt,
-        neededBuilds=[],
-        neededSubstitutes=[],
-        drvPath=f"/nix/store/{attr}.drv",
+        attr_path=[attr],
+        cache_status=CacheStatus.not_built,
+        needed_builds=[],
+        needed_substitutes=[],
+        drv_path=f"/nix/store/{attr}.drv",
         name=attr,
         outputs={"out": out or f"/nix/store/{attr}-out"},
         system="x86_64-linux",
@@ -398,7 +398,7 @@ def test_complete_attribute_replaces_log_row(migrated_dsn: str) -> None:
                         status=AttributeStatus.succeeded,
                         job=job,
                         out_path="/nix/store/foo-out",
-                        drv_path=job.drvPath,
+                        drv_path=job.drv_path,
                         system=job.system,
                     ),
                     log_path="logs/x/foo.zst",
@@ -477,7 +477,7 @@ def test_mark_attribute_building_sets_status_and_started_at(
             build, _ = await db.get_or_create_build(project_id, "tree-b", "sha", "main")
             job = _job("foo")
             await db.record_attributes(build.id, [job])
-            await db.mark_attribute_building(build.id, "foo", job.system, job.drvPath)
+            await db.mark_attribute_building(build.id, "foo", job.system, job.drv_path)
             row = await pool.fetchrow(
                 "SELECT status, started_at FROM build_attributes "
                 "WHERE build_id = $1 AND attr = 'foo'",

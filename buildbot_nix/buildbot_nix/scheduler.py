@@ -146,7 +146,7 @@ def sort_jobs_by_closures(
     for item in sorter.static_order():
         i = 0
         while i < len(jobs):
-            if item == jobs[i].drvPath:
+            if item == jobs[i].drv_path:
                 sorted_jobs.append(jobs[i])
                 del jobs[i]
             else:
@@ -165,15 +165,15 @@ def get_failed_dependents(
     the closure sets are how the dependency edges are found.
     """
     jobs = list(jobs)
-    failed_paths: list[str] = [job.drvPath]
+    failed_paths: list[str] = [job.drv_path]
     removed = []
     while True:
         old_paths = list(failed_paths)
         for build in list(jobs):
-            deps: set[str] = job_closures.get(build.drvPath, set())
+            deps: set[str] = job_closures.get(build.drv_path, set())
             for path in old_paths:
                 if path in deps:
-                    failed_paths.append(build.drvPath)
+                    failed_paths.append(build.drv_path)
                     jobs.remove(build)
                     removed.append(build)
                     break
@@ -185,12 +185,12 @@ def get_failed_dependents(
 def compute_job_closures(
     jobs: list[NixEvalJobSuccess],
 ) -> dict[str, set[str]]:
-    job_set = {job.drvPath for job in jobs}
+    job_set = {job.drv_path for job in jobs}
     return {
-        k.drvPath: set(k.neededSubstitutes)
-        .union(set(k.neededBuilds))
+        k.drv_path: set(k.needed_substitutes)
+        .union(set(k.needed_builds))
         .intersection(job_set)
-        .difference({k.drvPath})
+        .difference({k.drv_path})
         for k in jobs
     }
 
@@ -208,7 +208,7 @@ def _success_result(
         status=status,
         job=job,
         out_path=job.outputs.get("out"),
-        drv_path=job.drvPath,
+        drv_path=job.drv_path,
         system=job.system,
         error=error,
         dependency_attr=dependency_attr,
@@ -236,7 +236,7 @@ class _State:
             self.result.results.append(
                 _success_result(dependent, status, dependency_attr=job.attr)
             )
-            self.prune(dependent.drvPath)
+            self.prune(dependent.drv_path)
 
 
 class JobScheduler:
@@ -295,7 +295,7 @@ class JobScheduler:
         any_ready = False
         while True:
             ready = [
-                job for job in state.pending if not state.job_closures.get(job.drvPath)
+                job for job in state.pending if not state.job_closures.get(job.drv_path)
             ]
             if not ready:
                 return any_ready
@@ -311,7 +311,7 @@ class JobScheduler:
                         # Cached failure counts as a failure: propagate to
                         # dependents before pruning.
                         state.fail_dependents(job, AttributeStatus.dependency_failed)
-                    state.prune(job.drvPath)
+                    state.prune(job.drv_path)
 
     async def _finish_job(
         self, state: _State, job: NixEvalJobSuccess, outcome: BuildOutcome
@@ -332,7 +332,7 @@ class JobScheduler:
                 )
             )
             if outcome == BuildOutcome.failure and self.failed_build_cache is not None:
-                await self.failed_build_cache.add(job.drvPath, self.build_url)
+                await self.failed_build_cache.add(job.drv_path, self.build_url)
             # Cancelled jobs propagate cancellation, never
             # dependency_failed, and are not cached as failures.
             state.fail_dependents(
@@ -341,7 +341,7 @@ class JobScheduler:
                 if cancelled
                 else AttributeStatus.dependency_failed,
             )
-        state.prune(job.drvPath)
+        state.prune(job.drv_path)
 
     async def run(self, jobs: list[NixEvalJob]) -> ScheduleResult:
         result = ScheduleResult()
@@ -384,11 +384,11 @@ class JobScheduler:
     async def _classify(self, job: NixEvalJobSuccess, result: ScheduleResult) -> str:
         """Decide whether to run or skip a ready job, recording skip results."""
         if self.failed_build_cache is not None:
-            cached = await self.failed_build_cache.check(job.drvPath)
+            cached = await self.failed_build_cache.check(job.drv_path)
             if cached is not None:
                 if self.is_rebuild:
                     # Rebuild requested: drop the cache entry and build.
-                    await self.failed_build_cache.remove(job.drvPath)
+                    await self.failed_build_cache.remove(job.drv_path)
                     return "run"
                 result.results.append(
                     _success_result(
@@ -403,7 +403,7 @@ class JobScheduler:
                 )
                 return "skip-failed"
 
-        if job.cacheStatus in {CacheStatus.notBuilt, CacheStatus.cached}:
+        if job.cache_status in {CacheStatus.not_built, CacheStatus.cached}:
             # cached: schedule so nix substitutes it.
             return "run"
 

@@ -95,7 +95,7 @@ def attr_result(
     return AttributeResult(
         attr=attr,
         status=status,
-        job=NixEvalJobError(error=error or "", attr=attr, attrPath=[attr]),
+        job=NixEvalJobError(error=error or "", attr=attr, attr_path=[attr]),
         error=error,
     )
 

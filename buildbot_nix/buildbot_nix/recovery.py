@@ -135,11 +135,11 @@ async def find_unfinished_builds(
             pending_jobs.append(
                 NixEvalJobSuccess(
                     attr=attr["attr"],
-                    attrPath=attr["attr"].split("."),
-                    cacheStatus=CacheStatus.notBuilt,
-                    neededBuilds=[],
-                    neededSubstitutes=[],
-                    drvPath=attr["drv_path"],
+                    attr_path=attr["attr"].split("."),
+                    cache_status=CacheStatus.not_built,
+                    needed_builds=[],
+                    needed_substitutes=[],
+                    drv_path=attr["drv_path"],
                     name=attr["attr"],
                     outputs=outputs or {"out": None},
                     system=attr["system"] or "",
@@ -236,7 +236,7 @@ async def settle_already_built(
                     status=AttributeStatus.succeeded,
                     job=job,
                     out_path=out_path,
-                    drv_path=job.drvPath,
+                    drv_path=job.drv_path,
                     system=job.system,
                 ),
             )

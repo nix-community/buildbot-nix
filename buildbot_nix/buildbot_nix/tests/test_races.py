@@ -25,11 +25,11 @@ if TYPE_CHECKING:
 def mk_job() -> NixEvalJobSuccess:
     return NixEvalJobSuccess(
         attr="foo",
-        attrPath=["foo"],
-        cacheStatus=CacheStatus.notBuilt,
-        neededBuilds=[],
-        neededSubstitutes=[],
-        drvPath="/nix/store/foo.drv",
+        attr_path=["foo"],
+        cache_status=CacheStatus.not_built,
+        needed_builds=[],
+        needed_substitutes=[],
+        drv_path="/nix/store/foo.drv",
         name="foo",
         outputs={"out": "/nix/store/foo-out"},
         system="x86_64-linux",

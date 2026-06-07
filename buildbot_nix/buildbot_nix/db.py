@@ -242,7 +242,7 @@ class BuildDB:
         outputs) so crash recovery can resume without a re-eval; eval
         failures are settled by the scheduler."""
         params = [
-            (build_id, job.attr, job.system, job.drvPath, json.dumps(job.outputs))
+            (build_id, job.attr, job.system, job.drv_path, json.dumps(job.outputs))
             for job in jobs
             if isinstance(job, NixEvalJobSuccess)
         ]

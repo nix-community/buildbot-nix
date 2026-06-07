@@ -4,29 +4,37 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
 class CacheStatus(StrEnum):
     cached = "cached"
     local = "local"
-    notBuilt = "notBuilt"  # noqa: N815
+    not_built = "notBuilt"
 
 
 class NixEvalJobError(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     error: str
     attr: str
-    attrPath: list[str]  # noqa: N815
+    attr_path: list[str] = Field(validation_alias="attrPath")
 
 
 class NixEvalJobSuccess(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     attr: str
-    attrPath: list[str]  # noqa: N815
-    cacheStatus: CacheStatus | None = None  # noqa: N815
-    neededBuilds: list[str]  # noqa: N815
-    neededSubstitutes: list[str]  # noqa: N815
-    drvPath: str  # noqa: N815
-    inputDrvs: dict[str, list[str]] | None = None  # noqa: N815
+    attr_path: list[str] = Field(validation_alias="attrPath")
+    cache_status: CacheStatus | None = Field(
+        default=None, validation_alias="cacheStatus"
+    )
+    needed_builds: list[str] = Field(validation_alias="neededBuilds")
+    needed_substitutes: list[str] = Field(validation_alias="neededSubstitutes")
+    drv_path: str = Field(validation_alias="drvPath")
+    input_drvs: dict[str, list[str]] | None = Field(
+        default=None, validation_alias="inputDrvs"
+    )
     name: str
     # nix-eval-jobs emits null output paths for impure and some
     # content-addressed derivations: it cannot know their store paths
@@ -43,7 +51,11 @@ NixEvalJobModel: TypeAdapter[NixEvalJob] = TypeAdapter(NixEvalJob)
 
 class NixDerivation(BaseModel):
     class InputDerivation(BaseModel):
-        dynamicOutputs: dict[str, str]  # noqa: N815
+        model_config = ConfigDict(populate_by_name=True)
+
+        dynamic_outputs: dict[str, str] = Field(validation_alias="dynamicOutputs")
         outputs: list[str]
 
-    inputDrvs: dict[str, InputDerivation]  # noqa: N815
+    model_config = ConfigDict(populate_by_name=True)
+
+    input_drvs: dict[str, InputDerivation] = Field(validation_alias="inputDrvs")

@@ -674,7 +674,7 @@ class _OrchestratorExecutor:
                 status=AttributeStatus.failed,
                 job=job,
                 error="internal error, see service logs",
-                drv_path=job.drvPath,
+                drv_path=job.drv_path,
                 system=job.system,
             )
             await self.o.db.complete_attribute(self.build_record.id, result)
@@ -689,7 +689,7 @@ class _OrchestratorExecutor:
         writer = LogWriter(path=log_path, size_limit=self.o.config.log_size_limit)
         self.o.log_registry.register(self.build_record.id, job.attr, writer)
         await self.o.db.mark_attribute_building(
-            self.build_record.id, job.attr, job.system, job.drvPath
+            self.build_record.id, job.attr, job.system, job.drv_path
         )
         # Per-attribute cancellation: the executor watches one event, so
         # mirror the build-level cancel into the attribute's own event.
@@ -742,7 +742,7 @@ class _OrchestratorExecutor:
             status=status,
             job=job,
             out_path=job.outputs.get("out"),
-            drv_path=job.drvPath,
+            drv_path=job.drv_path,
             system=job.system,
         )
         await self.o.db.complete_attribute(
