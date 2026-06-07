@@ -403,14 +403,16 @@ def create_app(
     )
     ctx = WebContext(pool, state_dir)
     app.state.web_context = ctx
-    app.include_router(create_events_router(ctx, broker))
-    app.include_router(create_router(ctx))
+    # Only /api belongs in the OpenAPI spec; HTML pages, SSE, logs and
+    # metrics are excluded so /docs documents just the JSON API.
+    app.include_router(create_events_router(ctx, broker), include_in_schema=False)
+    app.include_router(create_router(ctx), include_in_schema=False)
     registry = log_registry or LogRegistry()
     app.state.log_registry = registry
-    app.include_router(create_log_router(ctx, registry))
-    app.include_router(create_metrics_router(pool))
+    app.include_router(create_log_router(ctx, registry), include_in_schema=False)
+    app.include_router(create_metrics_router(pool), include_in_schema=False)
     app.include_router(create_api_router(ctx))
     # Last: the legacy catch-alls must not shadow real routes.
-    app.include_router(create_legacy_router(ctx))
+    app.include_router(create_legacy_router(ctx), include_in_schema=False)
     app.mount("/static", CachedStaticFiles(directory=STATIC_DIR), name="static")
     return app

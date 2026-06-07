@@ -239,7 +239,8 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     providers = await _login_providers(config)
     if providers:
         app.include_router(
-            create_auth_router(providers, signer, config.url, ctx.forge_tokens)
+            create_auth_router(providers, signer, config.url, ctx.forge_tokens),
+            include_in_schema=False,
         )
         labels = {"github": "GitHub", "gitea": "Gitea"}
         if config.oidc is not None:
@@ -247,14 +248,19 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
         ctx.env.globals["login_providers"] = [
             {"key": key, "label": labels.get(key, key)} for key in sorted(providers)
         ]
-    app.include_router(create_control_router(ctx, service, authz, config.url))
-    app.include_router(create_token_router(ctx, ctx.token_store, config.url))
+    app.include_router(
+        create_control_router(ctx, service, authz, config.url), include_in_schema=False
+    )
+    app.include_router(
+        create_token_router(ctx, ctx.token_store, config.url), include_in_schema=False
+    )
     app.include_router(
         create_webhook_router(
             service,
             config.github.webhook_secret if config.github is not None else None,
             GiteaWebhookSecrets(pool) if config.gitea is not None else None,
-        )
+        ),
+        include_in_schema=False,
     )
     return service, app
 

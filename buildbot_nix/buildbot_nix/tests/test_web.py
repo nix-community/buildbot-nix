@@ -546,6 +546,8 @@ def test_queue_sorts_active_before_pending(client: WebClient) -> None:
 def test_openapi_docs(client: WebClient) -> None:
     spec = get(client, "/api/openapi.json").json()
     assert "/api/repos" in spec["paths"]
+    # HTML pages and other non-API routes stay out of the spec.
+    assert all(path.startswith("/api/") for path in spec["paths"])
     assert get(client, "/docs").status_code == 200
 
 
