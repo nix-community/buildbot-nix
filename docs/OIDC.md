@@ -89,6 +89,13 @@ oidc = {
 };
 ```
 
+### Authelia
+
+See [examples/oidc-authelia.nix](../examples/oidc-authelia.nix) for a complete
+configuration including the Authelia side: the client registration (Authelia
+stores only a digest of the client secret) and the provider's HMAC secret and
+issuer key.
+
 ### PocketID
 
 ```nix

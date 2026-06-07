@@ -38,4 +38,15 @@ in
       ./buildbot-nix.nix
     ];
   };
+
+  # The base example plus OIDC login backed by Authelia.
+  "example-buildbot-nix-oidc-authelia-${system}" = nixosSystem {
+    inherit system;
+    modules = [
+      dummy
+      buildbot-nix.nixosModules.buildbot-nix
+      ./buildbot-nix.nix
+      ./oidc-authelia.nix
+    ];
+  };
 }
