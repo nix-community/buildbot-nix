@@ -188,8 +188,9 @@ Two caveats around group rules:
 - Group membership is captured in the session at login, so revoking a group in
   the identity provider takes effect on the next login or session expiry, not
   immediately.
-- Personal API tokens carry an identity but no groups: exact and `provider:*`
-  rules apply to API requests, `group:` rules only to browser sessions.
+- Personal API tokens snapshot the creator's groups: group rules apply to API
+  requests with the groups the user had when the token was created, regardless
+  of later membership changes.
 
 ## Groups Support
 

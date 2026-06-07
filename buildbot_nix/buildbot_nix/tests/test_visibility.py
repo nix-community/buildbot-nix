@@ -328,3 +328,32 @@ def test_configured_viewers_see_private(harness: tuple) -> None:
         assert get(harness, "/repos/github/acme/secret").status_code == 404
     finally:
         ctx.visibility.authz = saved
+
+
+def test_api_token_inherits_login_groups(harness: tuple) -> None:
+    """Tokens snapshot the creator's groups, so group-granted viewers
+    keep their visibility over the API."""
+    loop, client = harness
+    ctx = client._transport.app.state.web_context  # noqa: SLF001
+    ctx.token_store = ApiTokenStore(ctx.pool)
+    saved = ctx.visibility.authz
+    ctx.visibility.authz = AuthzConfig(
+        admins=["github:root"],
+        private_repo_viewers={"*": ["oidc:idp:group:auditors"]},
+    )
+    try:
+        creator = User(provider="oidc:idp", username="erika", groups=("auditors",))
+        token = loop.run_until_complete(ctx.token_store.create(creator, "t1"))
+        restored = loop.run_until_complete(ctx.token_store.authenticate(token))
+        assert restored is not None
+        assert restored.groups == ("auditors",)
+
+        response = loop.run_until_complete(
+            client.get(
+                "/api/repos/github/acme/secret/builds",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        )
+        assert response.status_code == 200
+    finally:
+        ctx.visibility.authz = saved

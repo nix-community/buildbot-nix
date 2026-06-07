@@ -48,13 +48,15 @@ class ApiTokenStore:
         token = TOKEN_PREFIX + secrets.token_urlsafe(32)
         await self.pool.execute(
             """
-            INSERT INTO api_tokens (user_qualified, name, token_hash, expires_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO api_tokens (user_qualified, name, token_hash, expires_at,
+                                    groups)
+            VALUES ($1, $2, $3, $4, $5)
             """,
             user.qualified,
             name,
             _hash(token),
             expires_at,
+            list(user.groups),
         )
         return token
 
@@ -63,8 +65,8 @@ class ApiTokenStore:
             return None
         token_hash = _hash(token)
         row = await self.pool.fetchrow(
-            "SELECT user_qualified, token_hash, expires_at FROM api_tokens "
-            "WHERE token_hash = $1",
+            "SELECT user_qualified, token_hash, expires_at, groups "
+            "FROM api_tokens WHERE token_hash = $1",
             token_hash,
         )
         if row is None:
@@ -74,7 +76,7 @@ class ApiTokenStore:
         if row["expires_at"] is not None and row["expires_at"] < datetime.now(tz=UTC):
             return None
         provider, _, username = row["user_qualified"].rpartition(":")
-        return User(provider=provider, username=username)
+        return User(provider=provider, username=username, groups=tuple(row["groups"]))
 
     async def list_for(self, user: User) -> list[TokenInfo]:
         rows = await self.pool.fetch(
