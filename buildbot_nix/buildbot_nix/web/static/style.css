@@ -292,6 +292,12 @@ pre.warning {
 details summary {
 	cursor: pointer;
 }
+/* Groups scroll internally: an expanding group must not push the
+   summaries below it out of reach (infinite-scroll footer problem). */
+.attr-scroll {
+	max-height: 70vh;
+	overflow-y: auto;
+}
 details.attr-group {
 	margin: 0.75rem 0;
 }
