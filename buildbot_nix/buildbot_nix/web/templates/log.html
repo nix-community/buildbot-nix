@@ -24,12 +24,12 @@
           </small>
         </h2>
         <div class="controls">
-          {% if attr_status in ('pending', 'building') %}
+          {% if can_control and attr_status in ('pending', 'building') %}
             <form method="post"
                   action="{{ build_path(project, build.number) }}/attrs/{{ attr }}/cancel">
               <button>cancel</button>
             </form>
-          {% elif attr_status %}
+          {% elif can_control and attr_status %}
             <form method="post"
                   action="{{ build_path(project, build.number) }}/attrs/{{ attr }}/restart">
               <button>restart</button>

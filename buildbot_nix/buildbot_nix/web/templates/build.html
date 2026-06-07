@@ -55,12 +55,12 @@
           </p>
         </div>
         <div class="controls">
-          {# Authorization is enforced server-side (admins, PR authors). #}
-          {% if build.status in RUNNING_STATUSES %}
+          {# UX only; the control routes enforce authz server-side. #}
+          {% if can_control and build.status in RUNNING_STATUSES %}
             <form method="post" action="{{ build_path(project, build.number) }}/cancel">
               <button>cancel</button>
             </form>
-          {% else %}
+          {% elif can_control %}
             <form method="post"
                   action="{{ build_path(project, build.number) }}/restart">
               <button>restart</button>

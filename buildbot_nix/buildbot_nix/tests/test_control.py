@@ -121,6 +121,7 @@ def harness(postgres_dsn: str) -> Iterator[tuple]:
         app = create_app(pool)
         ctx = app.state.web_context
         ctx.signer = SIGNER
+        ctx.authz = AUTHZ
         app.include_router(create_control_router(ctx, BACKEND, AUTHZ, "http://test"))
         app.include_router(
             create_control_api_router(ctx, BACKEND, AUTHZ, "http://test")
@@ -155,6 +156,22 @@ def post(
     return loop.run_until_complete(
         client.post(url, headers=headers | cookie_header(cookies), data=data)
     )
+
+
+def get(harness: tuple, url: str, user: User | None = None) -> httpx.Response:
+    loop, client = harness
+    cookies = {}
+    if user is not None:
+        cookies["buildbot_nix_session"] = SIGNER.session_for(user)
+    return loop.run_until_complete(client.get(url, headers=cookie_header(cookies)))
+
+
+def test_control_buttons_hidden_without_permission(harness: tuple) -> None:
+    url = "/repos/github/acme/widget/builds/1"
+    assert "rebuild failed" not in get(harness, url).text
+    assert "rebuild failed" not in get(harness, url, MALLORY).text
+    assert "rebuild failed" in get(harness, url, ROOT).text
+    assert "rebuild failed" in get(harness, url, ALICE).text
 
 
 def test_anonymous_cannot_control(harness: tuple) -> None:

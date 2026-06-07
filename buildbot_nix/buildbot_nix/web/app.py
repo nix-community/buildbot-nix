@@ -30,6 +30,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 
+from ..auth import can_control_build  # noqa: TID252
 from ..recovery import check_db_health  # noqa: TID252
 from .api_routes import create_api_router
 from .auth_routes import SESSION_COOKIE
@@ -41,7 +42,7 @@ from .templating import STATIC_DIR, CachedStaticFiles, make_env
 
 if TYPE_CHECKING:
     from ..api_tokens import ApiTokenStore  # noqa: TID252
-    from ..auth import SessionSigner, User  # noqa: TID252
+    from ..auth import AuthzConfig, SessionSigner, User  # noqa: TID252
     from ..forge_tokens import TokenVault  # noqa: TID252
     from ..visibility import VisibilityService  # noqa: TID252
 
@@ -81,8 +82,21 @@ class WebContext:
         self.env = make_env()
         self.signer = signer
         self.visibility = visibility
+        # Wired by bootstrap; None hides control buttons (authz unknown).
+        self.authz: AuthzConfig | None = None
         self.token_store: ApiTokenStore | None = None
         self.forge_tokens: TokenVault | None = None
+
+    async def can_control(self, request: Request, build: dict[str, Any]) -> bool:
+        """Whether to render restart/cancel buttons; the control
+        routes re-check server-side."""
+        if self.authz is None:
+            return False
+        return can_control_build(
+            await self.request_user(request),
+            self.authz,
+            build_pr_author=build.get("pr_author"),
+        )
 
     def current_user(self, request: Request) -> User | None:
         if self.signer is None:
@@ -339,6 +353,7 @@ class _PageRoutes:
             inline=inline,
             prev_number=prev_number,
             next_number=next_number,
+            can_control=await ctx.can_control(request, build),
         )
 
     async def attribute_rows(  # noqa: PLR0913

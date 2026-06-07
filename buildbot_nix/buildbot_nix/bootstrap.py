@@ -223,6 +223,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
         load_signing_keys(config.state_dir), lifetime=config.session_lifetime
     )
     ctx.signer = signer
+    ctx.authz = authz
     ctx.token_store = ApiTokenStore(pool)
     ctx.forge_tokens = ForgeTokenStore(pool)
     ctx.visibility = VisibilityService(

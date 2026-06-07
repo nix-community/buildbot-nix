@@ -398,6 +398,7 @@ class _LogRoutes:
             waiting=waiting,
             prev_number=prev_number,
             next_number=next_number,
+            can_control=await self.ctx.can_control(request, build),
         )
 
 
