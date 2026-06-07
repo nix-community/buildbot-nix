@@ -202,6 +202,34 @@ td.attr-duration {
 	font-weight: 600;
 	color: var(--status-color, inherit);
 }
+/* Header bar: one flex row - icon, repo, number, status pill, with
+   the prev/next pager pushed to the far edge. */
+.build-header h2 {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+.build-header h2 .status-icon {
+	margin-right: 0;
+}
+.build-header h2 .status {
+	font-size: 0.95rem;
+	padding: 0.1rem 0.65rem;
+	border-radius: 1rem;
+	background: color-mix(
+		in srgb,
+		var(--status-color, var(--muted)) 12%,
+		transparent
+	);
+}
+.build-header h2 .pager {
+	margin-left: auto;
+	padding: 0;
+	gap: 0.75rem;
+	font-size: 1rem;
+	font-weight: 400;
+}
 /* Buildkite-style status icons on the attribute list: shape + color
    carry the state, text stays for screen readers and tooltips. */
 .status-icon {
