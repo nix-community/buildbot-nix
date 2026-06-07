@@ -634,8 +634,8 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
                 project_id,
             )
             await pool.execute(
-                "INSERT INTO build_effects (build_id, name, status, finished_at) "
-                "VALUES ($1, 'deploy', 'failed', now())",
+                "INSERT INTO build_effects (build_id, name, status, finished_at, "
+                "log_path) VALUES ($1, 'deploy', 'failed', now(), 'old.zst')",
                 build_id,
             )
 
@@ -643,13 +643,19 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
             assert not await pool.fetchval(
                 "SELECT effects_started FROM builds WHERE id = $1", build_id
             )
-            assert (
-                await pool.fetchval(
-                    "SELECT count(*) FROM build_effects WHERE build_id = $1",
-                    build_id,
-                )
-                == 0
+            # Rows stay visible as pending; the rerun prunes stale names.
+            row = await pool.fetchrow(
+                "SELECT status, error, finished_at, log_path FROM build_effects "
+                "WHERE build_id = $1",
+                build_id,
             )
+            # The stale log must not serve while the rerun is pending.
+            assert dict(row) == {
+                "status": "pending",
+                "error": None,
+                "finished_at": None,
+                "log_path": None,
+            }
 
             # Single-attribute restart keeps the guard: a partial
             # rebuild must not re-deploy.

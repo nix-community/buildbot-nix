@@ -593,7 +593,10 @@ class Orchestrator:
                 "UPDATE builds SET effects_started = FALSE WHERE id = $1", build.id
             )
             await self.db.pool.execute(
-                "DELETE FROM build_effects WHERE build_id = $1", build.id
+                "UPDATE build_effects SET status = 'pending', error = NULL, "
+                "finished_at = NULL, log_path = NULL, log_size = 0, "
+                "log_truncated = FALSE WHERE build_id = $1",
+                build.id,
             )
             async with self._rerun_worktree(info, build, "effects", credentials) as (
                 event,
@@ -640,7 +643,16 @@ class Orchestrator:
             task_token=task_token,
         )
         try:
-            for name in await list_effects(ctx):
+            names = await list_effects(ctx)
+            # Effects removed from the flake since the last run would
+            # otherwise linger as stale pending rows.
+            await self.db.pool.execute(
+                "DELETE FROM build_effects WHERE build_id = $1 "
+                "AND NOT (name = ANY($2::text[]))",
+                build.id,
+                names,
+            )
+            for name in names:
                 await self._run_one_effect(ctx, build, name)
         except (EffectsError, OSError):
             # OSError: buildbot-effects not installed; effects are

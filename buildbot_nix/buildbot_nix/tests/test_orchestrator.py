@@ -990,8 +990,19 @@ def test_rerun_effects_runs_effects_again(
                 "WHERE build_id = $1",
                 build.id,
             )
+            # A stale row from an effect no longer in the flake.
+            await pool.execute(
+                "INSERT INTO build_effects (build_id, name, status) "
+                "VALUES ($1, 'removed', 'failed')",
+                build.id,
+            )
             await orchestrator.rerun_effects(project, build)
             assert ran == ["deploy", "deploy"]
+            rows = await pool.fetch(
+                "SELECT name, status FROM build_effects WHERE build_id = $1",
+                build.id,
+            )
+            assert [(r["name"], r["status"]) for r in rows] == [("deploy", "succeeded")]
             attrs_after = await pool.fetch(
                 "SELECT attr, status, finished_at FROM build_attributes "
                 "WHERE build_id = $1",

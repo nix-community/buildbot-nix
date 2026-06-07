@@ -245,7 +245,10 @@ class CIService:
                 "UPDATE builds SET effects_started = FALSE WHERE id = $1", build_id
             )
             await self.pool.execute(
-                "DELETE FROM build_effects WHERE build_id = $1", build_id
+                "UPDATE build_effects SET status = 'pending', error = NULL, "
+                "finished_at = NULL, log_path = NULL, log_size = 0, "
+                "log_truncated = FALSE WHERE build_id = $1",
+                build_id,
             )
         # Queued, not started: the rerun decides whether this becomes
         # a re-eval (evaluating) or an attribute rerun (building).
