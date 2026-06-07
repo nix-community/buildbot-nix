@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -17,7 +18,9 @@ import httpx
 import pytest
 import zstandard
 
+from buildbot_nix.db import BuildStatus
 from buildbot_nix.executor import LogWriter
+from buildbot_nix.scheduler import AttributeStatus
 from buildbot_nix.web.app import create_app
 from buildbot_nix.web.events import EventBroker
 from buildbot_nix.web.logs import (
@@ -746,3 +749,20 @@ def test_attribute_search(client: WebClient) -> None:
     assert "x86_64-linux.ok" not in found.text
     empty = get(client, "/repos/github/acme/widget/builds/2/attrs?q=")
     assert "data-attr" not in empty.text
+
+
+def test_css_covers_every_status() -> None:
+    """Status values double as CSS classes; a missing rule silently
+    renders a grey icon."""
+    css = (Path(__file__).parent.parent / "web" / "static" / "style.css").read_text()
+    statuses = (
+        {s.value for s in AttributeStatus}
+        | set(BuildStatus.TERMINAL)
+        | {
+            BuildStatus.PENDING,
+            BuildStatus.EVALUATING,
+            BuildStatus.BUILDING,
+        }
+    )
+    missing = [s for s in statuses if f".{s}" not in css]
+    assert not missing
