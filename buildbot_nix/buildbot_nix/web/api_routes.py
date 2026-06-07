@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from ..ansi import strip_ansi  # noqa: TID252
 from .queries import BuildFilters
 
 if TYPE_CHECKING:
@@ -132,6 +133,8 @@ def clean_row(row: dict[str, Any]) -> dict[str, Any]:
     for key, value in row.items():
         if hasattr(value, "isoformat"):
             out[key] = value.isoformat()
+        elif key == "error" and isinstance(value, str):
+            out[key] = strip_ansi(value)
         elif key in ("outputs", "eval_warnings") and isinstance(value, str):
             try:
                 out[key] = json.loads(value)

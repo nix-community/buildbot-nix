@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from . import gcroots, outputs
-from .ansi import strip_ansi
 from .canceller import (
     CancellationManager,
     RegisterOutcome,
@@ -786,10 +785,11 @@ class _OrchestratorExecutor:
             BuildOutcome.cancelled: AttributeStatus.cancelled,
         }[outcome]
         # Failed attributes carry a log-tail excerpt so the build page
-        # answers "why" without a click into the log.
+        # answers "why" without a click into the log. ANSI stays: the
+        # web layer renders it, the API strips it.
         error = None
         if status == AttributeStatus.failed:
-            error = strip_ansi(writer.tail_lines()) or None
+            error = writer.tail_lines() or None
         result = AttributeResult(
             attr=job.attr,
             status=status,

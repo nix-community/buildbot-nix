@@ -69,7 +69,9 @@ async def seed(dsn: str, state_dir: Path | None = None) -> None:
                 """,
                 build_id,
                 "failed" if status == "failed" else "succeeded",
-                "error: builder failed loudly" if status == "failed" else None,
+                "\x1b[31;1merror:\x1b[0m builder failed loudly"
+                if status == "failed"
+                else None,
             )
             # Finished builds get a log for the prev/next navigation.
             if state_dir is not None and status != "building":

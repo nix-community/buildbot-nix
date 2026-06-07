@@ -234,7 +234,7 @@ async def _failure_summary(
             {
                 "attr": a["attr"],
                 "status": a["status"],
-                "error": a["error"],
+                "error": strip_ansi(a["error"]) if a["error"] else None,
                 "log_tail": "\n".join(text.splitlines()[-tail:]) if text else None,
             }
         )

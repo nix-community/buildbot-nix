@@ -102,6 +102,13 @@ def test_html_error_pages(client: WebClient) -> None:
     assert api.json() == {"detail": "Not Found"}
 
 
+def test_api_strips_ansi_from_errors(client: WebClient) -> None:
+    build = get(client, "/api/repos/github/acme/widget/builds/2").json()
+    errors = [a["error"] for a in build["attributes"] if a["error"]]
+    assert errors
+    assert all("\x1b" not in e for e in errors)
+
+
 def test_homepage(client: WebClient) -> None:
     response = get(client, "/")
     assert response.status_code == 200
@@ -139,7 +146,10 @@ def test_build_page(client: WebClient) -> None:
     assert "2 succeeded" in text
     assert "attrs?group=succeeded" in text
     # Inline error excerpt.
+    # ANSI in the stored excerpt renders as color, not as escapes.
     assert "builder failed loudly" in text
+    assert '<span class="ansi-red' in text
+    assert "\x1b" not in text
     # Prev/next navigation.
     assert "/builds/1" in text
     assert "/builds/3" in text

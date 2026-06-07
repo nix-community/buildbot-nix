@@ -15,8 +15,8 @@
     <tr data-attr="{{ a.attr | lower }}">
       <td colspan="3">
         <details class="error">
-          <summary>{{ a.error | excerpt(160) }}</summary>
-          <pre class="error">{{ a.error }}</pre>
+          <summary>{{ a.error | plain | excerpt(160) }}</summary>
+          <pre class="error">{{ a.error | ansi }}</pre>
         </details>
       </td>
     </tr>

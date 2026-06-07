@@ -11,6 +11,10 @@ from urllib.parse import quote
 
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
+
+from ..ansi import strip_ansi  # noqa: TID252
+from .logs import ansi_to_html
 
 if TYPE_CHECKING:
     from fastapi.responses import Response
@@ -123,6 +127,9 @@ def make_env() -> Environment:
     env.filters["duration"] = duration
     env.filters["duration_secs"] = duration_secs
     env.filters["excerpt"] = excerpt
+    env.filters["plain"] = strip_ansi
+    # ansi_to_html escapes its input before adding span tags.
+    env.filters["ansi"] = lambda text: Markup(ansi_to_html(text or ""))  # noqa: S704
     env.globals["commit_url"] = commit_url
     env.globals["repo_name"] = repo_name
     env.globals["pr_url"] = pr_url
