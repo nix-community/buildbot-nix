@@ -324,13 +324,22 @@ async def _startup(service: EngineService) -> None:
         await service._rerun_pending(resumable.build_id)  # noqa: SLF001
 
 
+async def _run_startup(service: EngineService) -> None:
+    """One-shot startup, then the periodic discovery loop (which must
+    not run concurrently with the initial discovery)."""
+    try:
+        await _startup(service)
+    except Exception:
+        logger.exception("startup work failed")
+    await service.discovery_loop()
+
+
 async def run_service(config: EngineConfig) -> None:
     service, app = await build_service(config)
 
-    await _startup(service)
-
+    # Startup can take minutes; it must not keep uvicorn from binding.
     tasks = [
-        asyncio.create_task(service.discovery_loop()),
+        asyncio.create_task(_run_startup(service)),
         asyncio.create_task(service.maintenance_loop()),
         asyncio.create_task(service.scheduled_effects_loop()),
     ]
@@ -391,3 +400,6 @@ async def run_service(config: EngineConfig) -> None:
             await poller.stop()
         for task in tasks:
             task.cancel()
+        # Drop connections without waiting: a clean close would block
+        # shutdown on whatever the cancelled tasks still hold.
+        service.pool.terminate()

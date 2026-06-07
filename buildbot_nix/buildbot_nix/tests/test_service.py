@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -17,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import pytest
 
-from buildbot_nix.bootstrap import _startup, build_service
+from buildbot_nix.bootstrap import _startup, build_service, run_service
 from buildbot_nix.config import (
     EngineConfig,
     PullBasedConfig,
@@ -620,5 +622,45 @@ def test_gitlab_discovery_and_hook_registration(
             assert hook_posts[0]["token"] == secret
         finally:
             await pool.close()
+
+    asyncio.run(run())
+
+
+def test_health_serves_while_startup_blocks(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The HTTP server binds while discovery/recovery still run."""
+
+    async def run() -> None:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        config = make_config(postgres_dsn, tmp_path / "state", http_port=port)
+
+        started = asyncio.Event()
+
+        async def stalled_startup(service: object) -> None:
+            started.set()
+            await asyncio.sleep(3600)
+
+        monkeypatch.setattr("buildbot_nix.bootstrap._startup", stalled_startup)
+        runner = asyncio.create_task(run_service(config))
+        try:
+            await asyncio.wait_for(started.wait(), timeout=30)
+            async with httpx.AsyncClient() as client:
+                for _ in range(100):
+                    try:
+                        response = await client.get(f"http://127.0.0.1:{port}/health")
+                        break
+                    except httpx.TransportError:
+                        await asyncio.sleep(0.1)
+                else:
+                    msg = "server did not bind while startup was blocked"
+                    raise AssertionError(msg)
+            assert response.status_code == 200
+        finally:
+            runner.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await runner
 
     asyncio.run(run())
