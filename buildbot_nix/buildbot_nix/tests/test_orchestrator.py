@@ -1007,6 +1007,57 @@ def test_rerun_effects_runs_effects_again(
     asyncio.run(run())
 
 
+def test_recovery_rerun_runs_effects(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build recovered after a crash that happened before effects
+    started must still run them on success."""
+
+    async def run() -> None:
+        ran: list[str] = []
+
+        async def fake_list(ctx: object) -> list[str]:
+            return ["deploy"]
+
+        async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
+            ran.append(name)
+            return True
+
+        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
+        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
+
+        add_commit(upstream, "rec")
+        pool = await asyncpg.create_pool(postgres_dsn)
+        orchestrator, _ = make_orchestrator(
+            pool, tmp_path, FakeEvalRunner([mk_job("a")]), FakeExecutor()
+        )
+        project = await make_project(pool)
+        project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
+        event = ChangeEvent(
+            repo=project,
+            branch="main",
+            commit_sha=git(upstream, "rev-parse", "HEAD"),
+        )
+        build = await orchestrator.handle_change_event(event)
+        try:
+            assert build is not None
+            assert ran == ["deploy"]
+            # Simulate a crash before effects started.
+            await pool.execute(
+                "UPDATE builds SET effects_started = FALSE WHERE id = $1", build.id
+            )
+            await pool.execute(
+                "UPDATE build_attributes SET status = 'pending' WHERE build_id = $1",
+                build.id,
+            )
+            await orchestrator.rerun_pending_attributes(project, build, [mk_job("a")])
+            assert ran == ["deploy", "deploy"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_unsupported_system_attr_does_not_block_aggregation(
     postgres_dsn: str, tmp_path: Path, upstream: Path
 ) -> None:

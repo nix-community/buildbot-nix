@@ -538,7 +538,20 @@ class Orchestrator:
                 credentials=credentials,
             )
             try:
-                await self._build_attributes(event, build, worktree.path, pending_jobs)
+                status = await self._build_attributes(
+                    event, build, worktree.path, pending_jobs
+                )
+                if status == BuildStatus.SUCCEEDED:
+                    # Crash recovery before effects started; the
+                    # started-flag keeps already-deployed builds from
+                    # re-deploying.
+                    await self._maybe_run_effects(
+                        event,
+                        build,
+                        worktree.path,
+                        BranchConfig.load(worktree.path),
+                        credentials,
+                    )
             finally:
                 await self.repos.remove_worktree(worktree)
         finally:
