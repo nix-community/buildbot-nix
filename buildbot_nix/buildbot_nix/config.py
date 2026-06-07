@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, field_validator
 from pydantic_core import CoreSchema, core_schema
 
 
@@ -297,6 +297,13 @@ class Config(BaseModel):
 
     # Webhook URL may differ from the UI URL (e.g. split ingress).
     webhook_base_url: str | None = None
+
+    @field_validator("url", "webhook_base_url")
+    @classmethod
+    def _strip_trailing_slash(cls, value: str | None) -> str | None:
+        # Joined with absolute paths everywhere; a trailing slash
+        # produces double-slash URLs (the state API 404s on them).
+        return value.rstrip("/") if value is not None else None
 
     # Directory for persistent clones, worktrees, logs, gc-roots, keys.
     state_dir: Path = Path("/var/lib/buildbot-nix")
