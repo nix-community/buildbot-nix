@@ -631,5 +631,6 @@ table td.empty-state {
 }
 .avatar {
 	border-radius: 50%;
-	vertical-align: middle;
+	/* Header aligns on baseline, which would push the image up. */
+	align-self: center;
 }
