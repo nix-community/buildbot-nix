@@ -1,4 +1,4 @@
-"""Service composition regression tests (engine/service.py)."""
+"""Service composition regression tests (service.py)."""
 
 # ruff: noqa: PLR2004, ARG001, ARG002 (stub callbacks ignore arguments)
 
@@ -21,7 +21,7 @@ import pytest
 
 from buildbot_nix.bootstrap import _startup, build_service, run_service
 from buildbot_nix.config import (
-    EngineConfig,
+    Config,
     PullBasedConfig,
     PullBasedRepository,
 )
@@ -46,8 +46,8 @@ def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         yield dsn
 
 
-def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> EngineConfig:
-    return EngineConfig(
+def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> Config:
+    return Config(
         db_url=dsn,
         build_systems=["x86_64-linux"],
         domain="ci.test",

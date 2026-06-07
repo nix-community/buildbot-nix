@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
     from pathlib import Path
 
-    from .config import EngineConfig
+    from .config import Config
     from .db import BuildDB, BuildRecord
     from .executor import NixBuildExecutor
     from .gitrepo import FetchCredentials, RepoManager
@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Orchestrator:
-    config: EngineConfig
+    config: Config
     db: BuildDB
     repos: RepoManager
     eval_runner: EvalRunner

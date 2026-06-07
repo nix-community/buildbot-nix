@@ -1,4 +1,4 @@
-"""Process bootstrap: resolve configuration into a wired EngineService
+"""Process bootstrap: resolve configuration into a wired CIService
 and run it — database pool, migrations, forge clients, auth providers,
 web app, and the uvicorn server.
 """
@@ -73,10 +73,10 @@ from .webhooks import (
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from .config import EngineConfig
+    from .config import Config
 
 from .service import (
-    EngineService,
+    CIService,
     PullBasedCredentialsProvider,
     resolve_credential_path,
 )
@@ -84,7 +84,7 @@ from .service import (
 logger = logging.getLogger(__name__)
 
 
-def _resolve_dsn(config: EngineConfig) -> str:
+def _resolve_dsn(config: Config) -> str:
     if config.db_url_file is not None:
         return read_secret_file(config.db_url_file)
     if config.db_url is not None:
@@ -93,7 +93,7 @@ def _resolve_dsn(config: EngineConfig) -> str:
     raise ConfigError(msg)
 
 
-def _polled_repositories(config: EngineConfig) -> list[PolledRepository]:
+def _polled_repositories(config: Config) -> list[PolledRepository]:
     if config.pull_based is None:
         return []
     return [
@@ -109,7 +109,7 @@ def _polled_repositories(config: EngineConfig) -> list[PolledRepository]:
     ]
 
 
-async def _login_providers(config: EngineConfig) -> dict[str, OAuthProvider]:
+async def _login_providers(config: Config) -> dict[str, OAuthProvider]:
     providers: dict[str, OAuthProvider] = {}
     if config.github is not None and config.github.oauth_id:
         providers["github"] = github_oauth(
@@ -158,7 +158,7 @@ def _netrc_credentials(
     )
 
 
-def _forge_clients(config: EngineConfig) -> _ForgeClients:
+def _forge_clients(config: Config) -> _ForgeClients:
     clients = _ForgeClients()
     if config.github is not None:
         clients.github = GitHubAppClient(
@@ -181,7 +181,7 @@ def _forge_clients(config: EngineConfig) -> _ForgeClients:
     return clients
 
 
-async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
+async def build_service(config: Config) -> tuple[CIService, FastAPI]:
     """Create the composed service and its ASGI app."""
     # Normalize SQLAlchemy/asyncpg-style URLs before *both* consumers;
     # apply_migrations chokes on the +asyncpg scheme just like the pool.
@@ -228,7 +228,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     if reporter is not None:
         orchestrator.reporter = reporter
 
-    service = EngineService(
+    service = CIService(
         config=config,
         pool=pool,
         orchestrator=orchestrator,
@@ -297,7 +297,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     return service, app
 
 
-async def _startup(service: EngineService) -> None:
+async def _startup(service: CIService) -> None:
     """One-shot startup work, ordered: discovery (the GitHub
     installation map must exist before any fetch/status), crash
     recovery, then reconciliation of heads missed during downtime."""
@@ -328,7 +328,7 @@ async def _startup(service: EngineService) -> None:
         await service._rerun_pending(resumable.build_id)  # noqa: SLF001
 
 
-async def _run_startup(service: EngineService) -> None:
+async def _run_startup(service: CIService) -> None:
     """One-shot startup, then the periodic discovery loop (which must
     not run concurrently with the initial discovery)."""
     try:
@@ -338,7 +338,7 @@ async def _run_startup(service: EngineService) -> None:
     await service.discovery_loop()
 
 
-async def run_service(config: EngineConfig) -> None:
+async def run_service(config: Config) -> None:
     service, app = await build_service(config)
 
     # Startup can take minutes; it must not keep uvicorn from binding.

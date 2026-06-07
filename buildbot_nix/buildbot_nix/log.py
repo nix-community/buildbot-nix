@@ -1,4 +1,4 @@
-"""Structured logging for the engine.
+"""Structured logging for the service.
 
 Emits one JSON object per line on stderr so journald/log shippers can
 parse fields without fragile regex. Extra fields passed via

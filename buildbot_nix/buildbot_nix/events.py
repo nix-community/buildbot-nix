@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class RepoInfo:
-    """The engine-side view of an enabled project."""
+    """The service-side view of an enabled project."""
 
     id: int  # database id
     key: str  # e.g. "github/owner/repo" (clone directory key)

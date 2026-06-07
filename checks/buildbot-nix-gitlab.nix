@@ -3,7 +3,7 @@
 # PAT-based discovery, webhook auto-registration, push-triggered
 # eval/build, commit statuses posted back.
 #
-# Deliberately a qemu VM, not an nspawn container: the engine runs nix
+# Deliberately a qemu VM, not an nspawn container: buildbot-nix runs nix
 # builds, and test containers share the host store read-only without a
 # nix database.
 (import ./lib.nix) {
@@ -49,7 +49,7 @@
         virtualHosts.gitlab.locations."/".proxyPass = "http://unix:/run/gitlab/gitlab-workhorse.socket";
       };
       # IPv4-only aliases: "localhost" resolves to ::1 first, but the
-      # engine listens on 0.0.0.0, so GitLab's webhook delivery to
+      # buildbot-nix listens on 0.0.0.0, so GitLab's webhook delivery to
       # localhost would die on connection refused.
       networking.hosts."127.0.0.1" = [
         "gitlab"
@@ -61,7 +61,7 @@
         domain = "localhost";
         nginx.enable = false;
         # Port 80 is the GitLab vhost; deliver webhooks straight to the
-        # engine under its IPv4 alias.
+        # service under its IPv4 alias.
         webhookBaseUrl = "http://buildbot:8010";
         gitlab = {
           enable = true;
@@ -119,7 +119,7 @@
             "http://gitlab/api/v4/application/settings?allow_local_requests_from_web_hooks_and_services=true" > /dev/null
           runuser -u gitlab -- /run/current-system/sw/bin/gitlab-rails runner 'Rails.cache.clear'
 
-          # The engine authenticates with a PAT (PRIVATE-TOKEN), not OAuth.
+          # buildbot-nix authenticates with a PAT (PRIVATE-TOKEN), not OAuth.
           # expires_at is mandatory-bounded (max 400 days); a week outlives the test.
           TOKEN=$(curl -fs -X POST -H "$AUTH" -H 'Content-Type: application/json' \
             -d "{\"name\":\"buildbot-nix\",\"scopes\":[\"api\"],\"expires_at\":\"$(date -d '+7 days' +%F)\"}" \

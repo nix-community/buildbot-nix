@@ -1,4 +1,4 @@
-"""Tests for the engine's nix-eval-jobs runner (pure parts plus an
+"""Tests for the service's nix-eval-jobs runner (pure parts plus an
 optional integration test against a real nix-eval-jobs)."""
 
 # ruff: noqa: PLR2004 (literal values in test assertions are fine)

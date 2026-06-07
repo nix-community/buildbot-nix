@@ -1,6 +1,6 @@
 """Gitea webhook auto-registration.
 
-When a project is enabled, the engine stores a per-repository secret
+When a project is enabled, the service stores a per-repository secret
 (hook_secrets.py) and registers a webhook pointing at
 `<webhook_base_url>/webhooks/gitea`.
 The webhook base URL may differ from the UI URL (`webhookBaseUrl`).

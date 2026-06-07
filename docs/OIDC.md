@@ -50,7 +50,7 @@ Set your OIDC provider's callback URL to:
 
 ## Manual Configuration
 
-For non-NixOS setups or local development, the engine is configured via a JSON
+For non-NixOS setups or local development, the service is configured via a JSON
 file passed to `buildbot-nix --config`:
 
 ```json

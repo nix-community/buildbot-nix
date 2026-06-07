@@ -1,1 +1,1 @@
-"""Browser end-to-end tests for the engine web frontend."""
+"""Browser end-to-end tests for the service web frontend."""

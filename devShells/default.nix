@@ -6,7 +6,7 @@
 }:
 let
   # process-compose wrapped with the local dev stack config
-  # (postgres + buildbot-nix engine).
+  # (postgres + buildbot-nix).
   devProcessCompose = pkgs.python3.pkgs.callPackage ../packages/process-compose.nix {
     buildbot-nix = self.packages.${system}.buildbot-nix;
     buildbot-effects = self.packages.${system}.buildbot-effects or null;

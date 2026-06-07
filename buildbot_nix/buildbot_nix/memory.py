@@ -1,6 +1,6 @@
 """Eval worker count and memory-limit sizing.
 
-Only the Linux path is needed, the engine is Linux-only.
+Only the Linux path is needed, the service is Linux-only.
 """
 
 from __future__ import annotations

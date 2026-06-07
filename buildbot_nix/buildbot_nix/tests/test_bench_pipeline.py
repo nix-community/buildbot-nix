@@ -58,7 +58,7 @@ BUILD_CONCURRENCY = int(os.environ.get("BENCH_CONCURRENCY", "16"))
 CHAIN_STRIDE = 10
 
 
-# The benchmark measures the engine, not the network: salted drvs
+# The benchmark measures the service, not the network: salted drvs
 # always miss binary caches (--check-cache-status would issue
 # thousands of sequential narinfo lookups), and remote builders would
 # add ssh round-trips per trivial build.

@@ -15,7 +15,7 @@ force_attrs). Status posts carry the build's monotonic generation;
 stale posts (lower generation than the last one sent for that build)
 are dropped.
 
-Target URLs point at the engine's own URL scheme
+Target URLs point at the service's own URL scheme
 (/repos/<forge>/<owner>/<name>/builds/<number>), independent of the frontend tasks.
 """
 
@@ -183,7 +183,7 @@ class FailedStatusStorage(Protocol):
 
 
 class FailedStatusStore:
-    """Port of db/failed_status.py onto the engine schema."""
+    """Port of db/failed_status.py onto the service schema."""
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool

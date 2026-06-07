@@ -1,7 +1,7 @@
 """Postgres-backed failed-build cache (opt-in via cacheFailedBuilds).
 
-Storage port of db/failed_builds.py onto the engine schema; the skip
-semantics live in engine/scheduler.py (cached failures skip the build,
+Storage port of db/failed_builds.py onto the service schema; the skip
+semantics live in scheduler.py (cached failures skip the build,
 report with a link to the first failure, and propagate to dependents;
 an explicit rebuild removes the entry and builds again).
 """

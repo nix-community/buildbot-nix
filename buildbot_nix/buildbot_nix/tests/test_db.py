@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def migrated_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "engine") as dsn:
+    with ephemeral_postgres(tmp_path_factory, "main") as dsn:
         yield dsn
 
 

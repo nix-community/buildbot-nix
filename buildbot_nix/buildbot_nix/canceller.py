@@ -1,6 +1,6 @@
 """Build cancellation and supersede tracking.
 
-Ports build_canceller.py semantics onto the engine: a new change event
+Ports build_canceller.py semantics onto the service: a new change event
 for the same branch or PR supersedes the in-flight build, which is
 cancelled via its cancel event (the executor kills the process group,
 suppresses pending retries, and the scheduler propagates "skipped

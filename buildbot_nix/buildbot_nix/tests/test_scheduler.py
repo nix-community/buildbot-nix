@@ -1,4 +1,4 @@
-"""Tests for the engine job scheduler, enumerating the behavioral
+"""Tests for the service job scheduler, enumerating the behavioral
 branches of buildbot_nix/build_trigger.py."""
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ Effects persist small files between runs (`getStateFile`/
 `putStateFile` in hercules-ci-effects: nixops state, ssh known
 hosts). The agent proxies these to hercules-ci; we serve them from
 the state directory, scoped per project, authorized by a per-run
-bearer token that the engine mints for each effect invocation.
+bearer token that the service mints for each effect invocation.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class TaskTokens:
-    """In-memory per-run tokens; an effect only runs while the engine
+    """In-memory per-run tokens; an effect only runs while the service
     is up, so restart-safety is not needed."""
 
     def __init__(self) -> None:

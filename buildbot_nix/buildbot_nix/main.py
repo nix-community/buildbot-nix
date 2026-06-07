@@ -1,4 +1,4 @@
-"""Engine entry point.
+"""Service entry point.
 
 Loads configuration, sets up structured logging, and runs the asyncio
 service loop. Components (database, web frontend, orchestrator, forge
@@ -14,7 +14,7 @@ import signal
 from pathlib import Path
 
 from .bootstrap import run_service
-from .config import EngineConfig
+from .config import Config
 from .log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="buildbot-nix",
-        description="buildbot-nix CI engine",
+        description="buildbot-nix CI service",
     )
     parser.add_argument(
         "--config",
         type=Path,
         required=True,
-        help="path to the engine configuration file (JSON)",
+        help="path to the configuration file (JSON)",
     )
     parser.add_argument(
         "--log-level",
@@ -44,15 +44,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-async def run(config: EngineConfig) -> None:
-    """Run the engine until a termination signal arrives."""
+async def run(config: Config) -> None:
+    """Run the service until a termination signal arrives."""
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
 
     logger.info(
-        "buildbot-nix engine starting",
+        "buildbot-nix starting",
         extra={"url": config.url, "state_dir": str(config.state_dir)},
     )
     serve = asyncio.create_task(run_service(config))
@@ -63,13 +63,13 @@ async def run(config: EngineConfig) -> None:
     if serve in done:
         serve.result()  # propagate startup/serve errors
     serve.cancel()
-    logger.info("buildbot-nix engine shutting down")
+    logger.info("buildbot-nix shutting down")
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     setup_logging(args.log_level, json_format=args.log_format == "json")
-    config = EngineConfig.load(args.config)
+    config = Config.load(args.config)
     asyncio.run(run(config))
 
 

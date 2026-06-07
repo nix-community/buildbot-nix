@@ -5,7 +5,7 @@
   programs.nixfmt.package = pkgs.nixfmt;
   programs.shellcheck.enable = true;
   programs.deno.enable = true;
-  # deno fmt cannot parse Jinja syntax in the engine's HTML templates
+  # deno fmt cannot parse Jinja syntax in the service's HTML templates
   # (djlint handles those) and biome owns the stylesheet.
   settings.formatter.deno.excludes = [
     "buildbot_nix/buildbot_nix/web/templates/*"

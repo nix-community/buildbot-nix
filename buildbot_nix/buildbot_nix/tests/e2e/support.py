@@ -1,5 +1,5 @@
 """Shared test infrastructure: ephemeral Postgres, seed data, and a
-real uvicorn server hosting the engine web app.
+real uvicorn server hosting the service web app.
 
 Used by the browser e2e tests and the httpx-based web tests.
 """
@@ -97,8 +97,8 @@ async def seed(dsn: str, state_dir: Path | None = None) -> None:
         await pool.close()
 
 
-class EngineServer:
-    """Engine web app on a real TCP port, in a background event loop.
+class TestServer:
+    """Service web app on a real TCP port, in a background event loop.
 
     Playwright drives a real browser, so an ASGI test client is not
     enough. `run()` executes coroutines (DB updates, log writes) on the

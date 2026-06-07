@@ -46,7 +46,7 @@
 
       nixosModules =
         let
-          # Old entry points import the engine module (its rename and
+          # Old entry points import the service module (its rename and
           # removed-option stubs handle the options) but warn about the
           # import itself.
           alias = name: {

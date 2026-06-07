@@ -14,17 +14,17 @@ from buildbot_nix.executor import LogWriter
 if TYPE_CHECKING:
     from playwright.sync_api import Page
 
-    from .support import EngineServer
+    from .support import TestServer
 
 ATTR = "x86_64-linux.ok"
 
 
-async def _build_id(server: EngineServer, number: int) -> int:
+async def _build_id(server: TestServer, number: int) -> int:
     return await server.pool.fetchval("SELECT id FROM builds WHERE number = $1", number)
 
 
 def test_attribute_table_refreshes_while_building(
-    page: Page, server: EngineServer
+    page: Page, server: TestServer
 ) -> None:
     page.goto("/repos/github/acme/widget/builds/3")
     # Succeeded attributes are collapsed; expand to lazy-load the rows.
@@ -59,7 +59,7 @@ def test_attribute_table_refreshes_while_building(
     ).wait_for(timeout=15_000)
 
 
-def test_log_page_streams_live_output(page: Page, server: EngineServer) -> None:
+def test_log_page_streams_live_output(page: Page, server: TestServer) -> None:
     build_id = server.run(_build_id(server, 3))
     writer = LogWriter(path=server.state_dir / "live" / f"{ATTR}.zst")
     server.registry.register(build_id, ATTR, writer)

@@ -1,5 +1,5 @@
-"""buildbot-nix CI engine.
+"""buildbot-nix CI service.
 
-Standalone asyncio-based CI engine replacing the buildbot-based
+Standalone asyncio-based CI service replacing the buildbot-based
 implementation.
 """

@@ -1,6 +1,6 @@
 # Buildbot-nix
 
-Buildbot-nix is a continuous integration (CI) engine for the Nix ecosystem,
+Buildbot-nix is a continuous integration (CI) service for the Nix ecosystem,
 shipped as a single NixOS service. It started as a set of Buildbot plugins and
 now runs standalone: one asyncio process handles forge webhooks, nix-eval-jobs
 evaluation, builds through the local nix daemon (offloaded via remote builders),
@@ -35,7 +35,7 @@ To set up buildbot-nix, start by exploring the provided examples:
 
 Additionally, you can find real-world examples at the end of this document.
 
-The engine runs on one machine; to support multiple architectures and to scale
+The service runs on one machine; to support multiple architectures and to scale
 out builds, configure
 [nix remote builders](https://nixos.org/manual/nix/stable/advanced-topics/distributed-builds).
 For a practical NixOS example, see

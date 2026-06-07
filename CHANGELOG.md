@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — standalone CI engine
+## Unreleased — standalone CI service
 
 buildbot-nix no longer runs on top of Buildbot. The old master/worker pair is
 now a single asyncio service that does everything itself: forge webhooks,
@@ -53,8 +53,8 @@ GitHub App (Active, URL `https://<domain>/webhooks/github`, secret matching
 [docs/GITHUB.md](./docs/GITHUB.md). Subscribing to the `pull_request` event
 requires the "Pull requests: Read-only" repository permission. Adding a
 permission must be accepted on every installation of the app (your user account
-and each organization) under Settings → GitHub Apps → Configure. The engine logs
-a warning at startup if the app is misconfigured.
+and each organization) under Settings → GitHub Apps → Configure. The service
+logs a warning at startup if the app is misconfigured.
 
 Gitea webhooks now register at `https://<domain>/webhooks/gitea` with an
 auto-generated per-repository secret stored in the database —

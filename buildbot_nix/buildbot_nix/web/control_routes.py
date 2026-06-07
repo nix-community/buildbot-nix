@@ -5,7 +5,7 @@ single attribute — gated by authz
 CSRF same-origin checks. Admin-only project enable/disable toggle.
 
 The actual restart/cancel work happens behind the ControlBackend
-protocol, implemented by the engine service composition
+protocol, implemented by the service service composition
 where the orchestrator lives.
 """
 

@@ -16,7 +16,7 @@ import asyncpg
 import pytest
 
 from buildbot_nix import orchestrator as orch_mod
-from buildbot_nix.config import EngineConfig
+from buildbot_nix.config import Config
 from buildbot_nix.db import BuildDB, BuildStatus
 from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
@@ -196,7 +196,7 @@ def make_orchestrator(
     eval_runner: FakeEvalRunner,
     executor: FakeExecutor,
 ) -> tuple[Orchestrator, RecordingReporter]:
-    config = EngineConfig(
+    config = Config(
         db_url="unused",
         build_systems=["x86_64-linux"],
         domain="ci.test",
@@ -1116,7 +1116,7 @@ def test_effect_crash_settles_the_row(
 ) -> None:
     """An unexpected exception inside an effect run must not leave the
     row running: nothing re-runs effects, so it would stick until the
-    next engine restart."""
+    next service restart."""
 
     async def run() -> None:
         async def fake_list(ctx: object) -> list[str]:

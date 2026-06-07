@@ -190,7 +190,7 @@ async def fail_interrupted_effects(pool: asyncpg.Pool) -> None:
     await pool.execute(
         """
         UPDATE build_effects SET status = 'failed',
-            error = 'interrupted by an engine restart', finished_at = now()
+            error = 'interrupted by a service restart', finished_at = now()
         WHERE status = 'running'
         """
     )

@@ -1,6 +1,6 @@
 """GitLab webhook auto-registration.
 
-Same flow as gitea_hooks.py: the engine stores a per-repository secret
+Same flow as gitea_hooks.py: the service stores a per-repository secret
 (hook_secrets.py) and registers a webhook pointing at
 `<webhook_base_url>/webhooks/gitlab`. Hook management needs Maintainer
 on the project; without it the hook must be created manually.

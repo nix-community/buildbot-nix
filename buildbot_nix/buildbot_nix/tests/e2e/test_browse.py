@@ -9,7 +9,7 @@ from buildbot_nix.web.queries import PAGE_SIZE
 if TYPE_CHECKING:
     from playwright.sync_api import Page
 
-    from .support import EngineServer
+    from .support import TestServer
 
 
 def test_homepage_lists_project_and_recent_builds(page: Page) -> None:
@@ -102,7 +102,7 @@ def test_activity_shows_running_build(page: Page) -> None:
 SEEDED_BUILDS = 70
 
 
-def test_activity_infinite_scroll(page: Page, server: EngineServer) -> None:
+def test_activity_infinite_scroll(page: Page, server: TestServer) -> None:
     async def seed_history() -> None:
         project_id = await server.pool.fetchval(
             "SELECT id FROM projects WHERE owner = 'acme' AND name = 'widget'"
@@ -159,9 +159,7 @@ def test_attribute_search_filters_groups(page: Page) -> None:
     page.locator("text=2 succeeded").wait_for()
 
 
-def test_groups_keep_identity_when_one_appears(
-    page: Page, server: EngineServer
-) -> None:
+def test_groups_keep_identity_when_one_appears(page: Page, server: TestServer) -> None:
     """A new group shifts the list; positional morphing used to merge
     one group's rows into another."""
 

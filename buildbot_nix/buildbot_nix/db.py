@@ -1,4 +1,4 @@
-"""Engine data access layer (asyncpg).
+"""Data access layer (asyncpg).
 
 Key invariants:
 

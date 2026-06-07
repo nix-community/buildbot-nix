@@ -92,7 +92,7 @@ class EffectsContext:
     default_branch: str | None = None
     # Forge token resolving hercules GitToken secret references.
     git_token: str | None = None
-    # Hercules state API (served by the engine) + project metadata.
+    # Hercules state API (served by the service) + project metadata.
     api_base_url: str | None = None
     task_token: str | None = None
     project_id: str | None = None

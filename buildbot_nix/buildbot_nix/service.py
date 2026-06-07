@@ -1,4 +1,4 @@
-"""Service composition: wires every engine component into
+"""Service composition: wires every component into
 one running process — database, orchestrator, forge clients, webhook
 ingestion, web frontend, pollers, and background maintenance loops.
 """
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
     import asyncpg
 
-    from .config import EngineConfig
+    from .config import Config
     from .db import BuildRecord
     from .orchestrator import Orchestrator
     from .polling import PolledRepository
@@ -117,8 +117,8 @@ def repo_info(record: RepoRecord) -> RepoInfo:
 
 
 @dataclass
-class EngineService:
-    config: EngineConfig
+class CIService:
+    config: Config
     pool: asyncpg.Pool
     orchestrator: Orchestrator
     repo_store: RepoStore

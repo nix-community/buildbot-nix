@@ -28,7 +28,7 @@ let
   inherit (lib) nixosSystem;
 in
 {
-  # The CI engine is one service; actual builds are offloaded to nix
+  # buildbot-nix is one service; actual builds are offloaded to nix
   # remote builders, so a single machine works well for production.
   "example-buildbot-nix-${system}" = nixosSystem {
     inherit system;

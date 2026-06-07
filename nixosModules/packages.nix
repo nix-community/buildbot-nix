@@ -20,7 +20,7 @@ in
       type = lib.types.package;
       default = cfg.python.pkgs.callPackage ../packages/buildbot-nix.nix { };
       defaultText = lib.literalExpression "python.pkgs.callPackage ../packages/buildbot-nix.nix { }";
-      description = "The buildbot-nix engine package to use.";
+      description = "The buildbot-nix package to use.";
     };
 
     buildbot-effects = lib.mkOption {

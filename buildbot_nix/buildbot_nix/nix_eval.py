@@ -3,7 +3,7 @@
 Ported from the buildbot step in buildbot_nix/nix_eval.py: streams
 nix-eval-jobs JSON lines, honors the repo's `buildbot-nix.toml`
 (flake_dir/lock_file/attribute), extracts evaluation warnings from
-stderr, and sizes workers/memory dynamically (engine/memory.py).
+stderr, and sizes workers/memory dynamically (memory.py).
 
 The evaluator runs inside a bubblewrap sandbox as defense in depth:
 only the worktree, the nix store, the gc-roots dir, the nix daemon
@@ -89,7 +89,7 @@ def build_eval_command(
     flake = f"{branch_config.flake_dir}#{branch_config.attribute}"
     return [
         "nix-eval-jobs",
-        # The engine drives nix entirely through flakes; on hosts where
+        # The service drives nix entirely through flakes; on hosts where
         # the system nix.conf hasn't enabled them (single-user installs,
         # containers) the eval would crash on the first --flake.
         "--option",
@@ -218,7 +218,7 @@ async def systemd_scope_available() -> bool:
 class CgroupLimiter:
     """Per-eval memory caps via a delegated cgroup v2 subtree.
 
-    With Delegate=memory on the service unit the engine owns its cgroup
+    With Delegate=memory on the service unit the service owns its cgroup
     subtree: it moves itself into a "main" leaf (the no-internal-processes
     rule forbids processes next to child cgroups with controllers), enables
     the memory controller for the subtree, and runs each evaluation in its

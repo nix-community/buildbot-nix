@@ -17,14 +17,14 @@
   writeText,
 }:
 let
-  # Only the dependencies: the engine itself runs from the local
+  # Only the dependencies: buildbot-nix itself runs from the local
   # checkout via PYTHONPATH so code changes apply on restart
   # without a rebuild.
   pythonEnv = python.withPackages (_: buildbot-nix.dependencies);
 
   # `__GIT_ROOT__` is substituted by the init process so the same
   # store path works in any worktree.
-  engineConfig = writeText "engine.json" (
+  serviceConfig = writeText "buildbot-nix.json" (
     builtins.toJSON {
       db_url = "postgresql:///buildbot-nix?host=__GIT_ROOT__/.buildbot-dev/pgsock";
       build_systems = [ stdenv.hostPlatform.system ];
@@ -62,7 +62,7 @@ let
     git_branch=$(git -C "$git_root" symbolic-ref --short HEAD)
     sed -e "s|__GIT_ROOT__|$git_root|g" \
         -e "s|__GIT_BRANCH__|$git_branch|g" \
-        ${engineConfig} > "$dev/engine.json"
+        ${serviceConfig} > "$dev/buildbot-nix.json"
   '';
 
   # process-compose already runs commands through a shell; resolve the
@@ -91,13 +91,13 @@ let
           command = cmd ''createdb -h "$dev/pgsock" buildbot-nix 2>/dev/null || true'';
           depends_on.postgres.condition = "process_healthy";
         };
-        engine = {
+        buildbot-nix = {
           command = cmd ''
             git_root=$(git rev-parse --show-toplevel)
             # No ''${VAR} syntax here: process-compose expands braced
             # variables in commands at config load time.
             export PYTHONPATH="$git_root/buildbot_nix"
-            # A delegated scope from the user manager lets the engine
+            # A delegated scope from the user manager lets the service
             # create memory-capped eval cgroups, like the Delegate=
             # service does in production.
             if command -v systemd-run >/dev/null; then
@@ -107,7 +107,7 @@ let
             fi
             # -P keeps the cwd off sys.path: the checkout's outer
             # buildbot_nix/ project dir would shadow the package.
-            exec $run python -P -m buildbot_nix.main --config "$dev/engine.json" --log-format text
+            exec $run python -P -m buildbot_nix.main --config "$dev/buildbot-nix.json" --log-format text
           '';
           depends_on = {
             postgres.condition = "process_healthy";
@@ -130,8 +130,8 @@ let
   );
 in
 # Wrapped process-compose preloaded with the buildbot-nix dev stack
-# (postgres + engine). `process-compose` (no args) starts it;
-# subcommands like `down` or `process logs engine` pass through.
+# (postgres + buildbot-nix). `process-compose` (no args) starts it;
+# subcommands like `down` or `process logs buildbot-nix` pass through.
 writeShellApplication {
   name = "process-compose";
   runtimeInputs = [
@@ -143,7 +143,7 @@ writeShellApplication {
     nix
     coreutils
   ]
-  # The engine wraps nix-eval-jobs in a bwrap sandbox on Linux.
+  # The service wraps nix-eval-jobs in a bwrap sandbox on Linux.
   ++ lib.optionals stdenv.isLinux [
     buildbot-effects
     bubblewrap

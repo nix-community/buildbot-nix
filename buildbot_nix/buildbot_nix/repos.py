@@ -1,6 +1,6 @@
 """Project store: DB-backed enablement keyed by stable forge repo ID.
 
-Discovery (engine/forge.py) feeds repos in; rows are upserted on
+Discovery (forge/) feeds repos in; rows are upserted on
 (forge, forge_repo_id) so renames/transfers keep history and the
 enablement flag. Enablement is toggled by admins in the web UI; the
 legacy topic filter is imported once, on the first startup with an

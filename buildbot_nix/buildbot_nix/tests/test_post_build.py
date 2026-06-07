@@ -1,4 +1,4 @@
-"""Tests for engine post-build steps (interpolation + execution)."""
+"""Post-build step tests (interpolation + execution)."""
 
 # ruff: noqa: PLR2004 (literal values in test assertions are fine)
 from __future__ import annotations

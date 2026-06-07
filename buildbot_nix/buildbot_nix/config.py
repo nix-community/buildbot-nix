@@ -1,8 +1,8 @@
-"""Engine configuration models.
+"""Service configuration models.
 
 Ported from buildbot_nix.models with all buildbot couplings removed:
 no `Interpolate.to_buildbot`, no buildbot step construction, no
-master/worker options. The engine is a single service, so options that
+master/worker options. buildbot-nix is a single service, so options that
 only made sense for the buildbot master/worker split are gone.
 """
 
@@ -22,7 +22,7 @@ from pydantic_core import CoreSchema, core_schema
 
 
 class ConfigError(Exception):
-    """Raised on invalid or inconsistent engine configuration."""
+    """Raised on invalid or inconsistent configuration."""
 
 
 @dataclass
@@ -47,7 +47,7 @@ class Interpolate(BaseModel):
     """A string with placeholder interpolation, set from repo config.
 
     Kept for config-format compatibility with the buildbot-era
-    `Interpolate` (`{"_type": "interpolate", "value": ...}`); the engine
+    `Interpolate` (`{"_type": "interpolate", "value": ...}`); the service
     substitutes placeholders itself when running post-build steps.
     """
 
@@ -282,8 +282,8 @@ class BranchConfigDict(dict[str, BranchConfig]):
         return self.check_lookup(default_branch, branch, lambda bc: bc.update_outputs)
 
 
-class EngineConfig(BaseModel):
-    """Top-level configuration for the buildbot-nix engine service."""
+class Config(BaseModel):
+    """Top-level configuration for the buildbot-nix service."""
 
     model_config = ConfigDict(extra="forbid", ignored_types=(property,))
 
@@ -351,11 +351,11 @@ class EngineConfig(BaseModel):
     http_unix_socket: Path | None = None
 
     @classmethod
-    def load(cls, path: Path) -> EngineConfig:
+    def load(cls, path: Path) -> Config:
         try:
             data = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError) as e:
-            msg = f"Failed to load engine config from {path}: {e}"
+            msg = f"Failed to load config from {path}: {e}"
             raise ConfigError(msg) from e
         return cls.model_validate(data)
 

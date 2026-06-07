@@ -2,7 +2,7 @@
 attribute build (cachix/niks3 uploads and operator-defined steps).
 
 Ported from PostBuildStep.to_buildstep: instead of buildbot's
-Interpolate, the engine substitutes the placeholder forms actually used
+Interpolate, the service substitutes the placeholder forms actually used
 by the NixOS modules — `%(prop:NAME)s` (see `build_props` for the
 available properties) and `%(secret:NAME)s` (files under
 $CREDENTIALS_DIRECTORY). `warn_only` steps log failures without

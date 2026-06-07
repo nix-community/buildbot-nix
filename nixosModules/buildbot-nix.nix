@@ -25,14 +25,14 @@ let
       cfg.useHTTPS;
 
   # Without the managed nginx vhost (or an external TLS proxy implied by
-  # useHTTPS), the engine only listens on cfg.port.
+  # useHTTPS), the service only listens on cfg.port.
   baseUrl = "${if hasSSL then "https" else "http"}://${cfg.domain}${
     lib.optionalString (!cfg.nginx.enable && !cfg.useHTTPS) ":${toString cfg.port}"
   }/";
 
   localDbUrl = "postgresql://buildbot-nix@/buildbot-nix?host=/run/postgresql";
 
-  engineConfig = (pkgs.formats.json { }).generate "buildbot-nix-config.json" (
+  serviceConfig = (pkgs.formats.json { }).generate "buildbot-nix-config.json" (
     {
       build_systems = cfg.buildSystems;
       domain = cfg.domain;
@@ -162,7 +162,7 @@ let
     )
   );
 
-  # Most master options map 1:1 onto the engine; renames migrate old
+  # Most master options map 1:1 onto the service; renames migrate old
   # configurations automatically (with deprecation warnings).
   renameMaster =
     old: new:
@@ -312,7 +312,7 @@ let
       )
     ];
 
-  # Options without an engine equivalent error out with migration hints
+  # Options without an equivalent error out with migration hints
   # instead of being silently ignored.
   removedMasterWorker =
     map
@@ -320,7 +320,7 @@ let
         name:
         mkRemovedOptionModule [ "services" "buildbot-nix" "worker" name ] ''
           buildbot-nix no longer uses buildbot workers; builds run inside the
-          single engine service. Remove the worker module from your
+          single service. Remove the worker module from your
           configuration.
         ''
       )
@@ -354,7 +354,7 @@ let
         Worker passwords are gone together with the buildbot worker protocol.
       '')
       (mkRemovedOptionModule [ "services" "buildbot-nix" "master" "localWorkers" ] ''
-        Local workers are gone; the engine builds in-process via the nix daemon.
+        Local workers are gone; builds happen in-process via the nix daemon.
       '')
       (mkRemovedOptionModule [ "services" "buildbot-nix" "master" "httpBasicAuthPasswordFile" ] ''
         HTTP basic auth was removed together with the oauth2-proxy deployment
@@ -384,7 +384,7 @@ in
   ++ removedMasterWorker;
 
   options.services.buildbot-nix = {
-    enable = lib.mkEnableOption "the buildbot-nix CI engine";
+    enable = lib.mkEnableOption "the buildbot-nix CI service";
 
     domain = lib.mkOption {
       type = lib.types.str;
@@ -395,7 +395,7 @@ in
     port = lib.mkOption {
       type = lib.types.port;
       default = 8010;
-      description = "TCP port the engine listens on.";
+      description = "TCP port the service listens on.";
     };
 
     webhookBaseUrl = lib.mkOption {
@@ -955,7 +955,7 @@ in
       enable = lib.mkOption {
         type = lib.types.bool;
         default = true;
-        description = "Manage an nginx virtual host proxying to the engine.";
+        description = "Manage an nginx virtual host proxying to the service.";
       };
 
       enableACME = lib.mkOption {
@@ -1017,7 +1017,7 @@ in
     nix.settings.extra-allowed-users = [ "buildbot-nix" ];
 
     systemd.services.buildbot-nix = {
-      description = "buildbot-nix CI engine";
+      description = "buildbot-nix CI service";
       wantedBy = [ "multi-user.target" ];
       after = [
         "network-online.target"
@@ -1045,8 +1045,8 @@ in
       };
 
       serviceConfig = {
-        ExecStart = "${lib.getExe' packages.buildbot-nix "buildbot-nix"} --config ${engineConfig}";
-        # Fail activation if the engine never becomes healthy.
+        ExecStart = "${lib.getExe' packages.buildbot-nix "buildbot-nix"} --config ${serviceConfig}";
+        # Fail activation if the service never becomes healthy.
         ExecStartPost = pkgs.writeShellScript "buildbot-nix-health" ''
           for _ in $(seq 60); do
             if ${pkgs.curl}/bin/curl -fsS --max-time 5 \
@@ -1106,7 +1106,7 @@ in
         ProtectHome = true;
         PrivateTmp = true;
         PrivateDevices = true;
-        # Delegated cgroup subtree: the engine caps each evaluation's
+        # Delegated cgroup subtree: the service caps each evaluation's
         # process tree with its own memory.max leaf (no polkit needed).
         Delegate = "memory";
         ProtectControlGroups = false;

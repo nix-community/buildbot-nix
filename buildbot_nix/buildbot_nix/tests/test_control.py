@@ -17,7 +17,7 @@ import pytest
 from buildbot_nix.api_tokens import ApiTokenStore
 from buildbot_nix.auth import AuthzConfig, SessionSigner, User
 from buildbot_nix.bootstrap import build_service
-from buildbot_nix.config import EngineConfig
+from buildbot_nix.config import Config
 from buildbot_nix.forge_tokens import ForgeTokenStore
 from buildbot_nix.web.app import create_app
 from buildbot_nix.web.control_routes import (
@@ -445,7 +445,7 @@ def test_api_token_controls_build(harness: tuple) -> None:
 
 def test_build_service_composition(postgres_dsn: str, tmp_path: Path) -> None:
     async def run() -> None:
-        config = EngineConfig(
+        config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
             domain="ci.test",
@@ -478,7 +478,7 @@ def test_restart_clears_failed_cache_and_guards_running(
     postgres_dsn: str, tmp_path: Path
 ) -> None:
     async def run() -> None:
-        config = EngineConfig(
+        config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
             domain="ci.test",
@@ -607,7 +607,7 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
     previous run's rows, or the page keeps showing stale results."""
 
     async def run() -> None:
-        config = EngineConfig(
+        config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
             domain="ci.test",

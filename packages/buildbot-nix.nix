@@ -74,7 +74,7 @@ buildPythonPackage (finalAttrs: {
   };
 
   meta = {
-    description = "A standalone CI engine for Nix projects";
+    description = "A standalone CI service for Nix projects";
     homepage = "https://github.com/nix-community/buildbot-nix";
     license = lib.licenses.mit;
     maintainers = [ lib.maintainers.mic92 ];

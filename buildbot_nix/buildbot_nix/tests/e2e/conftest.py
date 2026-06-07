@@ -14,7 +14,7 @@ import pytest
 
 from buildbot_nix.tests.support import ephemeral_postgres, run_sync
 
-from .support import EngineServer, seed
+from .support import TestServer, seed
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -40,11 +40,11 @@ def postgres_dsn(
 
 
 @pytest.fixture(scope="module")
-def server(postgres_dsn: str, state_dir: Path) -> Iterator[EngineServer]:
-    engine_server = EngineServer(postgres_dsn, state_dir)
-    engine_server.start()
-    yield engine_server
-    engine_server.stop()
+def server(postgres_dsn: str, state_dir: Path) -> Iterator[TestServer]:
+    test_server = TestServer(postgres_dsn, state_dir)
+    test_server.start()
+    yield test_server
+    test_server.stop()
 
 
 @pytest.fixture(scope="module")
@@ -63,7 +63,7 @@ def browser() -> Iterator[Browser]:
 
 
 @pytest.fixture(scope="module")
-def page(browser: Browser, server: EngineServer) -> Iterator[Page]:
+def page(browser: Browser, server: TestServer) -> Iterator[Page]:
     browser_page = browser.new_page(base_url=server.base_url)
     yield browser_page
     browser_page.close()
