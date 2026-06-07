@@ -56,6 +56,18 @@ permission must be accepted on every installation of the app (your user account
 and each organization) under Settings → GitHub Apps → Configure. The engine logs
 a warning at startup if the app is misconfigured.
 
+Gitea webhooks now register at `https://<domain>/webhooks/gitea` with an
+auto-generated per-repository secret stored in the database —
+`gitea.webhookSecretFile` is gone. Existing hooks are re-synced in place,
+leftover buildbot-era hooks pointing at this instance are removed. Hooks
+subscribe to `push`, `pull_request` and `pull_request_sync`.
+
+**Project enablement.** Which repositories get built is now a per-project toggle
+in the web UI (admins only). `topic` is reduced to a one-shot import: on first
+startup with an empty database, repositories carrying the topic are enabled;
+afterwards it is ignored. `userAllowlist`/`repoAllowlist` remain a hard boundary
+at discovery time.
+
 **Per-repository config.** `buildbot-nix.toml` is unchanged.
 
 **Post-build steps.** `interpolate` placeholders still work. Properties: `attr`,

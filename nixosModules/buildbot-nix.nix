@@ -553,8 +553,10 @@ in
         type = lib.types.nullOr lib.types.str;
         default = "build-with-buildbot";
         description = ''
-          Repositories with this topic will be built. If null, all
-          repositories the GitHub App is installed on are built.
+          Legacy import aid: on the first startup with an empty database,
+          repositories carrying this topic are enabled automatically.
+          Afterwards the topic is ignored; enable or disable projects in
+          the web UI.
         '';
       };
     };
@@ -600,8 +602,10 @@ in
         type = lib.types.nullOr lib.types.str;
         default = "build-with-buildbot";
         description = ''
-          Repositories with this topic will be built. If null, all
-          repositories the Gitea user has access to are built.
+          Legacy import aid: on the first startup with an empty database,
+          repositories carrying this topic are enabled automatically.
+          Afterwards the topic is ignored; enable or disable projects in
+          the web UI.
         '';
       };
 

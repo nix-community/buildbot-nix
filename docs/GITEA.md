@@ -15,7 +15,7 @@ status updates, and secure authentication.
    - Go to Settings → Applications → Generate New Token
    - Required permissions:
      - `write:repository` - To create webhooks and update commit statuses
-     - `write:user` - To access user information
+     - `read:user` - To list the repositories the user has access to
    - Save the token securely
 
 ## Step 2: Set up OAuth2 Authentication (for user login)
@@ -46,7 +46,6 @@ services.buildbot-nix = {
 
     # Access token for API operations
     tokenFile = "/path/to/gitea-token";
-    webhookSecretFile = "/path/to/webhook-secret";
 
     # OAuth2 for user authentication
     oauthId = "<oauth-client-id>";
@@ -56,11 +55,19 @@ services.buildbot-nix = {
     sshPrivateKeyFile = "/path/to/ssh-key";
     sshKnownHostsFile = "/path/to/known-hosts";
 
-    # Optional: Filter which repositories to build
-    topic = "buildbot-nix";  # Only build repos with this topic
+    # Optional: only allow these owners/repositories to be built
+    userAllowlist = [ "my-org" ];
+    repoAllowlist = [ "other-org/repo" ];
+
+    # One-shot import: repositories with this topic are enabled on first
+    # startup with an empty database; afterwards manage projects in the web UI
+    topic = "build-with-buildbot";
   };
 };
 ```
+
+If webhooks must reach buildbot-nix under a different URL than the web UI, set
+`services.buildbot-nix.webhookBaseUrl`.
 
 ## Step 4: Repository Configuration
 
@@ -70,25 +77,26 @@ For each repository you want to build:
    - Add the buildbot user as a collaborator with admin access
    - Admin access is required for webhook creation
 
-2. **Add the configured topic** (if using topic filtering):
-   - Go to repository settings
-   - Add the topic (e.g., `buildbot-nix`) to enable builds
+2. **Enable the project**:
+   - Toggle the project on in the web UI (as admin)
 
 3. **Automatic webhook creation**:
-   - Buildbot-nix automatically creates webhooks when:
-     - Projects are loaded on startup
-     - The project list is manually reloaded
-   - The webhook will be created at:
-     `https://buildbot.<your-domain>/change_hook/gitea`
-   - Webhook events: `push` and `pull_request`
+   - Webhooks are created for enabled projects on every discovery cycle
+     (startup, periodic refresh, manual reload) at
+     `https://buildbot.<your-domain>/webhooks/gitea`
+   - Each repository gets an auto-generated secret stored in the database;
+     existing hooks are re-synced in place, leftover buildbot-era hooks pointing
+     at this instance are removed
+   - Webhook events: `push`, `pull_request` and `pull_request_sync`
 
 ## How It Works
 
 - **Authentication**: Uses Gitea access tokens for API operations
 - **Project Discovery**: Automatically discovers repositories where the buildbot
-  user has admin access, filtered by topic if configured
-- **Webhook Management**: Automatically creates and manages webhooks for push
-  and pull_request events
+  user has admin access (restricted by `userAllowlist`/`repoAllowlist` if set);
+  discovered projects are built once enabled in the web UI
+- **Webhook Management**: Automatically creates and manages webhooks (push and
+  pull request events) for enabled projects
 - **Status Updates**: Reports build status back to Gitea commits and pull
   requests
 - **Access Control**:
@@ -102,12 +110,14 @@ For each repository you want to build:
 
 - **Projects not appearing**: Check that:
   - The buildbot user has admin access to the repository
-  - The repository has the configured topic (if filtering by topic)
+  - The repository is not excluded by `userAllowlist`/`repoAllowlist`
   - The access token has the correct permissions
-  - Reload projects manually through the Buildbot UI
+  - Reload projects manually through the web UI
 
-- **Webhooks not created**: Verify the buildbot user has admin permissions on
-  the repository
+- **Project appears but nothing builds**: Enable the project in the web UI
+
+- **Webhooks not created**: Verify the project is enabled and the buildbot user
+  has admin permissions on the repository
 
 - **Authentication issues**:
   - Ensure the access token is valid and has required permissions

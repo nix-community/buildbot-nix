@@ -59,8 +59,13 @@ services.buildbot-nix = {
     # A random secret used to verify incoming webhooks from GitHub
     webhookSecretFile = "/path/to/webhook-secret";
 
-    # Optional: Filter which repositories to build
-    topic = "buildbot-nix";  # Only build repos with this topic
+    # Optional: only allow these owners/repositories to be built
+    userAllowlist = [ "my-org" ];
+    repoAllowlist = [ "other-org/repo" ];
+
+    # One-shot import: repositories with this topic are enabled on first
+    # startup with an empty database; afterwards manage projects in the web UI
+    topic = "build-with-buildbot";
   };
 };
 ```
@@ -75,9 +80,8 @@ services.buildbot-nix = {
 
 For each repository you want to build:
 
-1. **Add the configured topic** (if using topic filtering):
-   - Go to repository settings
-   - Add the topic (e.g., `buildbot-nix`) to enable builds
+1. **Enable the project**:
+   - Toggle the project on in the web UI (as admin)
 
 2. **Webhook delivery**:
    - GitHub delivers push and pull_request events through the App-level webhook
@@ -90,7 +94,8 @@ For each repository you want to build:
 - **Authentication**: Uses GitHub App JWT tokens for API access and installation
   tokens for repository-specific operations
 - **Project Discovery**: Automatically discovers repositories the app has access
-  to, filtered by topic if configured
+  to (restricted by `userAllowlist`/`repoAllowlist` if set); discovered projects
+  are built once enabled in the web UI
 - **Webhook Delivery**: Push and pull_request events arrive via the GitHub App
   webhook; the payload signature is verified with the webhook secret
 - **Status Updates**: Reports build status back to GitHub commits and pull
@@ -103,8 +108,10 @@ For each repository you want to build:
 
 - **Projects not appearing**: Check that:
   - The GitHub App is installed for the repository
-  - The repository has the configured topic (if filtering by topic)
-  - Reload projects manually through the Buildbot UI
+  - The repository is not excluded by `userAllowlist`/`repoAllowlist`
+  - Reload projects manually through the web UI
+
+- **Project appears but nothing builds**: Enable the project in the web UI
 
 - **No builds on push**: Verify the App webhook is Active, its URL points to
   `https://buildbot.<your-domain>/webhooks/github`, and its secret matches
