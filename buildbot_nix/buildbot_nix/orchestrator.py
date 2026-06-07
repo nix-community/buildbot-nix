@@ -365,6 +365,14 @@ class Orchestrator:
         re-aggregate the build (shared by fresh builds and reruns).
         Returns the aggregated build status."""
         cancel_event = self.cancel_events.setdefault(build.id, asyncio.Event())
+
+        async def record_early(result: AttributeResult) -> None:
+            """Persist skips and dependency failures as they happen;
+            otherwise they stay pending until the whole build ends."""
+            recorded = await self.db.get_attribute_statuses(build.id)
+            if recorded.get(result.attr) in (None, "pending", "building"):
+                await self.db.complete_attribute(build.id, result)
+
         scheduler = JobScheduler(
             _OrchestratorExecutor(self, event, build, worktree_path, cancel_event),
             self.config.build_systems,
@@ -372,6 +380,7 @@ class Orchestrator:
                 self.failed_build_cache if self.config.cache_failed_builds else None
             ),
             build_url=f"{self.config.url}/repos/{event.repo.forge}/{event.repo.name}/builds/{build.number}",
+            on_result=record_early,
         )
         schedule_result = await scheduler.run(list(jobs))
 

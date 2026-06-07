@@ -8,10 +8,12 @@ from datetime import UTC, datetime
 
 from buildbot_nix.models import (
     CacheStatus,
+    NixEvalJob,
     NixEvalJobError,
     NixEvalJobSuccess,
 )
 from buildbot_nix.scheduler import (
+    AttributeResult,
     AttributeStatus,
     BuildOutcome,
     CachedFailure,
@@ -361,3 +363,30 @@ def test_cached_failure_error_includes_url() -> None:
     (res,) = result.results  # type: ignore[attr-defined]
     assert res.status == AttributeStatus.cached_failure
     assert "https://ci.example/builds/1" in res.error
+
+
+def test_on_result_reports_skips_before_builds_finish() -> None:
+    """on_result fires for skips while other jobs are still running."""
+    reported: list[tuple[str, str]] = []
+    skip_seen = asyncio.Event()
+
+    async def on_result(result: AttributeResult) -> None:
+        reported.append((result.attr, result.status.value))
+        if result.status == AttributeStatus.skipped_local:
+            skip_seen.set()
+
+    class BlockingExecutor(FakeExecutor):
+        async def build(self, job: NixEvalJobSuccess) -> BuildOutcome:
+            # Deadlocks unless the skip was reported before builds finish.
+            await asyncio.wait_for(skip_seen.wait(), timeout=5)
+            return await super().build(job)
+
+    scheduler = JobScheduler(BlockingExecutor(), [SYSTEM], on_result=on_result)
+    jobs: list[NixEvalJob] = [
+        mk_job("local", cache_status=CacheStatus.local),
+        mk_job("fresh", cache_status=CacheStatus.not_built),
+    ]
+    result = asyncio.run(scheduler.run(jobs))
+    assert ("local", "skipped_local") in reported
+    assert ("fresh", "succeeded") in reported
+    assert {r.attr for r in result.results} == {"local", "fresh"}

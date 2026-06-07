@@ -30,6 +30,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from datetime import datetime
 
 from .models import (
@@ -260,6 +261,7 @@ class JobScheduler:
         is_rebuild: bool = False,
         force_attrs: set[str] | None = None,
         build_url: str = "",
+        on_result: Callable[[AttributeResult], Awaitable[None]] | None = None,
     ) -> None:
         self.executor = executor
         self.supported_systems = supported_systems
@@ -269,6 +271,8 @@ class JobScheduler:
         # anyway to flip a previously failed forge status.
         self.force_attrs = force_attrs or set()
         self.build_url = build_url
+        # Called for each result as soon as it is known.
+        self.on_result = on_result
 
     @staticmethod
     def _partition_jobs(
@@ -363,9 +367,20 @@ class JobScheduler:
             reverse_deps=compute_reverse_deps(job_closures),
         )
         running: dict[asyncio.Task[BuildOutcome], NixEvalJobSuccess] = {}
+        emitted = 0
 
+        async def flush() -> None:
+            nonlocal emitted
+            while emitted < len(result.results):
+                pending_result = result.results[emitted]
+                emitted += 1
+                if self.on_result is not None:
+                    await self.on_result(pending_result)
+
+        await flush()
         while state.pending or running:
             any_ready = await self._dispatch_ready(state, running)
+            await flush()
 
             if not running:
                 if state.pending and not any_ready:
@@ -388,7 +403,9 @@ class JobScheduler:
             for task in done_tasks:
                 job = running.pop(task)
                 await self._finish_job(state, job, task.result())
+                await flush()
 
+        await flush()
         return result
 
     async def _classify(self, job: NixEvalJobSuccess, result: ScheduleResult) -> str:
