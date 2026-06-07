@@ -51,23 +51,25 @@ def test_build_prev_next_navigation(page: Page) -> None:
 
 def test_project_filter_form(page: Page) -> None:
     page.goto("/repos/github/acme/widget")
+    # No filter button: the select applies itself, the ref input
+    # submits on enter.
     page.select_option("select[name=status]", "failed")
-    page.get_by_role("button", name="filter").click()
     page.wait_for_url("**status=failed**")
     content = page.content()
     assert "#2" in content
     assert ">#1<" not in content
 
-    page.fill("input[name=ref]", "feature")
     page.select_option("select[name=status]", "")
-    page.get_by_role("button", name="filter").click()
+    page.wait_for_url("**status=**")
+    page.fill("input[name=ref]", "feature")
+    page.press("input[name=ref]", "Enter")
     page.wait_for_url("**ref=feature**")
     content = page.content()
     assert "#3" in content
     assert ">#2<" not in content
 
     page.fill("input[name=ref]", "5")
-    page.get_by_role("button", name="filter").click()
+    page.press("input[name=ref]", "Enter")
     page.wait_for_url("**ref=5**")
     content = page.content()
     assert "#3" in content

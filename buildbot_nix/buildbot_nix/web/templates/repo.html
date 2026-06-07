@@ -17,7 +17,7 @@
         {{ project_link(project) }}
       </h2>
       <form method="get" class="filters">
-        <select name="status" aria-label="status">
+        <select name="status" aria-label="status" onchange="this.form.submit()">
           <option value="">all statuses</option>
           {% for s in ["succeeded", "failed", "cancelled", "building", "pending"] %}
             <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
@@ -28,7 +28,6 @@
                placeholder="branch or PR #"
                aria-label="branch or PR number"
                value="{{ ref }}">
-        <button>filter</button>
       </form>
       {% set rows_url = repo_path(project) ~ "/rows?status=" ~ (status or "") ~ "&ref=" ~ ((ref or "") | urlencode) %}
       <div class="table-scroll">
