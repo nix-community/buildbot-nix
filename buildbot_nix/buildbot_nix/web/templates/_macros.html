@@ -44,3 +44,9 @@
     <button class="toggle-btn">{{ label }}</button>
   </form>
 {%- endmacro %}
+{% macro copy_btn(value, label) -%}
+  <button class="copy-btn"
+          type="button"
+          data-copy="{{ value }}"
+          aria-label="copy {{ label }}">copy</button>
+{%- endmacro %}

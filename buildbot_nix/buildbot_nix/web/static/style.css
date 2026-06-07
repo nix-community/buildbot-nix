@@ -787,3 +787,48 @@ table td.empty-state {
 .table-scroll {
 	overflow-x: auto;
 }
+
+/* Webhook setup card (repo page, admins). */
+details.webhook-setup {
+	margin: 0.75rem 0;
+}
+details.webhook-setup summary {
+	color: var(--muted);
+	cursor: pointer;
+}
+.webhook-panel {
+	margin-top: 0.5rem;
+	max-width: 46rem;
+	padding: 0.9rem 1.1rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+.webhook-panel p {
+	margin-top: 0;
+}
+.webhook-panel dl {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0.45rem 1.2rem;
+	margin: 0;
+	align-items: center;
+}
+.webhook-panel dt {
+	color: var(--muted);
+}
+.webhook-panel dd {
+	margin: 0;
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+	min-width: 0;
+}
+.webhook-panel code {
+	overflow-wrap: anywhere;
+}
+.copy-btn {
+	font-size: 0.75rem;
+	padding: 0.15rem 0.5rem;
+}

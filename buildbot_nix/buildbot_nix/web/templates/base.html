@@ -77,6 +77,14 @@
     <script src="/static/vendor/sse.min.js?v={{ static_v }}"></script>
     <script src="/static/vendor/idiomorph-ext.min.js?v={{ static_v }}"></script>
     <script>
+      document.body.addEventListener("click", async (e) => {
+        const btn = e.target.closest?.(".copy-btn");
+        if (!btn) return;
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        const label = btn.textContent;
+        btn.textContent = "copied";
+        setTimeout(() => { btn.textContent = label; }, 1200);
+      });
       /* Native details dropdown: close on outside click. */
       document.addEventListener("click", (e) => {
         const menu = document.querySelector("details.menu[open]");
