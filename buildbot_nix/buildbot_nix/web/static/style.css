@@ -441,8 +441,10 @@ pre.log {
 	padding: 0.8rem;
 	overflow: auto;
 	/* Own scroll pane: tail-following must not scroll the page and
-     hide the header. */
+     hide the header. dvh tracks the collapsing mobile URL bar. */
 	max-height: calc(100vh - 11rem);
+	max-height: calc(100dvh - 11rem);
+	overscroll-behavior: contain;
 	font-size: 0.8125rem;
 	line-height: 1.4;
 }
