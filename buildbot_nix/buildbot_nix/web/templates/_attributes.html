@@ -6,7 +6,10 @@
     {% set eager = group in inline %}
     {# Eager groups (failures, building, any match under a search)
        start open; the bulk stays collapsed and lazy. #}
+    {# id: idiomorph matches by it; positional matching mixes one
+       group's rows into another when a new group appears. #}
     <details class="attr-group"
+             id="attrs-{{ group }}"
              data-group="{{ group }}"
              {% if eager %}open{% endif %}>
       <summary>{{ count }} {{ "already built" if group == "skipped" else group }}</summary>

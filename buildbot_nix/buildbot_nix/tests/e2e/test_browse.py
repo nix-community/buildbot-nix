@@ -155,3 +155,43 @@ def test_attribute_search_filters_groups(page: Page) -> None:
     assert group.locator("text=aarch64-linux.other").is_visible()
     page.fill("#attr-filter", "")
     page.locator("text=2 succeeded").wait_for()
+
+
+def test_groups_keep_identity_when_one_appears(
+    page: Page, server: EngineServer
+) -> None:
+    """A new group shifts the list; positional morphing used to merge
+    one group's rows into another."""
+
+    async def seed() -> None:
+        bid = await server.pool.fetchval("SELECT id FROM builds WHERE number = 3")
+        await server.pool.executemany(
+            "INSERT INTO build_attributes (build_id, attr, system, status)"
+            " VALUES ($1, $2, 'aarch64-linux', $3)",
+            [(bid, f"aarch64-linux.b-{i}", "building") for i in range(5)]
+            + [(bid, f"aarch64-linux.p-{i}", "pending") for i in range(50)],
+        )
+
+    async def add_failed() -> None:
+        bid = await server.pool.fetchval("SELECT id FROM builds WHERE number = 3")
+        await server.pool.execute(
+            "INSERT INTO build_attributes (build_id, attr, system, status, error)"
+            " VALUES ($1, 'aarch64-linux.boom', 'aarch64-linux', 'failed', 'kaput')",
+            bid,
+        )
+
+    server.run(seed())
+    try:
+        page.goto("/repos/github/acme/widget/builds/3")
+        building = page.locator("details.attr-group[data-group='building']")
+        building.locator("text=aarch64-linux.b-0").wait_for()
+        server.run(add_failed())
+        page.locator("details.attr-group[data-group='failed']").wait_for()
+        first = building.locator("td.attr-name code").first.text_content()
+        assert first == "aarch64-linux.b-0"
+    finally:
+        server.run(
+            server.pool.execute(
+                "DELETE FROM build_attributes WHERE attr LIKE 'aarch64-linux.%'"
+            )
+        )
