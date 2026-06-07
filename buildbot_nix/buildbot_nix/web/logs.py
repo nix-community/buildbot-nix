@@ -274,6 +274,15 @@ class _LogRoutes:
         self.ctx = ctx
         self.registry = registry
 
+    async def _build_or_404(
+        self, request: Request, forge: str, owner: str, name: str, number: int
+    ) -> tuple[dict, dict]:
+        project = await self.ctx.repo_or_404(forge, owner, name, request)
+        build = await self.ctx.queries.build_by_number(project["id"], number)
+        if build is None:
+            raise HTTPException(status_code=404)
+        return project, build
+
     async def _resolve(  # noqa: PLR0913
         self,
         request: Request,
@@ -283,10 +292,7 @@ class _LogRoutes:
         number: int,
         attr: str,
     ) -> tuple[dict, dict, Path | None]:
-        project = await self.ctx.repo_or_404(forge, owner, name, request)
-        build = await self.ctx.queries.build_by_number(project["id"], number)
-        if build is None:
-            raise HTTPException(status_code=404)
+        project, build = await self._build_or_404(request, forge, owner, name, number)
         return project, build, await _log_path(self.ctx, self.registry, build, attr)
 
     async def log_raw_text(  # noqa: PLR0913
@@ -322,10 +328,7 @@ class _LogRoutes:
         Saves API consumers (CI scripts, LLM agents) a request per
         attribute when answering "why did this build fail?".
         """
-        project = await self.ctx.repo_or_404(forge, owner, name, request)
-        build = await self.ctx.queries.build_by_number(project["id"], number)
-        if build is None:
-            raise HTTPException(status_code=404)
+        _, build = await self._build_or_404(request, forge, owner, name, number)
         return await _failure_summary(self.ctx, self.registry, build, tail)
 
     async def log_stream(  # noqa: PLR0913
