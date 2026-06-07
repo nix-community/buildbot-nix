@@ -78,10 +78,24 @@
         </details>
       {% endif %}
       {% if build.status in RUNNING_STATUSES and attrs_total %}
-        <p class="build-progress">
-          <progress value="{{ attrs_done }}" max="{{ attrs_total }}"></progress>
+        <div class="build-progress"
+             role="progressbar"
+             aria-valuenow="{{ attrs_done }}"
+             aria-valuemax="{{ attrs_total }}"
+             aria-label="build progress">
+          <div class="progress-track">
+            {% for cls, n in [("ok", group_counts.succeeded + group_counts.skipped),
+              ("bad", group_counts.failed),
+              ("off", group_counts.cancelled),
+              ("run", group_counts.building)] %}
+              {% if n %}
+                <span class="seg {{ cls }}"
+                      style="width: {{ (100 * n / attrs_total) | round(2) }}%"></span>
+              {% endif %}
+            {% endfor %}
+          </div>
           <span class="muted">{{ attrs_done }} of {{ attrs_total }} attributes done</span>
-        </p>
+        </div>
       {% endif %}
       <p>
         <input type="search"

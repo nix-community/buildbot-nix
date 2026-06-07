@@ -376,11 +376,41 @@ button:hover {
 	gap: 0.75rem;
 	align-items: center;
 }
-.build-progress progress {
+.progress-track {
 	flex: 1;
 	max-width: 28rem;
-	height: 0.5rem;
-	accent-color: var(--accent);
+	height: 0.6rem;
+	display: flex;
+	overflow: hidden;
+	border-radius: 0.3rem;
+	background: var(--border);
+}
+.progress-track .seg {
+	transition: width 0.6s ease;
+}
+.progress-track .ok {
+	background: var(--ok);
+}
+.progress-track .bad {
+	background: var(--bad);
+}
+.progress-track .off {
+	background: var(--muted);
+}
+.progress-track .run {
+	background: var(--run);
+	animation: progress-pulse 2s ease-in-out infinite;
+}
+@keyframes progress-pulse {
+	50% {
+		opacity: 0.55;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.progress-track .run {
+		animation: none;
+	}
+}
 #attr-search:not(:has(tr)) {
 	display: none;
 }
