@@ -7,6 +7,7 @@
   pytestCheckHook,
   pytest-timeout,
   pytest-xdist,
+  pytest-benchmark,
   fastapi,
   uvicorn,
   asyncpg,
@@ -44,6 +45,7 @@ buildPythonPackage {
     pytestCheckHook
     pytest-timeout
     pytest-xdist
+    pytest-benchmark
     postgresql
     playwright
   ];

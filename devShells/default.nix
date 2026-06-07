@@ -27,6 +27,7 @@ in
           ps.pytest
           ps.pytest-timeout
           ps.pytest-xdist
+          ps.pytest-benchmark
           ps.playwright
         ]
         ++ self.packages.${system}.buildbot-nix.dependencies
