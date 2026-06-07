@@ -5,9 +5,8 @@ on each successful default-branch build the orchestrator discovers
 schedules via `buildbot-effects list-schedules` and persists them; a
 periodic loop runs due effects via `buildbot-effects run-scheduled`.
 
-Cron-like `when` specs get deterministic pseudo-random minute/hour
-defaults seeded by the schedule name (config.ScheduleWhen.resolved) to
-avoid thundering herds. All times are UTC.
+Cron-like `when` specs; defaults resolve in
+config.ScheduleWhen.resolved. All times are UTC.
 """
 
 from __future__ import annotations

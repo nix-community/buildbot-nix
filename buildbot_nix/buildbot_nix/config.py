@@ -385,15 +385,16 @@ class ScheduleWhen(BaseModel):
     def resolved(self, schedule_name: str = "") -> dict[str, Any]:
         """Resolve to concrete cron-like fields.
 
-        Unset minute/hour get deterministic pseudo-random defaults seeded
-        by the schedule name to avoid thundering-herd effects.
+        An unset minute gets a deterministic pseudo-random default
+        seeded by the schedule name (thundering-herd avoidance); an
+        unset hour means every hour, like Hercules.
         Day-of-week names are normalized to integers (Mon=0 .. Sun=6).
         """
         fields: dict[str, Any] = {}
         seed = int(hashlib.sha256(schedule_name.encode()).hexdigest(), 16)
 
         fields["minute"] = self.minute if self.minute is not None else seed % 60
-        fields["hour"] = self.hour if self.hour is not None else (seed // 60) % 24
+        fields["hour"] = self.hour if self.hour is not None else list(range(24))
 
         if self.dayOfWeek is not None:
             day_map = {

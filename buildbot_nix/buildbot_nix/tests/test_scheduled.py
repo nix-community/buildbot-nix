@@ -66,16 +66,14 @@ def test_is_due_hour_list_and_days() -> None:
 
 
 def test_deterministic_defaults() -> None:
-    # Unset minute/hour resolve deterministically from the schedule name.
     when = ScheduleWhen()
     fields1 = when.resolved("nightly")
-    fields2 = when.resolved("nightly")
-    assert fields1 == fields2
-    other = when.resolved("weekly")
-    assert (fields1["minute"], fields1["hour"]) != (other["minute"], other["hour"])
-    # The resolved time is due exactly once per day.
-    due_at = datetime(2026, 6, 5, fields1["hour"], fields1["minute"], tzinfo=UTC)
-    assert is_due(when, "nightly", due_at)
+    assert fields1 == when.resolved("nightly")
+    assert fields1["minute"] != when.resolved("weekly")["minute"]
+    assert fields1["hour"] == list(range(24))
+    for hour in (0, 13, 23):
+        due_at = datetime(2026, 6, 5, hour, fields1["minute"], tzinfo=UTC)
+        assert is_due(when, "nightly", due_at)
 
 
 # --- persistence -------------------------------------------------------------
