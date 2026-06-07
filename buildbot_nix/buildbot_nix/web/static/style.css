@@ -189,9 +189,13 @@ td.attr-duration {
 	margin-right: 0.5rem;
 	background: var(--status-color, var(--muted));
 }
-@keyframes pulse {
-	50% {
-		opacity: 0.3;
+/* Radar ping: an expanding ring fades out while the icon stays solid. */
+@keyframes ping {
+	0% {
+		box-shadow: 0 0 0 0 var(--status-color, var(--muted));
+	}
+	100% {
+		box-shadow: 0 0 0 0.45rem transparent;
 	}
 }
 .status {
@@ -239,10 +243,16 @@ h2 .status-icon {
 }
 .status-icon.building,
 .status-icon.evaluating {
-	animation: pulse 1.2s ease-in-out infinite;
+	animation: ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 .status-icon.idle {
 	animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	.status-icon.building,
+	.status-icon.evaluating {
+		animation: none;
+	}
 }
 .status-icon.cancelled,
 .status-icon.skipped_local {
