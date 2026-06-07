@@ -1,14 +1,11 @@
-{% set group_order = ["failed", "building", "pending", "cancelled", "succeeded", "skipped"] %}
 {% if group_counts.values() | sum == 0 %}<p class="muted">no attributes (yet)</p>{% endif %}
-{% for group in group_order %}
-  {% set count = group_counts[group] %}
+{% for group, count in group_counts.items() %}
   {% if count %}
     {% if group in inline %}
       <table class="attrs">
         <caption class="visually-hidden">{{ group }} attributes</caption>
         {% with attributes = inline[group].items,
-          more_url = (build_path(project, build.number) ~ "/attrs?group=" ~ group ~ "&page=2")
-          if inline[group].has_next else None %}
+          group = group, page = 1, has_next = inline[group].has_next %}
           {% include "_attr_rows.html" %}
         {% endwith %}
       </table>

@@ -383,19 +383,16 @@ class _PageRoutes:
         rows = await ctx.queries.attribute_page(
             build["id"], statuses, limit, max(page, 1)
         )
-        more_url = None
-        if rows.has_next:
-            more_url = (
-                f"/repos/{forge}/{owner}/{name}/builds/{number}/attrs"
-                f"?group={group}&page={rows.page + 1}&limit={limit}"
-            )
         return ctx.render(
             "_attr_rows.html",
             request=request,
             project=project,
             build=build,
             attributes=rows.items,
-            more_url=more_url,
+            group=group,
+            page=rows.page,
+            limit=limit if limit != ATTR_PAGE else None,
+            has_next=rows.has_next,
         )
 
     async def attribute_history(

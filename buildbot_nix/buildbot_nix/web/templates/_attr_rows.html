@@ -22,11 +22,11 @@
     </tr>
   {% endif %}
 {% endfor %}
-{% if more_url %}
+{% if has_next %}
   <tr>
     <td colspan="3"
         class="muted"
-        hx-get="{{ more_url }}"
+        hx-get="{{ build_path(project, build.number) }}/attrs?group={{ group }}&page={{ page + 1 }}{{ "&limit=" ~ limit if limit else "" }}"
         hx-trigger="intersect once"
         hx-swap="outerHTML"
         hx-target="closest tr">loading more…</td>
