@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from buildbot_effects import sandbox_env
 from buildbot_effects.secrets import (
     GitToken,
     SecretContext,
@@ -105,3 +106,11 @@ def test_gather_secrets_no_condition_warns_but_allows(
     )
     assert out == {"d": {"data": {"v": 1}}}
     assert "no condition" in capsys.readouterr().err
+
+
+def test_home_is_not_inherited() -> None:
+    """nix develop leaks the service user's HOME into the sandbox;
+    hercules pins it to /homeless-shelter unless the derivation sets
+    its own."""
+    assert sandbox_env({})["HOME"] == "/homeless-shelter"
+    assert sandbox_env({"HOME": "/build/home"})["HOME"] == "/build/home"

@@ -6,6 +6,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -311,6 +312,34 @@ def select_secrets(
     return gather_secrets(secrets_map, secrets, ctx, git_token)
 
 
+def sandbox_env(drv_env: dict[str, str]) -> dict[str, str]:
+    """Environment matching hercules-ci-agent: every temp variable
+    points at the disk-backed /build, plus its fixed env. HOME is
+    overridable by the derivation but never inherited from the host
+    (nix develop would leak the service user's)."""
+    return {
+        "HOME": drv_env.get("HOME", "/homeless-shelter"),
+        "IN_HERCULES_CI_EFFECT": "true",
+        "HERCULES_CI_SECRETS_JSON": "/run/secrets.json",
+        "NIX_BUILD_TOP": "/build",
+        "TMPDIR": "/build",
+        "TMP": "/build",
+        "TEMP": "/build",
+        "TEMPDIR": "/build",
+        "NIX_REMOTE": "daemon",
+        "NIX_LOG_FD": "2",
+        "TERM": "xterm-256color",
+    }
+
+
+def virtual_ids(drv_env: dict[str, str]) -> tuple[int, int]:
+    """`__hci_effect_virtual_uid`/`gid` from the derivation; the
+    agent's defaults are 0/uid."""
+    uid = int(drv_env.get("__hci_effect_virtual_uid") or 0)
+    gid = int(drv_env.get("__hci_effect_virtual_gid") or uid)
+    return uid, gid
+
+
 def run_effects(
     drv_path: str,
     drv: dict[str, Any],
@@ -329,20 +358,19 @@ def run_effects(
         builder,
         *args,
     ]
-    env = {}
-    env["IN_HERCULES_CI_EFFECT"] = "true"
-    env["HERCULES_CI_SECRETS_JSON"] = "/run/secrets.json"
-    env["NIX_BUILD_TOP"] = "/build"
-    env["TMPDIR"] = "/tmp"  # noqa: S108
-    env["NIX_REMOTE"] = "daemon"
-    clear_env = set()
-    clear_env.add("TMP")
-    clear_env.add("TEMP")
-    clear_env.add("TEMPDIR")
+    drv_env = drv.get("env", {})
+    env = sandbox_env(drv_env)
+    uid, gid = virtual_ids(drv_env)
+    clear_env: set[str] = set()
     bwrap = shutil.which("bwrap")
     if bwrap is None:
         msg = "bwrap' executable not found"
         raise BuildbotEffectsError(msg)
+    work_dir = Path(tempfile.mkdtemp(prefix="effect-"))
+    build_dir = work_dir / "build"
+    etc_dir = work_dir / "etc"
+    build_dir.mkdir()
+    etc_dir.mkdir()
 
     # Mirrors hercules-ci implementation: https://github.com/hercules-ci/hercules-ci-agent/blob/57c564298bafde509bd23f4d5862574c94be01ba/hercules-ci-agent/src/Hercules/Effect.hs#L285
     bubblewrap_cmd = [
@@ -360,18 +388,26 @@ def run_effects(
         "/build",
         "--chdir",
         "/build",
+        # Disk-backed like the agent's work dirs: deploys unpack
+        # closures that don't fit a tmpfs.
+        "--bind",
+        str(build_dir),
+        "/build",
         "--tmpfs",
         "/tmp",  # noqa: S108
-        "--tmpfs",
-        "/build",
         "--proc",
         "/proc",
         "--dev",
         "/dev",
         "--uid",
-        "0",
+        str(uid),
         "--gid",
-        "0",
+        str(gid),
+        # Writable /etc like the agent's fresh etc dir; resolv.conf
+        # bound inside it from the host.
+        "--bind",
+        str(etc_dir),
+        "/etc",
         "--ro-bind",
         "/etc/resolv.conf",
         "/etc/resolv.conf",
@@ -408,11 +444,14 @@ def run_effects(
         with pipe() as (_r_file, _w_file):
             if debug:
                 print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
-            proc = subprocess.run(
-                bubblewrap_cmd,
-                check=False,
-                stdin=subprocess.DEVNULL,
-            )
+            try:
+                proc = subprocess.run(
+                    bubblewrap_cmd,
+                    check=False,
+                    stdin=subprocess.DEVNULL,
+                )
+            finally:
+                shutil.rmtree(work_dir, ignore_errors=True)
             if proc.returncode != 0:
                 msg = f"command failed with exit code {proc.returncode}"
                 raise BuildbotEffectsError(msg)
