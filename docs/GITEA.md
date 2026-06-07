@@ -8,7 +8,10 @@ status updates, and secure authentication.
 
 1. **Create a dedicated Gitea user** (recommended for organizations):
    - This user will manage webhooks and report build statuses
-   - Add this user as a collaborator to all repositories you want to build
+   - Add this user as a collaborator with **Administrator** permission to
+     every repository you want to build: Gitea only allows repo admins to
+     manage webhooks, and discovery skips repositories without it. Private
+     repositories are invisible to the token until the user is added.
 
 2. **Generate an access token**:
    - Log in as the dedicated user
