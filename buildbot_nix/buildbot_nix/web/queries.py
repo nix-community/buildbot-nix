@@ -140,8 +140,13 @@ class WebQueries:
                 SELECT percentile_cont(0.5) WITHIN GROUP (
                            ORDER BY EXTRACT(EPOCH FROM (t.finished_at - t.started_at))
                        ) FILTER (WHERE t.status = 'succeeded') AS median_secs,
+                       -- Cancelled builds say nothing about the code:
+                       -- they must not drag reliability toward zero.
                        count(*) FILTER (WHERE t.status = 'succeeded')::float
-                           / NULLIF(count(*), 0) AS pass_rate
+                           / NULLIF(
+                               count(*) FILTER (
+                                   WHERE t.status IN ('succeeded', 'failed')
+                               ), 0) AS pass_rate
                 FROM (
                     SELECT status, started_at, finished_at FROM builds b
                     WHERE b.project_id = p.id
