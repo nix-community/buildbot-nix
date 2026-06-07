@@ -68,6 +68,7 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
         task_token_file=base.task_token_file,
         project_id=base.project_id,
         project_path=base.project_path,
+        extra_nix_options=base.extra_nix_options,
         debug=base.debug,
         extra_sandbox_paths=base.extra_sandbox_paths,
     )
@@ -87,6 +88,7 @@ def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
         task_token_file=getattr(args, "task_token_file", None),
         project_id=getattr(args, "project_id", None),
         project_path=getattr(args, "project_path", None),
+        extra_nix_options=getattr(args, "extra_nix_option", []),
         debug=args.debug,
         extra_sandbox_paths=args.extra_sandbox_path,
     )
@@ -190,6 +192,14 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
         )
 
 
+def _key_value(option: str) -> tuple[str, str]:
+    key, sep, value = option.partition("=")
+    if not sep or not key:
+        msg = f"expected KEY=VALUE, got {option!r}"
+        raise argparse.ArgumentTypeError(msg)
+    return (key, value)
+
+
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
     """Add flags shared by all subcommands."""
     parser.add_argument(
@@ -253,6 +263,14 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         "--project-path",
         type=str,
         help="Value for HERCULES_CI_PROJECT_PATH",
+    )
+    parser.add_argument(
+        "--extra-nix-option",
+        action="append",
+        default=[],
+        type=_key_value,
+        metavar="KEY=VALUE",
+        help="nix option for the effect's private daemon",
     )
     parser.add_argument(
         "--extra-sandbox-path",

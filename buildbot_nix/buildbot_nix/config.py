@@ -330,6 +330,8 @@ class EngineConfig(BaseModel):
     # JSON file with named mountables effects may request via
     # __hci_effect_mounts: {name: {source, readOnly, condition}}.
     effects_mountables_file: Path | None = None
+    # nix options for the effect's private daemon, e.g. allowed-uris.
+    effects_extra_nix_options: dict[str, str] = {}
     show_trace_on_failure: bool = False
     cache_failed_builds: bool = False
     allow_unauthenticated_control: bool = False

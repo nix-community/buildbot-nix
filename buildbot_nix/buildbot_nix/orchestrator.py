@@ -582,6 +582,7 @@ class Orchestrator:
             api_base_url=self.config.url,
             project_id=str(repo.id),
             mountables_file=self.config.effects_mountables_file,
+            extra_nix_options=self.config.effects_extra_nix_options,
         )
         task_token = self.task_tokens.issue(build.project_id)
         ctx.task_token = task_token

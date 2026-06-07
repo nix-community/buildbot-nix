@@ -97,6 +97,7 @@ class EffectsContext:
     task_token: str | None = None
     project_id: str | None = None
     mountables_file: Path | None = None
+    extra_nix_options: dict[str, str] = field(default_factory=dict)
 
 
 def _effects_args(ctx: EffectsContext, secrets_file: Path | None) -> list[str]:
@@ -105,6 +106,8 @@ def _effects_args(ctx: EffectsContext, secrets_file: Path | None) -> list[str]:
         optional += ["--default-branch", ctx.default_branch]
     if ctx.mountables_file is not None:
         optional += ["--mountables-file", str(ctx.mountables_file)]
+    for key, value in ctx.extra_nix_options.items():
+        optional += ["--extra-nix-option", f"{key}={value}"]
     return [
         "--rev",
         ctx.rev,

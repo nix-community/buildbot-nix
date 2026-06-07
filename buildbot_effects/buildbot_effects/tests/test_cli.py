@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from buildbot_effects.cli import run_command
+from buildbot_effects.cli import _key_value, run_command
 
 FAKE_METADATA: dict = {
     "url": "github:my-org/my-repo/main",
@@ -72,3 +73,9 @@ class TestRunCommandFlakeRef:
 
         with pytest.raises(SystemExit, match="1"):
             run_command(args)
+
+
+def test_extra_nix_option_requires_key_value() -> None:
+    assert _key_value("max-jobs=1") == ("max-jobs", "1")
+    with pytest.raises(argparse.ArgumentTypeError):
+        _key_value("max-jobs")

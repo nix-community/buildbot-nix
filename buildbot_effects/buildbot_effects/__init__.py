@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from .options import EffectsOptions
 
 
+from .daemon_proxy import nix_daemon_proxy
 from .secrets import SecretContext, check_mounts, gather_secrets, parse_secrets_map
 
 
@@ -412,6 +413,16 @@ def run_effects(  # noqa: PLR0913
     etc_dir = work_dir / "etc"
     build_dir.mkdir()
     etc_dir.mkdir()
+    # Private daemon socket: each connection gets its own untrusted
+    # nix-daemon, so effects cannot use trusted-user privileges.
+    daemon_socket = work_dir / "daemon-socket"
+    proxy: AbstractContextManager[None] = nullcontext()
+    if shutil.which("nix-daemon") is not None:
+        proxy = nix_daemon_proxy(
+            daemon_socket, opts.extra_nix_options if opts is not None else []
+        )
+    else:
+        daemon_socket = Path("/nix/var/nix/daemon-socket/socket")
 
     # Mirrors hercules-ci implementation: https://github.com/hercules-ci/hercules-ci-agent/blob/57c564298bafde509bd23f4d5862574c94be01ba/hercules-ci-agent/src/Hercules/Effect.hs#L285
     bubblewrap_cmd = [
@@ -468,7 +479,7 @@ def run_effects(  # noqa: PLR0913
         "--hostname",
         "hercules-ci",
         "--bind",
-        "/nix/var/nix/daemon-socket/socket",
+        str(daemon_socket),
         "/nix/var/nix/daemon-socket/socket",
     ]
 
@@ -491,11 +502,12 @@ def run_effects(  # noqa: PLR0913
             if debug:
                 print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
             try:
-                proc = subprocess.run(
-                    bubblewrap_cmd,
-                    check=False,
-                    stdin=subprocess.DEVNULL,
-                )
+                with proxy:
+                    proc = subprocess.run(
+                        bubblewrap_cmd,
+                        check=False,
+                        stdin=subprocess.DEVNULL,
+                    )
             finally:
                 shutil.rmtree(work_dir, ignore_errors=True)
             if proc.returncode != 0:
