@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import (
@@ -281,11 +281,12 @@ def create_legacy_router(ctx: WebContext) -> APIRouter:
     return router
 
 
-def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
-    router = APIRouter()
+class _PageRoutes:
+    def __init__(self, ctx: WebContext) -> None:
+        self.ctx = ctx
 
-    @router.get("/", response_class=HTMLResponse)
-    async def index(request: Request, q: str = "") -> HTMLResponse:
+    async def index(self, request: Request, q: str = "") -> HTMLResponse:
+        ctx = self.ctx
         visible = await ctx.visible_repo_ids(request)
         # Discovery inserts repos disabled; admins enable them via
         # search, which is the only place disabled projects appear.
@@ -306,8 +307,8 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             disabled_projects=disabled,
         )
 
-    @router.get("/builds", response_class=HTMLResponse)
-    async def activity(request: Request) -> HTMLResponse:
+    async def activity(self, request: Request) -> HTMLResponse:
+        ctx = self.ctx
         visible = await ctx.visible_repo_ids(request)
         return ctx.render(
             "activity.html",
@@ -318,12 +319,12 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             more_url="/builds/rows",
         )
 
-    @router.get("/builds/rows", response_class=HTMLResponse)
     async def activity_rows(
-        request: Request, before: int | None = None, limit: int = PAGE_SIZE
+        self, request: Request, before: int | None = None, limit: int = PAGE_SIZE
     ) -> HTMLResponse:
         """Row fragments: infinite scroll (before=) and live refresh of
         the loaded rows (limit=)."""
+        ctx = self.ctx
         limit = min(max(limit, 1), MAX_ROWS)
         visible = await ctx.visible_repo_ids(request)
         builds = await ctx.queries.recent_builds(
@@ -337,15 +338,15 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             more_url="/builds/rows",
         )
 
-    @router.get("/builds/queue", response_class=HTMLResponse)
-    async def queue_fragment(request: Request) -> HTMLResponse:
+    async def queue_fragment(self, request: Request) -> HTMLResponse:
+        ctx = self.ctx
         visible = await ctx.visible_repo_ids(request)
         return ctx.render(
             "_queue.html", request=request, queue=await ctx.queries.queue(visible)
         )
 
-    @router.get("/repos/{forge}/{owner}/{name}", response_class=HTMLResponse)
     async def repo_page(  # noqa: PLR0913
+        self,
         request: Request,
         forge: str,
         owner: str,
@@ -354,6 +355,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
         status: str | None = None,
         ref: str | None = None,
     ) -> HTMLResponse:
+        ctx = self.ctx
         project = await ctx.repo_or_404(forge, owner, name, request)
         builds = await ctx.queries.builds_for_repo(
             project["id"],
@@ -369,8 +371,8 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             ref=ref or "",
         )
 
-    @router.get("/repos/{forge}/{owner}/{name}/rows", response_class=HTMLResponse)
     async def repo_rows(  # noqa: PLR0913
+        self,
         request: Request,
         forge: str,
         owner: str,
@@ -382,6 +384,7 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
     ) -> HTMLResponse:
         """Row fragments: infinite scroll (before=) and live refresh of
         the loaded rows (limit=)."""
+        ctx = self.ctx
         limit = min(max(limit, 1), MAX_ROWS)
         project = await ctx.repo_or_404(forge, owner, name, request)
         builds = await ctx.queries.builds_for_repo(
@@ -399,12 +402,10 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             project=project,
         )
 
-    @router.get(
-        "/repos/{forge}/{owner}/{name}/builds/{number}", response_class=HTMLResponse
-    )
     async def build_page(
-        request: Request, forge: str, owner: str, name: str, number: int
+        self, request: Request, forge: str, owner: str, name: str, number: int
     ) -> HTMLResponse:
+        ctx = self.ctx
         project = await ctx.repo_or_404(forge, owner, name, request)
         build = await ctx.queries.build_by_number(project["id"], number)
         if build is None:
@@ -425,12 +426,10 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             next_number=next_number,
         )
 
-    @router.get(
-        "/repos/{forge}/{owner}/{name}/attrs/{attr}", response_class=HTMLResponse
-    )
     async def attribute_history(
-        request: Request, forge: str, owner: str, name: str, attr: str
+        self, request: Request, forge: str, owner: str, name: str, attr: str
     ) -> HTMLResponse:
+        ctx = self.ctx
         project = await ctx.repo_or_404(forge, owner, name, request)
         return ctx.render(
             "attribute_history.html",
@@ -440,16 +439,32 @@ def create_router(ctx: WebContext) -> APIRouter:  # noqa: C901
             history=await ctx.queries.attribute_history(project["id"], attr),
         )
 
-    @router.get("/health", response_class=PlainTextResponse)
-    async def health() -> PlainTextResponse:
-        if not await check_db_health(ctx.pool):
+    async def health(self) -> PlainTextResponse:
+        if not await check_db_health(self.ctx.pool):
             return PlainTextResponse("database unavailable", status_code=503)
         return PlainTextResponse("ok")
 
-    @router.get("/llms.txt", response_class=PlainTextResponse)
-    async def llms_txt() -> PlainTextResponse:
+    async def llms_txt(self) -> PlainTextResponse:
         return PlainTextResponse(LLMS_TXT)
 
+
+def create_router(ctx: WebContext) -> APIRouter:
+    router = APIRouter()
+    pages = _PageRoutes(ctx)
+    html_pages: list[tuple[str, Callable[..., Any]]] = [
+        ("/", pages.index),
+        ("/builds", pages.activity),
+        ("/builds/rows", pages.activity_rows),
+        ("/builds/queue", pages.queue_fragment),
+        ("/repos/{forge}/{owner}/{name}", pages.repo_page),
+        ("/repos/{forge}/{owner}/{name}/rows", pages.repo_rows),
+        ("/repos/{forge}/{owner}/{name}/builds/{number}", pages.build_page),
+        ("/repos/{forge}/{owner}/{name}/attrs/{attr}", pages.attribute_history),
+    ]
+    for path, handler in html_pages:
+        router.get(path, response_class=HTMLResponse)(handler)
+    router.get("/health", response_class=PlainTextResponse)(pages.health)
+    router.get("/llms.txt", response_class=PlainTextResponse)(pages.llms_txt)
     return router
 
 

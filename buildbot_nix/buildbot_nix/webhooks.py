@@ -261,45 +261,49 @@ class GiteaSecretStore(Protocol):
     async def secret_for_repo(self, forge_repo_id: str) -> str | None: ...
 
 
-def create_webhook_router(  # noqa: C901
-    sink: ChangeSink,
-    github_webhook_secret: str | None,
-    gitea_secrets: GiteaSecretStore | None,
-    deduper: DeliveryDeduper | None = None,
-) -> APIRouter:
-    router = APIRouter()
-    deduper = deduper or DeliveryDeduper()
+class _WebhookHandlers:
+    def __init__(
+        self,
+        sink: ChangeSink,
+        github_webhook_secret: str | None,
+        gitea_secrets: GiteaSecretStore | None,
+        deduper: DeliveryDeduper,
+    ) -> None:
+        self.sink = sink
+        self.github_webhook_secret = github_webhook_secret
+        self.gitea_secrets = gitea_secrets
+        self.deduper = deduper
 
-    async def handle_github(request: Request) -> Response:
-        if github_webhook_secret is None:
+    async def handle_github(self, request: Request) -> Response:
+        if self.github_webhook_secret is None:
             raise HTTPException(status_code=404, detail="github not configured")
         body = await request.body()
         if not verify_github_signature(
-            github_webhook_secret,
+            self.github_webhook_secret,
             body,
             request.headers.get("X-Hub-Signature-256", ""),
         ):
             raise HTTPException(status_code=403, detail="invalid signature")
         guid = request.headers.get("X-GitHub-Delivery", "")
-        if deduper.is_duplicate(guid):
+        if self.deduper.is_duplicate(guid):
             return Response(status_code=202, content="duplicate delivery")
         event = parse_github_event(
             request.headers.get("X-GitHub-Event", ""), parse_webhook_body(request, body)
         )
         if event is None:
-            deduper.record(guid)
+            self.deduper.record(guid)
             return Response(status_code=200, content="ignored")
-        await _submit(event, guid)
+        await self._submit(event, guid)
         return Response(status_code=202, content="accepted")
 
-    async def handle_gitea(request: Request) -> Response:
-        if gitea_secrets is None:
+    async def handle_gitea(self, request: Request) -> Response:
+        if self.gitea_secrets is None:
             raise HTTPException(status_code=404, detail="gitea not configured")
         body = await request.body()
         payload = parse_webhook_body(request, body)
         repo_id = str((payload.get("repository") or {}).get("id", ""))
         try:
-            secret = await gitea_secrets.secret_for_repo(repo_id)
+            secret = await self.gitea_secrets.secret_for_repo(repo_id)
         except Exception as e:
             raise HTTPException(status_code=500, detail="database unavailable") from e
         if secret is None or not verify_gitea_signature(
@@ -307,30 +311,41 @@ def create_webhook_router(  # noqa: C901
         ):
             raise HTTPException(status_code=403, detail="invalid signature")
         guid = request.headers.get("X-Gitea-Delivery", "")
-        if deduper.is_duplicate(guid):
+        if self.deduper.is_duplicate(guid):
             return Response(status_code=202, content="duplicate delivery")
         event = parse_gitea_event(request.headers.get("X-Gitea-Event", ""), payload)
         if event is None:
-            deduper.record(guid)
+            self.deduper.record(guid)
             return Response(status_code=200, content="ignored")
-        await _submit(event, guid)
+        await self._submit(event, guid)
         return Response(status_code=202, content="accepted")
 
-    async def _submit(event: WebhookEvent, guid: str) -> None:
-        deduper.record(guid)
+    async def _submit(self, event: WebhookEvent, guid: str) -> None:
+        self.deduper.record(guid)
         try:
-            await sink.submit(event)
+            await self.sink.submit(event)
         except Exception as e:
-            deduper.forget(guid)
+            self.deduper.forget(guid)
             # Fail fast on DB outage: the GitHub App redelivers.
             logger.exception("failed to submit change event")
             raise HTTPException(
                 status_code=500, detail="temporarily unavailable"
             ) from e
 
+
+def create_webhook_router(
+    sink: ChangeSink,
+    github_webhook_secret: str | None,
+    gitea_secrets: GiteaSecretStore | None,
+    deduper: DeliveryDeduper | None = None,
+) -> APIRouter:
+    router = APIRouter()
+    handlers = _WebhookHandlers(
+        sink, github_webhook_secret, gitea_secrets, deduper or DeliveryDeduper()
+    )
     # New paths plus legacy buildbot aliases with identical validation.
     for path in ("/webhooks/github", "/change_hook/github"):
-        router.post(path)(handle_github)
+        router.post(path)(handlers.handle_github)
     for path in ("/webhooks/gitea", "/change_hook/gitea"):
-        router.post(path)(handle_gitea)
+        router.post(path)(handlers.handle_gitea)
     return router

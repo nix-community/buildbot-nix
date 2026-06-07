@@ -269,20 +269,28 @@ async def _failure_summary(
 _FAILURE_STATUSES = {s.value for s in TERMINAL_FAILURES} | {"cancelled"}
 
 
-def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # noqa: C901
-    router = APIRouter()
+class _LogRoutes:
+    def __init__(self, ctx: WebContext, registry: LogRegistry) -> None:
+        self.ctx = ctx
+        self.registry = registry
 
     async def _resolve(  # noqa: PLR0913
-        request: Request, forge: str, owner: str, name: str, number: int, attr: str
+        self,
+        request: Request,
+        forge: str,
+        owner: str,
+        name: str,
+        number: int,
+        attr: str,
     ) -> tuple[dict, dict, Path | None]:
-        project = await ctx.repo_or_404(forge, owner, name, request)
-        build = await ctx.queries.build_by_number(project["id"], number)
+        project = await self.ctx.repo_or_404(forge, owner, name, request)
+        build = await self.ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
-        return project, build, await _log_path(ctx, registry, build, attr)
+        return project, build, await _log_path(self.ctx, self.registry, build, attr)
 
-    @router.get("/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}.txt")
     async def log_raw_text(  # noqa: PLR0913
+        self,
         request: Request,
         forge: str,
         owner: str,
@@ -292,56 +300,70 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
         tail: int | None = None,
     ) -> PlainTextResponse:
         """Full log as plain text; ?tail=N returns only the last N lines."""
-        _, build, path = await _resolve(request, forge, owner, name, number, attr)
-        text = await _log_text(registry, build, attr, path)
+        _, build, path = await self._resolve(request, forge, owner, name, number, attr)
+        text = await _log_text(self.registry, build, attr, path)
         if text is None:
             raise HTTPException(status_code=404)
         if tail is not None and tail > 0:
             text = "\n".join(text.splitlines()[-tail:]) + "\n"
         return PlainTextResponse(strip_ansi(text))
 
-    @router.get("/api/repos/{forge}/{owner}/{name}/builds/{number}/failures")
     async def build_failures(  # noqa: PLR0913
-        request: Request, forge: str, owner: str, name: str, number: int, tail: int = 50
+        self,
+        request: Request,
+        forge: str,
+        owner: str,
+        name: str,
+        number: int,
+        tail: int = 50,
     ) -> dict:
         """One-shot failure summary: failed attributes with log tails.
 
         Saves API consumers (CI scripts, LLM agents) a request per
         attribute when answering "why did this build fail?".
         """
-        project = await ctx.repo_or_404(forge, owner, name, request)
-        build = await ctx.queries.build_by_number(project["id"], number)
+        project = await self.ctx.repo_or_404(forge, owner, name, request)
+        build = await self.ctx.queries.build_by_number(project["id"], number)
         if build is None:
             raise HTTPException(status_code=404)
-        return await _failure_summary(ctx, registry, build, tail)
+        return await _failure_summary(self.ctx, self.registry, build, tail)
 
-    @router.get("/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}/stream")
     async def log_stream(  # noqa: PLR0913
-        request: Request, forge: str, owner: str, name: str, number: int, attr: str
+        self,
+        request: Request,
+        forge: str,
+        owner: str,
+        name: str,
+        number: int,
+        attr: str,
     ) -> StreamingResponse:
         """SSE: history from disk, then live chunks until completion."""
-        _, build, path = await _resolve(request, forge, owner, name, number, attr)
-        writer = registry.get(build["id"], attr)
+        _, build, path = await self._resolve(request, forge, owner, name, number, attr)
+        writer = self.registry.get(build["id"], attr)
         return StreamingResponse(
             _stream_events(writer, path), media_type="text/event-stream"
         )
 
-    @router.get(
-        "/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}",
-        response_class=HTMLResponse,
-    )
     async def log_viewer(  # noqa: PLR0913
-        request: Request, forge: str, owner: str, name: str, number: int, attr: str
+        self,
+        request: Request,
+        forge: str,
+        owner: str,
+        name: str,
+        number: int,
+        attr: str,
     ) -> HTMLResponse:
-        project, build, path = await _resolve(request, forge, owner, name, number, attr)
-        attr_status = await ctx.pool.fetchval(
+        project, build, path = await self._resolve(
+            request, forge, owner, name, number, attr
+        )
+        attr_status = await self.ctx.pool.fetchval(
             "SELECT status FROM build_attributes WHERE build_id = $1 AND attr = $2",
             build["id"],
             attr,
         )
         # Live pages render no snapshot: the stream replays full
         # history on connect, the client would throw it away.
-        live = registry.get(build["id"], attr) is not None
+        live = self.registry.get(build["id"], attr) is not None
         content = ""
         waiting = False
         if not live:
@@ -356,10 +378,10 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
                 waiting = True
             else:
                 raise HTTPException(status_code=404)
-        prev_number, next_number = await ctx.queries.attribute_neighbors(
+        prev_number, next_number = await self.ctx.queries.attribute_neighbors(
             project["id"], attr, number
         )
-        return ctx.render(
+        return self.ctx.render(
             "log.html",
             request=request,
             project=project,
@@ -373,6 +395,15 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:  # n
             next_number=next_number,
         )
 
+
+def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
+    router = APIRouter()
+    routes = _LogRoutes(ctx, registry)
+    base = "/repos/{forge}/{owner}/{name}/builds/{number}"
+    router.get(f"{base}/logs/{{attr}}.txt")(routes.log_raw_text)
+    router.get(f"/api{base}/failures")(routes.build_failures)
+    router.get(f"{base}/logs/{{attr}}/stream")(routes.log_stream)
+    router.get(f"{base}/logs/{{attr}}", response_class=HTMLResponse)(routes.log_viewer)
     return router
 
 
