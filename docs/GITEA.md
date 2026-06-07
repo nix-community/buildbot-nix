@@ -93,6 +93,20 @@ For each repository you want to build:
      at this instance are removed
    - Webhook events: `push`, `pull_request` and `pull_request_sync`
 
+4. **Manual webhook creation** (only when the buildbot user is not a repo admin;
+   watch for the "no admin permission to manage webhooks" warning):
+
+   1. Enable the project
+   2. As a buildbot-nix admin, open the repository page in the buildbot-nix web
+      UI, expand **webhook setup** and press **regenerate** - the secret is
+      shown exactly once (rotating later invalidates the old secret;
+      auto-managed hooks pick the new one up on the next discovery cycle)
+   3. In the Gitea repository: Settings → Webhooks → Add Webhook → Gitea
+   4. Target URL and Secret from step 2, POST Content Type `application/json`
+   5. Trigger On: Custom Events → check **Push**, **Pull Request**, and **Pull
+      Request Synchronized**
+   6. Activate and save
+
 ## How It Works
 
 - **Authentication**: Uses Gitea access tokens for API operations

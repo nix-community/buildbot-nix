@@ -224,6 +224,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     )
     ctx.signer = signer
     ctx.authz = authz
+    ctx.webhook_base_url = config.webhook_base_url or config.url
     ctx.token_store = ApiTokenStore(pool)
     ctx.forge_tokens = ForgeTokenStore(pool)
     ctx.visibility = VisibilityService(

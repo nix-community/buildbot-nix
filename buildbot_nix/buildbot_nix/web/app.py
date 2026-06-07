@@ -34,7 +34,7 @@ from fastapi.responses import (
 )
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from ..auth import can_control_build  # noqa: TID252
+from ..auth import can_control_build, is_admin  # noqa: TID252
 from ..recovery import check_db_health  # noqa: TID252
 from .api_routes import create_api_router
 from .auth_routes import SESSION_COOKIE
@@ -88,6 +88,8 @@ class WebContext:
         self.visibility = visibility
         # Wired by bootstrap; None hides control buttons (authz unknown).
         self.authz: AuthzConfig | None = None
+        # Wired by bootstrap; admins see Gitea webhook setup with it.
+        self.webhook_base_url: str | None = None
         self.token_store: ApiTokenStore | None = None
         self.forge_tokens: TokenVault | None = None
 
@@ -289,7 +291,24 @@ class _PageRoutes:
             builds=builds,
             status=status or "",
             ref=ref or "",
+            webhook_url=await self._webhook_url(request, project),
         )
+
+    async def _webhook_url(
+        self, request: Request, project: dict[str, Any]
+    ) -> str | None:
+        """Gitea webhook target for admins: manual setup when the
+        buildbot user cannot manage hooks itself. The secret is not
+        included; it is rotated and shown once via the control route."""
+        ctx = self.ctx
+        if (
+            project["forge"] != "gitea"
+            or ctx.authz is None
+            or ctx.webhook_base_url is None
+            or not is_admin(await ctx.request_user(request), ctx.authz)
+        ):
+            return None
+        return f"{ctx.webhook_base_url.rstrip('/')}/webhooks/gitea"
 
     async def repo_rows(  # noqa: PLR0913
         self,

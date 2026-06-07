@@ -538,3 +538,65 @@ def test_restart_clears_failed_cache_and_guards_running(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_webhook_setup_shown_to_admin_only(harness: tuple) -> None:
+    loop, _client = harness
+
+    async def seed() -> None:
+        ctx = _client._transport.app.state.web_context  # noqa: SLF001
+        project_id = await ctx.pool.fetchval(
+            """
+            INSERT INTO projects (forge, forge_repo_id, owner, name,
+                                  default_branch, url, enabled)
+            VALUES ('gitea', 'wh-1', 'acme', 'locked', 'main', 'u', TRUE)
+            ON CONFLICT (forge, forge_repo_id) DO UPDATE SET name = 'locked'
+            RETURNING id
+            """
+        )
+        await ctx.pool.execute(
+            "INSERT INTO gitea_webhook_secrets (project_id, secret)"
+            " VALUES ($1, 's3cret') ON CONFLICT (project_id) DO NOTHING",
+            project_id,
+        )
+        ctx.webhook_base_url = "https://ci.example.com"
+
+    loop.run_until_complete(seed())
+    url = "/repos/gitea/acme/locked"
+    admin = get(harness, url, ROOT).text
+    assert "/webhooks/gitea" in admin
+    # The secret is never readable, only rotated and shown once.
+    assert "s3cret" not in admin
+    assert "regenerate" in admin
+    anonymous = get(harness, url).text
+    assert "/webhooks/gitea" not in anonymous
+
+
+def test_webhook_secret_regeneration(harness: tuple) -> None:
+    loop, _client = harness
+
+    async def project_id() -> int:
+        ctx = _client._transport.app.state.web_context  # noqa: SLF001
+        return await ctx.pool.fetchval(
+            "SELECT id FROM projects WHERE forge_repo_id = 'wh-1'"
+        )
+
+    pid = loop.run_until_complete(project_id())
+    url = f"/admin/repos/{pid}/webhook-secret"
+    assert post(harness, url, ALICE).status_code == 403
+    assert (
+        post(harness, url, ROOT, origin="https://evil.example.com").status_code == 403
+    )
+    rotated = post(harness, url, ROOT)
+    assert rotated.status_code == 200
+    assert "s3cret" not in rotated.text  # old secret replaced
+
+    async def stored() -> str:
+        ctx = _client._transport.app.state.web_context  # noqa: SLF001
+        return await ctx.pool.fetchval(
+            "SELECT secret FROM gitea_webhook_secrets WHERE project_id = $1", pid
+        )
+
+    new_secret = loop.run_until_complete(stored())
+    assert new_secret != "s3cret"  # noqa: S105 (seeded test value)
+    assert new_secret in rotated.text  # shown exactly here, once

@@ -65,6 +65,21 @@ class GiteaWebhookSecrets:
             secret,
         )
 
+    async def rotate(self, project_id: int) -> str:
+        """Replace the secret; the old one stops verifying immediately.
+        Auto-managed hooks re-sync on the next discovery cycle."""
+        secret = secrets.token_hex(32)
+        return await self.pool.fetchval(
+            """
+            INSERT INTO gitea_webhook_secrets (project_id, secret)
+            VALUES ($1, $2)
+            ON CONFLICT (project_id) DO UPDATE SET secret = EXCLUDED.secret
+            RETURNING secret
+            """,
+            project_id,
+            secret,
+        )
+
 
 def hook_url(webhook_base_url: str) -> str:
     return webhook_base_url.rstrip("/") + HOOK_PATH

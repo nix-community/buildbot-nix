@@ -15,10 +15,11 @@ from typing import TYPE_CHECKING, Annotated, Protocol
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from ..auth import can_control_build, is_admin, same_origin  # noqa: TID252
+from ..gitea_hooks import GiteaWebhookSecrets  # noqa: TID252
 
 if TYPE_CHECKING:
     from ..auth import AuthzConfig  # noqa: TID252
@@ -218,6 +219,15 @@ class _ControlRoutes:
         # Back to the dashboard with the project filter intact.
         return RedirectResponse(f"/?q={quote(q)}" if q else "/", status_code=303)
 
+    async def regenerate_webhook_secret(
+        self, request: Request, project_id: int
+    ) -> HTMLResponse:
+        """Rotate and show the Gitea webhook secret once; it is never
+        readable afterwards."""
+        await self._require_repo_admin(request, project_id)
+        secret = await GiteaWebhookSecrets(self.ctx.pool).rotate(project_id)
+        return self.ctx.render("_webhook_secret.html", request=request, secret=secret)
+
 
 def create_control_router(
     ctx: WebContext,
@@ -235,6 +245,9 @@ def create_control_router(
     router.post(f"{base}/cancel")(routes.cancel)
     router.post("/admin/repos/refresh")(routes.refresh_repos)
     router.post("/admin/repos/{project_id}/toggle")(routes.toggle_repo)
+    router.post("/admin/repos/{project_id}/webhook-secret")(
+        routes.regenerate_webhook_secret
+    )
     return router
 
 
