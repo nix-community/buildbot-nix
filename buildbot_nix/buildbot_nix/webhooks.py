@@ -290,11 +290,7 @@ class _WebhookHandlers:
         event = parse_github_event(
             request.headers.get("X-GitHub-Event", ""), parse_webhook_body(request, body)
         )
-        if event is None:
-            self.deduper.record(guid)
-            return Response(status_code=200, content="ignored")
-        await self._submit(event, guid)
-        return Response(status_code=202, content="accepted")
+        return await self._dispatch(guid, event)
 
     async def handle_gitea(self, request: Request) -> Response:
         if self.gitea_secrets is None:
@@ -314,6 +310,9 @@ class _WebhookHandlers:
         if self.deduper.is_duplicate(guid):
             return Response(status_code=202, content="duplicate delivery")
         event = parse_gitea_event(request.headers.get("X-Gitea-Event", ""), payload)
+        return await self._dispatch(guid, event)
+
+    async def _dispatch(self, guid: str, event: WebhookEvent | None) -> Response:
         if event is None:
             self.deduper.record(guid)
             return Response(status_code=200, content="ignored")
