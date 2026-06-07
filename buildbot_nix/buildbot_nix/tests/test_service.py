@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import pytest
 
 from buildbot_nix.bootstrap import _startup, build_service
@@ -21,7 +23,7 @@ from buildbot_nix.config import (
     PullBasedConfig,
     PullBasedRepository,
 )
-from buildbot_nix.forge import DiscoveredRepo
+from buildbot_nix.forge import DiscoveredRepo, GitlabClient
 from buildbot_nix.scheduled import DueEffect, ScheduleWhen
 from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
 from buildbot_nix.webhooks import ChangeRequest
@@ -549,6 +551,73 @@ def test_reeval_failure_marks_build_failed(
             )
             assert row["status"] == "failed"
             assert "re-evaluation" in row["error"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_gitlab_discovery_and_hook_registration(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    hook_posts: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v4/projects" and request.method == "GET":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 41,
+                        "path_with_namespace": "Mic92/dotfiles",
+                        "default_branch": "main",
+                        "http_url_to_repo": "https://gitlab.com/Mic92/dotfiles.git",
+                        "visibility": "public",
+                    }
+                ],
+            )
+        if path.endswith("/hooks") and request.method == "GET":
+            return httpx.Response(200, json=[])
+        if path.endswith("/hooks") and request.method == "POST":
+            hook_posts.append(json.loads(request.content))
+            return httpx.Response(201, json={})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        token = tmp_path / "gitlab-token"
+        token.write_text("glpat-x")
+        config = make_config(
+            postgres_dsn,
+            tmp_path / "state",
+            gitlab={"token_file": str(token)},
+        )
+        service, _app = await build_service(config)
+        pool = service.pool
+        try:
+            service.gitlab = GitlabClient(
+                "https://gitlab.com",
+                "glpat-x",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            await service.discover_once()
+            project = await pool.fetchrow(
+                "SELECT * FROM projects WHERE forge = 'gitlab' AND forge_repo_id = '41'"
+            )
+            assert project is not None
+            assert project["name"] == "dotfiles"
+            assert not hook_posts  # disabled projects get no hook
+
+            await pool.execute(
+                "UPDATE projects SET enabled = TRUE WHERE id = $1", project["id"]
+            )
+            await service._register_hooks()  # noqa: SLF001
+            assert hook_posts[0]["url"] == "http://ci.test/webhooks/gitlab"
+            secret = await pool.fetchval(
+                "SELECT secret FROM webhook_secrets WHERE project_id = $1",
+                project["id"],
+            )
+            assert hook_posts[0]["token"] == secret
         finally:
             await pool.close()
 

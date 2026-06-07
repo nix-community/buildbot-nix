@@ -12,7 +12,7 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .db import BuildStatus
 from .effects import EffectsContext, resolve_effects_secret
@@ -20,16 +20,18 @@ from .events import ChangeEvent, RepoInfo
 from .forge import (
     GiteaClient,
     GitHubAppClient,
+    GitlabClient,
     filter_repos,
 )
 from .gitea_hooks import register_repo_hook
+from .gitlab_hooks import register_repo_hook as register_gitlab_repo_hook
 from .gitrepo import (
     CredentialsProvider,
     FetchCredentials,
     StaticCredentialsProvider,
 )
 from .hook_secrets import WebhookSecrets
-from .reconcile import gitea_heads, github_heads, reconcile_repo
+from .reconcile import gitea_heads, github_heads, gitlab_heads, reconcile_repo
 from .recovery import (
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
@@ -44,7 +46,7 @@ from .webhooks import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from collections.abc import Awaitable, Callable, Coroutine
 
     import asyncpg
 
@@ -122,6 +124,7 @@ class EngineService:
     repo_store: RepoStore
     github: GitHubAppClient | None = None
     gitea: GiteaClient | None = None
+    gitlab: GitlabClient | None = None
     credentials_providers: dict[str, CredentialsProvider] = field(default_factory=dict)
     # Strong references to fire-and-forget tasks: the event loop only
     # keeps weak references, so an unreferenced running build could be
@@ -411,6 +414,8 @@ class EngineService:
                     heads = await github_heads(self.github, project)
                 elif project.forge == "gitea" and self.gitea is not None:
                     heads = await gitea_heads(self.gitea, project)
+                elif project.forge == "gitlab" and self.gitlab is not None:
+                    heads = await gitlab_heads(self.gitlab, project)
                 else:
                     continue
                 await reconcile_repo(self.pool, project, heads, self)
@@ -451,32 +456,45 @@ class EngineService:
                 replace(self.config.gitea.filters, topic=None),
                 await self.gitea.discover_repos(),
             )
+        if self.gitlab is not None and self.config.gitlab is not None:
+            repos += filter_repos(
+                replace(self.config.gitlab.filters, topic=None),
+                await self.gitlab.discover_repos(),
+            )
         topic = None
-        if self.config.github is not None:
-            topic = self.config.github.filters.topic
-        if topic is None and self.config.gitea is not None:
-            topic = self.config.gitea.filters.topic
+        for forge_config in (self.config.github, self.config.gitea, self.config.gitlab):
+            if topic is None and forge_config is not None:
+                topic = forge_config.filters.topic
         await self.repo_store.sync_discovered(repos, legacy_import_topic=topic)
-        # Auto-register Gitea webhooks for enabled projects.
+        # Auto-register Gitea/GitLab webhooks for enabled projects.
+        await self._register_hooks()
+
+    async def _register_hooks(self) -> None:
+        registrars: dict[str, tuple[Any, Callable[..., Awaitable[None]]]] = {}
         if self.gitea is not None:
-            secrets_store = WebhookSecrets(self.pool, "gitea")
-            base = self.config.webhook_base_url or self.config.url
-            for project in await self.repo_store.enabled_repos():
-                if project.forge == "gitea":
-                    try:
-                        await register_repo_hook(
-                            self.gitea,
-                            secrets_store,
-                            project.id,
-                            project.owner,
-                            project.name,
-                            base,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "gitea hook registration failed",
-                            extra={"project": f"{project.owner}/{project.name}"},
-                        )
+            registrars["gitea"] = (self.gitea, register_repo_hook)
+        if self.gitlab is not None:
+            registrars["gitlab"] = (self.gitlab, register_gitlab_repo_hook)
+        base = self.config.webhook_base_url or self.config.url
+        for project in await self.repo_store.enabled_repos():
+            if project.forge not in registrars:
+                continue
+            client, register = registrars[project.forge]
+            try:
+                await register(
+                    client,
+                    WebhookSecrets(self.pool, project.forge),
+                    project.id,
+                    project.owner,
+                    project.name,
+                    base,
+                )
+            except Exception:
+                logger.exception(
+                    "%s hook registration failed",
+                    project.forge,
+                    extra={"project": f"{project.owner}/{project.name}"},
+                )
 
     async def maintenance_loop(self) -> None:
         while True:

@@ -302,13 +302,13 @@ class _PageRoutes:
         included; it is rotated and shown once via the control route."""
         ctx = self.ctx
         if (
-            project["forge"] != "gitea"
+            project["forge"] not in ("gitea", "gitlab")
             or ctx.authz is None
             or ctx.webhook_base_url is None
             or not is_admin(await ctx.request_user(request), ctx.authz)
         ):
             return None
-        return f"{ctx.webhook_base_url.rstrip('/')}/webhooks/gitea"
+        return f"{ctx.webhook_base_url.rstrip('/')}/webhooks/{project['forge']}"
 
     async def repo_rows(  # noqa: PLR0913
         self,

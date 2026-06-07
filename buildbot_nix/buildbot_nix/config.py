@@ -88,6 +88,25 @@ class GiteaConfig(BaseModel):
     )
 
 
+class GitlabConfig(BaseModel):
+    instance_url: str = "https://gitlab.com"
+    filters: RepoFilters = Field(default_factory=RepoFilters)
+
+    token_file: Path = Field(default=Path("gitlab-token"))
+
+    ssh_private_key_file: Path | None = None
+    ssh_known_hosts_file: Path | None = None
+
+    @property
+    def token(self) -> str:
+        return read_secret_file(self.token_file)
+
+    model_config = ConfigDict(
+        extra="forbid",
+        ignored_types=(property,),
+    )
+
+
 class PullBasedRepository(BaseModel):
     name: str
     default_branch: str
@@ -292,6 +311,7 @@ class EngineConfig(BaseModel):
     build_concurrency: int | None = None
 
     gitea: GiteaConfig | None = None
+    gitlab: GitlabConfig | None = None
     github: GitHubConfig | None = None
     pull_based: PullBasedConfig | None = None
     oidc: OIDCConfig | None = None

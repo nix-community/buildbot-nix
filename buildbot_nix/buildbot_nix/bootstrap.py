@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -24,7 +25,7 @@ from .auth import (
     load_signing_keys,
     oidc_provider,
 )
-from .config import ConfigError, read_secret_file
+from .config import ConfigError, GiteaConfig, GitlabConfig, read_secret_file
 from .db import BuildDB
 from .executor import BuildSettings, FairScheduler, NixBuildExecutor
 from .failed_builds import PostgresFailedBuildCache
@@ -32,6 +33,7 @@ from .forge import (
     GiteaClient,
     GitHubAppClient,
     GitHubFetchCredentialsProvider,
+    GitlabClient,
     NetrcFetchCredentialsProvider,
 )
 from .forge_tokens import ForgeTokenStore
@@ -55,6 +57,7 @@ from .status import (
     ForgeStatusReporter,
     GiteaStatusPoster,
     GitHubStatusPoster,
+    GitlabStatusPoster,
 )
 from .visibility import AccessCache, ForgeRepoAccessFetcher, VisibilityService
 from .web.app import create_app
@@ -134,6 +137,49 @@ async def _login_providers(config: EngineConfig) -> dict[str, OAuthProvider]:
     return providers
 
 
+@dataclass
+class _ForgeClients:
+    github: GitHubAppClient | None = None
+    gitea: GiteaClient | None = None
+    gitlab: GitlabClient | None = None
+    credentials_providers: dict[str, CredentialsProvider] = field(default_factory=dict)
+    posters: dict[str, CommitStatusPoster] = field(default_factory=dict)
+
+
+def _netrc_credentials(
+    forge_config: GiteaConfig | GitlabConfig,
+) -> NetrcFetchCredentialsProvider:
+    return NetrcFetchCredentialsProvider(
+        forge_config.instance_url,
+        forge_config.token,
+        ssh_private_key_file=resolve_credential_path(forge_config.ssh_private_key_file),
+        ssh_known_hosts_file=resolve_credential_path(forge_config.ssh_known_hosts_file),
+    )
+
+
+def _forge_clients(config: EngineConfig) -> _ForgeClients:
+    clients = _ForgeClients()
+    if config.github is not None:
+        clients.github = GitHubAppClient(
+            config.github.id,
+            config.github.secret_key_file,
+            api_url=config.github.api_url,
+        )
+        clients.credentials_providers["github"] = GitHubFetchCredentialsProvider(
+            clients.github
+        )
+        clients.posters["github"] = GitHubStatusPoster(clients.github)
+    if config.gitea is not None:
+        clients.gitea = GiteaClient(config.gitea.instance_url, config.gitea.token)
+        clients.credentials_providers["gitea"] = _netrc_credentials(config.gitea)
+        clients.posters["gitea"] = GiteaStatusPoster(clients.gitea)
+    if config.gitlab is not None:
+        clients.gitlab = GitlabClient(config.gitlab.instance_url, config.gitlab.token)
+        clients.credentials_providers["gitlab"] = _netrc_credentials(config.gitlab)
+        clients.posters["gitlab"] = GitlabStatusPoster(clients.gitlab)
+    return clients
+
+
 async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     """Create the composed service and its ASGI app."""
     # Normalize SQLAlchemy/asyncpg-style URLs before *both* consumers;
@@ -142,31 +188,10 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
     await apply_migrations(dsn)
     pool = await asyncpg.create_pool(dsn)
 
-    github = None
-    gitea = None
-    credentials_providers: dict[str, CredentialsProvider] = {}
-    posters: dict[str, CommitStatusPoster] = {}
-    if config.github is not None:
-        github = GitHubAppClient(
-            config.github.id,
-            config.github.secret_key_file,
-            api_url=config.github.api_url,
-        )
-        credentials_providers["github"] = GitHubFetchCredentialsProvider(github)
-        posters["github"] = GitHubStatusPoster(github)
-    if config.gitea is not None:
-        gitea = GiteaClient(config.gitea.instance_url, config.gitea.token)
-        credentials_providers["gitea"] = NetrcFetchCredentialsProvider(
-            config.gitea.instance_url,
-            config.gitea.token,
-            ssh_private_key_file=resolve_credential_path(
-                config.gitea.ssh_private_key_file
-            ),
-            ssh_known_hosts_file=resolve_credential_path(
-                config.gitea.ssh_known_hosts_file
-            ),
-        )
-        posters["gitea"] = GiteaStatusPoster(gitea)
+    forges = _forge_clients(config)
+    github, gitea, gitlab = forges.github, forges.gitea, forges.gitlab
+    credentials_providers = forges.credentials_providers
+    posters = forges.posters
     if config.pull_based is not None:
         credentials_providers["pull_based"] = PullBasedCredentialsProvider(
             _polled_repositories(config)
@@ -209,6 +234,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
         repo_store=RepoStore(pool),
         github=github,
         gitea=gitea,
+        gitlab=gitlab,
         credentials_providers=credentials_providers,
     )
 
@@ -261,6 +287,7 @@ async def build_service(config: EngineConfig) -> tuple[EngineService, FastAPI]:
             service,
             config.github.webhook_secret if config.github is not None else None,
             WebhookSecrets(pool, "gitea") if config.gitea is not None else None,
+            WebhookSecrets(pool, "gitlab") if config.gitlab is not None else None,
         ),
         include_in_schema=False,
     )

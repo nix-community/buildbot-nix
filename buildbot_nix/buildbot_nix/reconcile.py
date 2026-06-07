@@ -12,13 +12,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from .webhooks import ChangeRequest
 
 if TYPE_CHECKING:
     import asyncpg
 
-    from .forge import GiteaClient, GitHubAppClient
+    from .forge import GiteaClient, GitHubAppClient, GitlabClient
     from .repos import RepoRecord
     from .webhooks import ChangeSink
 
@@ -97,6 +98,35 @@ async def gitea_heads(client: GiteaClient, project: RepoRecord) -> list[RemoteHe
             pr_number=pull["number"],
             pr_author=f"gitea:{pull['user']['login']}",
             base_sha=pull["base"]["sha"],
+        )
+        for pull in pulls
+    )
+    return heads
+
+
+async def gitlab_heads(client: GitlabClient, project: RepoRecord) -> list[RemoteHead]:
+    repo_url = client.project_api_url(project.owner, project.name)
+    heads = []
+    response = await client.http.get(
+        f"{repo_url}/repository/branches/{quote(project.default_branch, safe='')}",
+        headers=client._headers(),  # noqa: SLF001
+    )
+    if response.status_code < 400:  # noqa: PLR2004
+        heads.append(
+            RemoteHead(
+                branch=project.default_branch,
+                commit_sha=response.json()["commit"]["id"],
+            )
+        )
+    pulls = await client._paginated(  # noqa: SLF001
+        f"{repo_url}/merge_requests?state=opened&per_page=100"
+    )
+    heads.extend(
+        RemoteHead(
+            branch=pull["target_branch"],
+            commit_sha=pull["sha"],
+            pr_number=pull["iid"],
+            pr_author=f"gitlab:{pull['author']['username']}",
         )
         for pull in pulls
     )
