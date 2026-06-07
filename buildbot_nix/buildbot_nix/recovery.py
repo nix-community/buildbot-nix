@@ -26,7 +26,9 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -36,7 +38,6 @@ from .scheduler import AttributeResult, AttributeStatus
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from pathlib import Path
 
     from .db import BuildDB
 
@@ -160,38 +161,40 @@ async def find_unfinished_builds(
     return builds
 
 
-async def check_store_paths(paths: list[str]) -> set[str]:
-    """Valid store paths among `paths` (batched `nix path-info`)."""
-    valid: set[str] = set()
-    batch_size = 1000
-    for i in range(0, len(paths), batch_size):
-        batch = [p for p in paths[i : i + batch_size] if p]
-        if not batch:
-            continue
-        proc = await asyncio.create_subprocess_exec(
-            "nix",
-            "path-info",
-            *batch,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await proc.communicate()
-        if proc.returncode == 0:
-            valid.update(batch)
-        elif len(batch) > 1:
-            # Mixed validity: check individually.
-            for path in batch:
-                single = await asyncio.create_subprocess_exec(
-                    "nix",
-                    "path-info",
-                    path,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+NIX_DB = Path("/nix/var/nix/db/db.sqlite")
+
+
+def _valid_paths_from_db(paths: list[str], nix_db: Path) -> set[str]:
+    con = sqlite3.connect(f"file:{nix_db}?mode=ro", uri=True)
+    try:
+        valid: set[str] = set()
+        batch_size = 500  # sqlite parameter limit
+        for i in range(0, len(paths), batch_size):
+            batch = paths[i : i + batch_size]
+            placeholders = ",".join("?" * len(batch))
+            valid.update(
+                row[0]
+                for row in con.execute(
+                    f"SELECT path FROM ValidPaths WHERE path IN ({placeholders})",  # noqa: S608
+                    batch,
                 )
-                await single.wait()
-                if single.returncode == 0:
-                    valid.add(path)
-    return valid
+            )
+        return valid
+    finally:
+        con.close()
+
+
+async def check_store_paths(paths: list[str], nix_db: Path = NIX_DB) -> set[str]:
+    """Valid store paths among `paths`, read straight from the nix
+    store database: no subprocess startup, no daemon round-trips."""
+    paths = [p for p in paths if p]
+    if not paths:
+        return set()
+    try:
+        return await asyncio.to_thread(_valid_paths_from_db, paths, nix_db)
+    except sqlite3.Error:
+        logger.exception("reading the nix database failed; assuming unbuilt")
+        return set()
 
 
 async def settle_already_built(

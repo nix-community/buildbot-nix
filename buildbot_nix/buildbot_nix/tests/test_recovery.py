@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import sqlite3
 import time
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,7 @@ import pytest
 from buildbot_nix.db import BuildDB
 from buildbot_nix.recovery import (
     DatabaseUnavailableError,
+    check_store_paths,
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
     db_retry,
@@ -285,3 +287,26 @@ def test_retention_ages_out_failed_caches(postgres_dsn: str, tmp_path: Path) -> 
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_check_store_paths_reads_the_nix_db(tmp_path: Path) -> None:
+    """Validity comes from the store database, not from subprocesses."""
+    db = tmp_path / "db.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE ValidPaths (path TEXT)")
+    con.execute("INSERT INTO ValidPaths (path) VALUES ('/nix/store/aaa-built')")
+    con.commit()
+    con.close()
+
+    result = asyncio.run(
+        check_store_paths(
+            ["/nix/store/aaa-built", "/nix/store/bbb-missing", ""], nix_db=db
+        )
+    )
+    assert result == {"/nix/store/aaa-built"}
+
+    # Unreadable database: fail open as "nothing built yet".
+    missing = asyncio.run(
+        check_store_paths(["/nix/store/aaa-built"], nix_db=tmp_path / "nope")
+    )
+    assert missing == set()
