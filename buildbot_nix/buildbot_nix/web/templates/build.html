@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_icon, status_pill %}
+{% from "_macros.html" import error_row, status_icon, status_pill %}
 {% block title %}
   {{ repo_name(project.owner,
     project.name) }} #{{ build.number }}
@@ -110,6 +110,33 @@
                hx-swap="innerHTML">
       </p>
       <div id="attributes">{% include "_attributes.html" %}</div>
+      {% if effects %}
+        <h2 class="section">Effects</h2>
+        <table class="attrs">
+          <caption class="visually-hidden">effects</caption>
+          <thead class="visually-hidden">
+            <tr>
+              <th scope="col">status</th>
+              <th scope="col">effect</th>
+              <th scope="col">duration</th>
+            </tr>
+          </thead>
+          {% for e in effects %}
+            <tr>
+              <td class="attr-status">{{ status_icon(e.status) }}</td>
+              <td class="attr-name">
+                {% if e.log_path or e.status == "running" %}
+                  <a href="{{ build_path(project, build.number) }}/logs/effect:{{ e.name }}"><code>{{ e.name }}</code></a>
+                {% else %}
+                  <code>{{ e.name }}</code>
+                {% endif %}
+              </td>
+              <td class="attr-duration">{{ e | duration }}</td>
+            </tr>
+            {% if e.error %}{{ error_row(e.error) }}{% endif %}
+          {% endfor %}
+        </table>
+      {% endif %}
     </section>
   </main>
 {% endblock body %}

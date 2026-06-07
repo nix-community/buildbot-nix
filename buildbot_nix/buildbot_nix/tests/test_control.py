@@ -600,3 +600,63 @@ def test_webhook_secret_regeneration(harness: tuple) -> None:
     new_secret = loop.run_until_complete(stored())
     assert new_secret != "s3cret"  # noqa: S105 (seeded test value)
     assert new_secret in rotated.text  # shown exactly here, once
+
+
+def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
+    """A full restart re-runs effects: clear the started-flag and the
+    previous run's rows, or the page keeps showing stale results."""
+
+    async def run() -> None:
+        config = EngineConfig(
+            db_url=postgres_dsn,
+            build_systems=["x86_64-linux"],
+            domain="ci.test",
+            url="http://ci.test",
+            state_dir=tmp_path / "state",
+        )
+        service, _app = await build_service(config)
+        pool = service.pool
+        try:
+            project_id = await pool.fetchval(
+                "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
+                "default_branch, enabled) VALUES "
+                "('github', '79', 'acme', 'sprocket', 'http://x', 'main', TRUE) "
+                "RETURNING id"
+            )
+            build_id = await pool.fetchval(
+                "INSERT INTO builds (project_id, number, branch, commit_sha, "
+                "tree_hash, status, effects_started) VALUES "
+                "($1, 1, 'main', 'c1', 't1', 'failed', TRUE) RETURNING id",
+                project_id,
+            )
+            await pool.execute(
+                "INSERT INTO build_effects (build_id, name, status, finished_at) "
+                "VALUES ($1, 'deploy', 'failed', now())",
+                build_id,
+            )
+
+            await service.restart_build(build_id)
+            assert not await pool.fetchval(
+                "SELECT effects_started FROM builds WHERE id = $1", build_id
+            )
+            assert (
+                await pool.fetchval(
+                    "SELECT count(*) FROM build_effects WHERE build_id = $1",
+                    build_id,
+                )
+                == 0
+            )
+
+            # Single-attribute restart keeps the guard: a partial
+            # rebuild must not re-deploy.
+            await pool.execute(
+                "UPDATE builds SET effects_started = TRUE WHERE id = $1", build_id
+            )
+            await service.restart_attribute(build_id, "x86_64-linux.a")
+            assert await pool.fetchval(
+                "SELECT effects_started FROM builds WHERE id = $1", build_id
+            )
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

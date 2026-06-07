@@ -1,4 +1,4 @@
-{% from "_macros.html" import status_icon %}
+{% from "_macros.html" import error_row, status_icon %}
 {% for a in attributes %}
   <tr data-attr="{{ a.attr | lower }}">
     <td class="attr-status">{{ status_icon(a.status) }}</td>
@@ -11,16 +11,7 @@
     </td>
     <td class="attr-duration">{{ a | duration }}</td>
   </tr>
-  {% if a.error %}
-    <tr data-attr="{{ a.attr | lower }}">
-      <td colspan="3">
-        <details class="error">
-          <summary>{{ a.error | plain | excerpt(160) }}</summary>
-          <pre class="error">{{ a.error | ansi }}</pre>
-        </details>
-      </td>
-    </tr>
-  {% endif %}
+  {% if a.error %}{{ error_row(a.error) }}{% endif %}
 {% endfor %}
 {% if has_next %}
   <tr>

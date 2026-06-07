@@ -184,6 +184,18 @@ def _valid_paths_from_db(paths: list[str], nix_db: Path) -> set[str]:
         con.close()
 
 
+async def fail_interrupted_effects(pool: asyncpg.Pool) -> None:
+    """Settle effect rows left running by a crash: effects never
+    auto-re-run, so nothing else would ever finish them."""
+    await pool.execute(
+        """
+        UPDATE build_effects SET status = 'failed',
+            error = 'interrupted by an engine restart', finished_at = now()
+        WHERE status = 'running'
+        """
+    )
+
+
 async def check_store_paths(paths: list[str], nix_db: Path = NIX_DB) -> set[str]:
     """Valid store paths among `paths`, read straight from the nix
     store database: no subprocess startup, no daemon round-trips."""

@@ -266,11 +266,13 @@ h2 .status-icon {
 	content: "\2715";
 }
 .status-icon.building::before,
-.status-icon.evaluating::before {
+.status-icon.evaluating::before,
+.status-icon.running::before {
 	content: "\25cf";
 }
 .status-icon.building,
-.status-icon.evaluating {
+.status-icon.evaluating,
+.status-icon.running {
 	animation: ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 .status-icon.idle {

@@ -224,6 +224,15 @@ class EngineService:
             build_id,
             attr,
         )
+        if attr is None:
+            # A full restart re-runs effects; a partial rebuild must
+            # not re-deploy.
+            await self.pool.execute(
+                "UPDATE builds SET effects_started = FALSE WHERE id = $1", build_id
+            )
+            await self.pool.execute(
+                "DELETE FROM build_effects WHERE build_id = $1", build_id
+            )
         # Queued, not started: the rerun decides whether this becomes
         # a re-eval (evaluating) or an attribute rerun (building).
         # Clearing finished_at keeps retention cleanup off a build

@@ -16,6 +16,7 @@ import json
 import logging
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -54,7 +55,7 @@ from .scheduler import (
 from .web.logs import LogRegistry
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
     from pathlib import Path
 
     from .config import EngineConfig
@@ -96,8 +97,8 @@ class Orchestrator:
     # Second contexts attached to an in-flight build, for status fan-out.
     linked_events: dict[int, list[ChangeEvent]] = field(default_factory=dict)
 
-    def _log_dir(self, build: BuildRecord) -> Path:
-        return self.config.state_dir / "logs" / str(build.id)
+    def _log_dir(self, build_id: int) -> Path:
+        return self.config.state_dir / "logs" / str(build_id)
 
     def _gcroots_dir(self, build: BuildRecord) -> Path:
         return self.config.state_dir / "eval-gcroots" / str(build.id)
@@ -573,15 +574,63 @@ class Orchestrator:
         )
         try:
             for name in await list_effects(ctx):
-                if not await run_effect(ctx, name):
-                    logger.error(
-                        "effect failed",
-                        extra={"build_id": build.id, "effect": name},
-                    )
+                await self._run_one_effect(ctx, build, name)
         except (EffectsError, OSError):
             # OSError: buildbot-effects not installed; effects are
             # best-effort and must not fail the (already reported) build.
             logger.exception("effects execution failed", extra={"build_id": build.id})
+
+    @asynccontextmanager
+    async def _open_log(
+        self, build_id: int, key: str, filename: str
+    ) -> AsyncIterator[LogWriter]:
+        """LogWriter registered for live streaming; closed and
+        unregistered on exit. Shared by attribute and effect runs."""
+        log_path = self._log_dir(build_id) / filename
+        writer = LogWriter(path=log_path, size_limit=self.config.log_size_limit)
+        self.log_registry.register(build_id, key, writer)
+        try:
+            yield writer
+        finally:
+            await writer.close()
+            self.log_registry.unregister(build_id, key)
+
+    async def _run_one_effect(
+        self, ctx: EffectsContext, build: BuildRecord, name: str
+    ) -> None:
+        """One effect with its own row and log."""
+        await self.db.start_effect(build.id, name)
+        # Effect names come from untrusted flakes; percent-encode so
+        # the log file cannot escape the log directory. The "effect-"
+        # prefix keeps them apart from attribute logs.
+        async with self._open_log(
+            build.id, f"effect:{name}", f"effect-{quote(name, safe='')}.zst"
+        ) as writer:
+            try:
+                success = await run_effect(ctx, name, writer.write)
+            except Exception as e:
+                # Any escape would leave the row running forever
+                # (nothing re-runs effects) and kill the loop for the
+                # remaining effects.
+                logger.exception(
+                    "effect crashed",
+                    extra={"build_id": build.id, "effect": name},
+                )
+                await writer.write(f"\n{e}\n".encode())
+                success = False
+        error = None
+        if not success:
+            logger.error("effect failed", extra={"build_id": build.id, "effect": name})
+            error = failure_excerpt(writer.tail_lines()) or None
+        await self.db.finish_effect(
+            build.id,
+            name,
+            success=success,
+            error=error,
+            log_path=str(writer.path.relative_to(self.config.state_dir)),
+            log_size=writer.bytes_seen,
+            log_truncated=writer.truncated,
+        )
 
     async def _finish_linked(
         self,
@@ -730,12 +779,6 @@ class _OrchestratorExecutor:
             return BuildOutcome.failure_no_cache
 
     async def _build_inner(self, job: NixEvalJobSuccess) -> BuildOutcome:
-        log_dir = self.o._log_dir(self.build_record)  # noqa: SLF001
-        # Attribute names come from untrusted flakes; percent-encode
-        # so the log file cannot escape the log directory.
-        log_path = log_dir / f"{quote(job.attr, safe='')}.zst"
-        writer = LogWriter(path=log_path, size_limit=self.o.config.log_size_limit)
-        self.o.log_registry.register(self.build_record.id, job.attr, writer)
         await self.o.db.mark_attribute_building(
             self.build_record.id, job.attr, job.system, job.drv_path
         )
@@ -749,34 +792,37 @@ class _OrchestratorExecutor:
             attr_cancel.set()
 
         mirror = asyncio.create_task(_mirror_build_cancel())
+        # Attribute names come from untrusted flakes; percent-encode
+        # so the log file cannot escape the log directory.
         try:
-            outcome = await self.o.executor.build_attribute(
-                self.build_record.id,
-                job,
-                writer,
-                self.worktree_path,
-                attr_cancel,
-            )
-            if outcome == BuildOutcome.success and self.o.config.post_build_steps:
-                props = build_props(self.event, job)
-                step_results = await run_post_build_steps(
-                    self.o.config.post_build_steps, props, self.worktree_path
+            async with self.o._open_log(  # noqa: SLF001
+                self.build_record.id, job.attr, f"{quote(job.attr, safe='')}.zst"
+            ) as writer:
+                outcome = await self.o.executor.build_attribute(
+                    self.build_record.id,
+                    job,
+                    writer,
+                    self.worktree_path,
+                    attr_cancel,
                 )
-                for step in step_results:
-                    await writer.write(
-                        f"\npost-build step {step.name}: "
-                        f"{'ok' if step.success else 'failed'}\n".encode()
+                if outcome == BuildOutcome.success and self.o.config.post_build_steps:
+                    props = build_props(self.event, job)
+                    step_results = await run_post_build_steps(
+                        self.o.config.post_build_steps, props, self.worktree_path
                     )
-                    await writer.write(step.output.encode())
-                if any(step.failed for step in step_results):
-                    # The derivation built: fail the attribute without
-                    # poisoning the failed-build cache.
-                    outcome = BuildOutcome.post_build_failure
+                    for step in step_results:
+                        await writer.write(
+                            f"\npost-build step {step.name}: "
+                            f"{'ok' if step.success else 'failed'}\n".encode()
+                        )
+                        await writer.write(step.output.encode())
+                    if any(step.failed for step in step_results):
+                        # The derivation built: fail the attribute without
+                        # poisoning the failed-build cache.
+                        outcome = BuildOutcome.post_build_failure
         finally:
             mirror.cancel()
             self.o.attr_cancel_events.pop((self.build_record.id, job.attr), None)
-            await writer.close()
-            self.o.log_registry.unregister(self.build_record.id, job.attr)
 
         status = {
             BuildOutcome.success: AttributeStatus.succeeded,
@@ -803,7 +849,7 @@ class _OrchestratorExecutor:
         await self.o.db.complete_attribute(
             self.build_record.id,
             result,
-            log_path=str(log_path.relative_to(self.o.config.state_dir)),
+            log_path=str(writer.path.relative_to(self.o.config.state_dir)),
             log_size=writer.bytes_seen,
             log_truncated=writer.truncated,
         )

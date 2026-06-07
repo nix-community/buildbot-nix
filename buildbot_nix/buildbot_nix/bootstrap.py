@@ -47,6 +47,7 @@ from .nix_eval import CgroupLimiter, EvalRunner
 from .orchestrator import Orchestrator
 from .polling import PolledRepository, PollingService
 from .recovery import (
+    fail_interrupted_effects,
     find_unfinished_builds,
     settle_already_built,
 )
@@ -306,6 +307,7 @@ async def _startup(service: EngineService) -> None:
     # Crash recovery before serving: settle already-built attributes,
     # then resume the rest. Builds interrupted mid-eval (no attribute
     # rows) re-evaluate via the rerun path.
+    await fail_interrupted_effects(service.pool)
     for resumable in await find_unfinished_builds(service.pool):
         remaining, settled = await settle_already_built(
             service.orchestrator.db, resumable

@@ -296,6 +296,14 @@ class WebQueries:
             )
         )
 
+    async def effects(self, build_id: int) -> list[dict[str, Any]]:
+        return _rows(
+            await self.pool.fetch(
+                "SELECT * FROM build_effects WHERE build_id = $1 ORDER BY name",
+                build_id,
+            )
+        )
+
     async def attribute_counts(
         self, build_id: int, q: str | None = None
     ) -> dict[str, int]:

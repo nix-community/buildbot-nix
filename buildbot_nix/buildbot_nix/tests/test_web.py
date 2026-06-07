@@ -778,3 +778,86 @@ def test_css_covers_every_status() -> None:
     )
     missing = [s for s in statuses if f".{s}" not in css]
     assert not missing
+
+
+def test_build_page_shows_effects(client: WebClient) -> None:
+    async def seed_effects() -> None:
+        ctx = client.app.state.web_context
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 2")
+        await ctx.pool.execute(
+            """
+            INSERT INTO build_effects (build_id, name, status, error, log_path,
+                                       finished_at)
+            VALUES ($1, 'deploy', 'failed', 'ssh: connection refused',
+                    'logs/effect-deploy.zst', now()),
+                   ($1, 'notify', 'running', NULL, NULL, NULL)
+            """,
+            build_id,
+        )
+
+    client.loop.run_until_complete(seed_effects())
+    text = get(client, "/repos/github/acme/widget/builds/2").text
+    assert "Effects" in text
+    assert "deploy" in text
+    assert "ssh: connection refused" in text
+    # Both finished-with-log and running effects link to the viewer.
+    assert "logs/effect:deploy" in text
+    assert "logs/effect:notify" in text
+    # Builds without effects don't render the section.
+    assert "Effects" not in get(client, "/repos/github/acme/widget/builds/1").text
+
+
+def test_effect_log_raw_text(client: WebClient, tmp_path: Path) -> None:
+    async def seed_effect_log() -> None:
+        ctx = client.app.state.web_context
+        ctx.state_dir = tmp_path
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "effect-deploy2.zst").write_bytes(
+            zstandard.ZstdCompressor().compress(b"activating system...\n")
+        )
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 2")
+        await ctx.pool.execute(
+            "INSERT INTO build_effects (build_id, name, status, log_path, "
+            "finished_at) VALUES ($1, 'deploy2', 'succeeded', "
+            "'logs/effect-deploy2.zst', now())",
+            build_id,
+        )
+
+    client.loop.run_until_complete(seed_effect_log())
+    response = get(client, "/repos/github/acme/widget/builds/2/logs/effect:deploy2.txt")
+    assert response.status_code == 200
+    assert "activating system" in response.text
+
+
+def test_effect_changes_notify_build_events(client: WebClient) -> None:
+    """The page's SSE refresh rides on build_events; without a trigger
+    on build_effects the Effects section never updates live."""
+
+    async def run() -> list[str]:
+        ctx = client.app.state.web_context
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 3")
+        received: list[str] = []
+        conn = await ctx.pool.acquire()
+        listener = lambda *args: received.append(args[3])  # noqa: E731
+        try:
+            await conn.add_listener("build_events", listener)
+            await ctx.pool.execute(
+                "INSERT INTO build_effects (build_id, name) VALUES ($1, 'fxlive')",
+                build_id,
+            )
+            await ctx.pool.execute(
+                "UPDATE build_effects SET status = 'succeeded', "
+                "finished_at = now() WHERE build_id = $1 AND name = 'fxlive'",
+                build_id,
+            )
+            await asyncio.sleep(0.2)
+        finally:
+            await conn.remove_listener("build_events", listener)
+            await ctx.pool.release(conn)
+        return received
+
+    received = client.loop.run_until_complete(run())
+    payloads = [json.loads(r) for r in received]
+    assert [p["status"] for p in payloads] == ["running", "succeeded"]
+    assert all(p["effect"] == "fxlive" for p in payloads)

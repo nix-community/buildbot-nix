@@ -366,6 +366,7 @@ class _PageRoutes:
             attrs_done=total - group_counts["pending"] - group_counts["building"],
             group_counts=group_counts,
             inline=inline,
+            effects=await ctx.queries.effects(build["id"]),
             prev_number=prev_number,
             next_number=next_number,
             can_control=await ctx.can_control(request, build),

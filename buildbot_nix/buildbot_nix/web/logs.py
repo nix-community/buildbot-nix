@@ -184,15 +184,24 @@ def render_log_lines(text: str) -> str:
 async def _log_path(
     ctx: WebContext, registry: LogRegistry, build: dict, attr: str
 ) -> Path | None:
-    row = await ctx.pool.fetchrow(
-        """
-        SELECT l.path FROM logs l
-        JOIN build_attributes a ON a.id = l.attribute_id
-        WHERE a.build_id = $1 AND a.attr = $2
-        """,
-        build["id"],
-        attr,
-    )
+    if attr.startswith("effect:"):
+        # Effects store log metadata inline (no attribute row).
+        row = await ctx.pool.fetchrow(
+            "SELECT log_path AS path FROM build_effects "
+            "WHERE build_id = $1 AND name = $2 AND log_path IS NOT NULL",
+            build["id"],
+            attr.removeprefix("effect:"),
+        )
+    else:
+        row = await ctx.pool.fetchrow(
+            """
+            SELECT l.path FROM logs l
+            JOIN build_attributes a ON a.id = l.attribute_id
+            WHERE a.build_id = $1 AND a.attr = $2
+            """,
+            build["id"],
+            attr,
+        )
     path = ctx.state_dir / row["path"] if row else None
     if path is None:
         # No logs row until completion; running attributes use the

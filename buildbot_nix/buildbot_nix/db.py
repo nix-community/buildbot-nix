@@ -344,6 +344,53 @@ class BuildDB:
                     log_truncated,
                 )
 
+    async def start_effect(self, build_id: int, name: str) -> None:
+        """Record an effect run; a rerun resets the existing row."""
+        await self.pool.execute(
+            """
+            INSERT INTO build_effects (build_id, name) VALUES ($1, $2)
+            ON CONFLICT (build_id, name) DO UPDATE SET
+                status = 'running', error = NULL,
+                started_at = now(), finished_at = NULL
+            """,
+            build_id,
+            name,
+        )
+
+    async def finish_effect(  # noqa: PLR0913
+        self,
+        build_id: int,
+        name: str,
+        *,
+        success: bool,
+        error: str | None = None,
+        log_path: str | None = None,
+        log_size: int = 0,
+        log_truncated: bool = False,
+    ) -> None:
+        await self.pool.execute(
+            """
+            UPDATE build_effects SET
+                status = $3, error = $4, log_path = $5, log_size = $6,
+                log_truncated = $7, finished_at = now()
+            WHERE build_id = $1 AND name = $2
+            """,
+            build_id,
+            name,
+            "succeeded" if success else "failed",
+            error,
+            log_path,
+            log_size,
+            log_truncated,
+        )
+
+    async def effects_for_build(self, build_id: int) -> list[dict]:
+        rows = await self.pool.fetch(
+            "SELECT * FROM build_effects WHERE build_id = $1 ORDER BY name",
+            build_id,
+        )
+        return [dict(row) for row in rows]
+
     async def get_attribute_statuses(self, build_id: int) -> dict[str, str]:
         rows = await self.pool.fetch(
             "SELECT attr, status FROM build_attributes WHERE build_id = $1",

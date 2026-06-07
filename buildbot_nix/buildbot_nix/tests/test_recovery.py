@@ -20,6 +20,7 @@ from buildbot_nix.recovery import (
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
     db_retry,
+    fail_interrupted_effects,
     find_unfinished_builds,
     settle_already_built,
 )
@@ -310,3 +311,30 @@ def test_check_store_paths_reads_the_nix_db(tmp_path: Path) -> None:
         check_store_paths(["/nix/store/aaa-built"], nix_db=tmp_path / "nope")
     )
     assert missing == set()
+
+
+def test_interrupted_effects_fail_on_recovery(postgres_dsn: str) -> None:
+    """Effects never auto-re-run, so rows left running by a crash
+    would spin forever without the startup sweep."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            build_id = await make_build(pool, "fx-sweep")
+            await pool.execute(
+                "INSERT INTO build_effects (build_id, name) VALUES ($1, 'deploy')",
+                build_id,
+            )
+            await fail_interrupted_effects(pool)
+            row = await pool.fetchrow(
+                "SELECT status, error, finished_at FROM build_effects "
+                "WHERE build_id = $1",
+                build_id,
+            )
+            assert row["status"] == "failed"
+            assert "interrupted" in row["error"]
+            assert row["finished_at"] is not None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

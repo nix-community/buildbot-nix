@@ -50,3 +50,13 @@
           data-copy="{{ value }}"
           aria-label="copy {{ label }}">copy</button>
 {%- endmacro %}
+{% macro error_row(error, colspan=3) -%}
+  <tr>
+    <td colspan="{{ colspan }}">
+      <details class="error">
+        <summary>{{ error | plain | excerpt(160) }}</summary>
+        <pre class="error">{{ error | ansi }}</pre>
+      </details>
+    </td>
+  </tr>
+{%- endmacro %}

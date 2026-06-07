@@ -1070,3 +1070,83 @@ def test_eval_failure_settles_streamed_attributes(
         asyncio.run(run())
 
     _test()
+
+
+def test_effect_rows_roundtrip(postgres_dsn: str, tmp_path: Path) -> None:
+    """Start, finish and rerun-reset of effect rows."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            db = BuildDB(pool)
+            project = await make_project(pool, name="fx")
+            build, _ = await db.get_or_create_build(
+                project.id, "tree-fx", "sha", "main"
+            )
+
+            await db.start_effect(build.id, "deploy")
+            await db.finish_effect(
+                build.id,
+                "deploy",
+                success=False,
+                error="ssh: connection refused",
+                log_path="logs/1/effect-deploy.zst",
+                log_size=123,
+            )
+            effects = await db.effects_for_build(build.id)
+            assert [(e["name"], e["status"], e["error"]) for e in effects] == [
+                ("deploy", "failed", "ssh: connection refused")
+            ]
+            assert effects[0]["finished_at"] is not None
+
+            # A rerun resets the row to running with fresh timestamps.
+            await db.start_effect(build.id, "deploy")
+            effects = await db.effects_for_build(build.id)
+            assert effects[0]["status"] == "running"
+            assert effects[0]["finished_at"] is None
+            assert effects[0]["error"] is None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_effect_crash_settles_the_row(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unexpected exception inside an effect run must not leave the
+    row running: nothing re-runs effects, so it would stick until the
+    next engine restart."""
+
+    async def run() -> None:
+        async def fake_list(ctx: object) -> list[str]:
+            return ["deploy"]
+
+        async def broken_run(ctx: object, name: str, log_write: object = None) -> bool:
+            msg = "unexpected"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
+        monkeypatch.setattr(orch_mod, "run_effect", broken_run)
+
+        add_commit(upstream, "eff-crash")
+        build, _, pool = await run_event(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([mk_job("a")]),
+            FakeExecutor(),
+        )
+        try:
+            assert build is not None
+            row = await pool.fetchrow(
+                "SELECT status, finished_at FROM build_effects WHERE build_id = $1",
+                build.id,
+            )
+            assert row is not None
+            assert row["status"] == "failed"
+            assert row["finished_at"] is not None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
