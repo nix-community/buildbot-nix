@@ -514,6 +514,46 @@ def test_gitlab_heads_carry_target_branch_base(postgres_dsn: str) -> None:
     asyncio.run(run())
 
 
+def test_gitea_heads_encode_slashed_default_branch(postgres_dsn: str) -> None:
+    """A default branch with a slash must be URL-encoded or the
+    branches endpoint 404s and the head is never reconciled."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # httpx keeps the encoded form in raw_path.
+        if (
+            request.url.raw_path.decode().split("?")[0]
+            == "/api/v1/repos/acme/slashy/branches/release%2F1.0"
+        ):
+            return httpx.Response(200, json={"commit": {"id": "head-rel"}})
+        if request.url.path == "/api/v1/repos/acme/slashy/pulls":
+            return httpx.Response(200, json=[])
+        return httpx.Response(404)
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            await insert_project(
+                pool,
+                "slashy",
+                forge="gitea",
+                forge_repo_id="slashy-1",
+                default_branch="release/1.0",
+            )
+            project = await RepoStore(pool).by_forge_id("gitea", "slashy-1")
+            assert project is not None
+            client = GiteaClient(
+                "https://gitea.example.com",
+                "tkn",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            heads = await gitea_heads(client, project)
+            assert [h.commit_sha for h in heads] == ["head-rel"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path

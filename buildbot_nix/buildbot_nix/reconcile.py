@@ -48,7 +48,7 @@ async def github_heads(
     heads = []
     branch: dict[str, Any] | None = None
     response = await client.http.get(
-        f"{repo_url}/branches/{project.default_branch}",
+        f"{repo_url}/branches/{quote(project.default_branch, safe='')}",
         headers={"Authorization": f"Bearer {token}"},
     )
     if response.status_code < 400:  # noqa: PLR2004
@@ -78,7 +78,7 @@ async def gitea_heads(client: GiteaClient, project: RepoRecord) -> list[RemoteHe
     repo_url = f"{client.instance_url}/api/v1/repos/{project.owner}/{project.name}"
     heads = []
     response = await client.http.get(
-        f"{repo_url}/branches/{project.default_branch}",
+        f"{repo_url}/branches/{quote(project.default_branch, safe='')}",
         headers=client.auth_headers(),
     )
     if response.status_code < 400:  # noqa: PLR2004
