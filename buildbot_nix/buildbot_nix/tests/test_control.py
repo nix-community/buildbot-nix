@@ -828,6 +828,9 @@ def test_work_dispatch(postgres_dsn: str, tmp_path: Path) -> None:
                     "when": {"minute": 5, "dayOfWeek": ["Mon"]},
                 },
             )
+            await service.enqueue_work(
+                "refresh-schedules", "schedules-999", {"project_id": 999, "rev": "x"}
+            )
             await service.enqueue_work("bogus", "k", {})
             await service.drain_work()
             rows = await pool.fetch(
@@ -835,9 +838,10 @@ def test_work_dispatch(postgres_dsn: str, tmp_path: Path) -> None:
             )
             assert [(r["kind"], r["status"]) for r in rows] == [
                 ("scheduled", "done"),
+                ("refresh-schedules", "done"),
                 ("bogus", "failed"),
             ]
-            assert "unknown work kind" in rows[1]["error"]
+            assert "unknown work kind" in rows[2]["error"]
         finally:
             await pool.close()
 

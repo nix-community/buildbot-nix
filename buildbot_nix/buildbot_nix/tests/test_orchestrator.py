@@ -38,7 +38,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from buildbot_nix.db import BuildRecord
-    from buildbot_nix.effects import EffectsContext
     from buildbot_nix.models import NixEvalJobSuccess
 
 pytestmark = pytest.mark.skipif(
@@ -295,10 +294,10 @@ async def drain_effect_items(
     """Execute queued effect items (the service dispatcher's job)."""
     queue = WorkQueue(pool)
     while (item := await queue.claim_next()) is not None:
-        assert item.kind == "effect"
-        build = await orchestrator.db.get_build(item.payload["build_id"])
-        assert build is not None
-        await orchestrator.run_effect_item(info, build, item.payload["name"])
+        if item.kind == "effect":
+            build = await orchestrator.db.get_build(item.payload["build_id"])
+            assert build is not None
+            await orchestrator.run_effect_item(info, build, item.payload["name"])
         await queue.finish(item.id)
 
 
@@ -1019,20 +1018,13 @@ def test_rerun_effects_runs_effects_again(
                 "VALUES ($1, 'removed', 'failed')",
                 build.id,
             )
-            discovered: list[str] = []
-
-            async def fake_discover(ctx: EffectsContext) -> list:
-                discovered.append(ctx.rev)
-                return []
-
-            monkeypatch.setattr(
-                "buildbot_nix.orchestrator.discover_schedules", fake_discover
-            )
             await orchestrator.rerun_effects(project, build)
             await drain_effect_items(orchestrator, project, pool)
             assert ran == ["deploy", "deploy"]
-            # Restarts must refresh schedules too, not only fresh pushes.
-            assert discovered
+            # Restarts must queue a schedule refresh too.
+            assert await pool.fetchval(
+                "SELECT count(*) FROM work_queue WHERE kind = 'refresh-schedules'"
+            )
             rows = await pool.fetch(
                 "SELECT name, status FROM build_effects WHERE build_id = $1",
                 build.id,

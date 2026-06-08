@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from .config import ScheduleWhen
 from .db import BuildStatus
-from .effects import effects_context
+from .effects import EffectsContext, effects_context
 from .events import ChangeEvent, RepoInfo, StatusReporter
 from .executor import LogWriter
 from .forge import (
@@ -41,7 +41,12 @@ from .recovery import (
     cleanup_orphan_log_dirs,
     find_unfinished_builds,
 )
-from .scheduled import DueEffect, ScheduledEffectsStore, run_scheduled_effect
+from .scheduled import (
+    DueEffect,
+    ScheduledEffectsStore,
+    discover_schedules,
+    run_scheduled_effect,
+)
 from .webhooks import (
     ChangeRequest,
     PrClosed,
@@ -368,6 +373,8 @@ class CIService:
                 payload.get("attempt", 1),
                 payload.get("retry_at"),
             )
+        elif item.kind == "refresh-schedules":
+            await self._refresh_schedules_item(payload["project_id"], payload["rev"])
         elif item.kind == "scheduled":
             await self._run_scheduled(
                 DueEffect(
@@ -447,6 +454,37 @@ class CIService:
                 build_id, name, success=False, error=str(e) or type(e).__name__
             )
             raise
+
+    async def _refresh_schedules_item(self, project_id: int, rev: str) -> None:
+        """Discover and store onSchedule definitions at the commit."""
+        project = await self.repo_store.by_id(project_id)
+        if project is None or not project.enabled:
+            return
+        info = repo_info(project)
+        credentials = await self._credentials_provider(info.forge).get(info.clone_url)
+        await self.orchestrator.repos.fetch(
+            info.key, info.clone_url, ["+refs/heads/*:refs/heads/*"], credentials
+        )
+        worktree = await self.orchestrator.repos.checkout_for_build(
+            info.key,
+            f"schedules-{project_id}",
+            base_commit=rev,
+            credentials=credentials,
+        )
+        try:
+            ctx = EffectsContext(
+                worktree_path=worktree.path,
+                rev=rev,
+                branch=info.default_branch,
+                repo=info.name,
+                extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
+            )
+            schedules = await discover_schedules(ctx)
+            await ScheduledEffectsStore(self.pool).replace_schedules(
+                project_id, schedules
+            )
+        finally:
+            await self.orchestrator.repos.remove_worktree(worktree)
 
     async def _restart_effects(self, build_id: int) -> None:
         if build_id in self.orchestrator.cancel_events:
@@ -783,7 +821,6 @@ class CIService:
         while True:
             try:
                 for due in await store.due_effects():
-                    await store.mark_run(due)
                     logger.info(
                         "scheduled effect due",
                         extra={
@@ -791,6 +828,8 @@ class CIService:
                             "effect": due.effect,
                         },
                     )
+                    # Enqueue before mark_run: the reverse order loses
+                    # the occurrence when we crash in between.
                     await self.enqueue_work(
                         "scheduled",
                         f"scheduled-{due.project_id}-{due.schedule_name}-{due.effect}",
@@ -801,6 +840,7 @@ class CIService:
                             "when": due.when.model_dump(exclude_none=True),
                         },
                     )
+                    await store.mark_run(due)
             except Exception:
                 logger.exception("scheduled-effects sweep failed")
             # Sleep to the next minute boundary: is_due matches exactly

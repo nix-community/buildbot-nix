@@ -46,7 +46,6 @@ from .models import NixEvalJobSuccess
 from .nix_eval import EvalError, EvalSettings
 from .post_build import build_props, run_post_build_steps
 from .repo_config import BranchConfig
-from .scheduled import ScheduledEffectsStore, discover_schedules
 from .scheduler import (
     AttributeResult,
     AttributeStatus,
@@ -456,32 +455,20 @@ class Orchestrator:
         self.cancel_events.pop(build.id, None)
 
         if status == BuildStatus.SUCCEEDED:
-            await self._refresh_schedules(event, worktree_path)
+            await self._refresh_schedules(event)
         return status
 
-    async def _refresh_schedules(self, event: ChangeEvent, worktree_path: Path) -> None:
-        """Persist `onSchedule` definitions after a successful
+    async def _refresh_schedules(self, event: ChangeEvent) -> None:
+        """Queue `onSchedule` re-discovery after a successful
         default-branch build; the service's scheduled-effects loop only
-        sweeps what is stored here."""
+        sweeps what the executor stores."""
         if event.pr_number is not None or event.branch != event.repo.default_branch:
             return
-        try:
-            ctx = EffectsContext(
-                worktree_path=worktree_path,
-                rev=event.commit_sha,
-                branch=event.branch,
-                repo=event.repo.name,
-                extra_sandbox_paths=self.config.effects_extra_sandbox_paths,
-            )
-            schedules = await discover_schedules(ctx)
-            await ScheduledEffectsStore(self.db.pool).replace_schedules(
-                event.repo.id, schedules
-            )
-        except Exception:
-            logger.exception(
-                "schedule discovery failed",
-                extra={"project": event.repo.name},
-            )
+        await WorkQueue(self.db.pool).enqueue(
+            "refresh-schedules",
+            f"schedules-{event.repo.id}",
+            {"project_id": event.repo.id, "rev": event.commit_sha},
+        )
 
     @asynccontextmanager
     async def _rerun_worktree(
@@ -569,7 +556,7 @@ class Orchestrator:
                         BranchConfig.load(worktree_path),
                         credentials,
                     )
-                    await self._refresh_schedules(event, worktree_path)
+                    await self._refresh_schedules(event)
         finally:
             self.canceller.complete(build.id)
             self.cancel_events.pop(build.id, None)
@@ -609,7 +596,7 @@ class Orchestrator:
                     BranchConfig.load(worktree_path),
                     credentials,
                 )
-                await self._refresh_schedules(event, worktree_path)
+                await self._refresh_schedules(event)
             # The enqueued effect items share this build's key and only
             # become claimable once this item finishes.
         finally:
