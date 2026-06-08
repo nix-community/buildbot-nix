@@ -70,11 +70,11 @@
           {% endif %}
         </div>
       </div>
-      {% if build.error %}<pre class="error">{{ build.error | excerpt(2000) }}</pre>{% endif %}
+      {% if build.error %}<pre class="error">{{ build.error | excerpt(2000) | ansi }}</pre>{% endif %}
       {% if build.eval_warnings %}
         <details>
           <summary>evaluation warnings</summary>
-          <pre class="error warning">{{ build.eval_warnings }}</pre>
+          <pre class="error warning">{{ build.eval_warnings | ansi }}</pre>
         </details>
       {% endif %}
       {% if build.status in RUNNING_STATUSES and attrs_total %}

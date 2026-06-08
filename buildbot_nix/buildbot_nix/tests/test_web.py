@@ -207,6 +207,24 @@ def test_build_page_shows_eval_warnings_as_text(client: WebHarness) -> None:
     assert '["' not in text
 
 
+def test_build_page_renders_ansi_in_error_and_warnings(client: WebHarness) -> None:
+    """Eval failures carry nix's colored output; raw escape codes must
+    not reach the HTML (the API already strips them)."""
+
+    async def seed() -> None:
+        await client.ctx.pool.execute(
+            "UPDATE builds SET error = $1, eval_warnings = $2::jsonb WHERE number = 2",
+            "evaluation failed: \x1b[31mred error\x1b[0m",
+            json.dumps(["\x1b[33myellow warning\x1b[0m"]),
+        )
+
+    client.loop.run_until_complete(seed())
+    text = client.get("/repos/github/acme/widget/builds/2").text
+    assert "\x1b" not in text
+    assert "red error" in text
+    assert "yellow warning" in text
+
+
 def test_running_build_shows_progress(client: WebHarness) -> None:
     running = client.get("/repos/github/acme/widget/builds/3").text
     assert 'class="progress-track"' in running
