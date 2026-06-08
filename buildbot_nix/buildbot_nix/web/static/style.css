@@ -507,6 +507,8 @@ details.menu .menu-label {
 	padding: 0.35rem 0.4rem;
 	margin: -0.35rem -0.4rem;
 }
+
+/* Build page header */
 .build-header {
 	display: flex;
 	justify-content: space-between;
@@ -531,6 +533,8 @@ p.build-meta {
 	margin-top: 0;
 	color: var(--muted);
 }
+
+/* Headings */
 h2 {
 	font-size: 1.25rem;
 	letter-spacing: -0.01em;
