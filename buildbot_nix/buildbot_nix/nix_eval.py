@@ -406,6 +406,22 @@ async def _read_job_stream(
     await flush()
 
 
+def cgroup_oom_killed(eval_cgroup: Path | None) -> bool:
+    """Whether the kernel OOM-killed anything in the eval cgroup,
+    per its memory.events oom_kill counter."""
+    if eval_cgroup is None:
+        return False
+    try:
+        events = (eval_cgroup / "memory.events").read_text()
+    except OSError:
+        return False
+    for line in events.splitlines():
+        key, _, value = line.partition(" ")
+        if key == "oom_kill":
+            return int(value) > 0
+    return False
+
+
 class EvalRunner:
     """Runs nix-eval-jobs with a global concurrency cap."""
 
@@ -466,18 +482,20 @@ class EvalRunner:
                 settings,
                 preexec_fn=join_eval_cgroup if eval_cgroup is not None else None,
                 on_jobs=on_jobs,
+                eval_cgroup=eval_cgroup,
             )
         finally:
             if self.limiter is not None and eval_cgroup is not None:
                 await self.limiter.cleanup(eval_cgroup)
 
-    async def _spawn(
+    async def _spawn(  # noqa: PLR0913
         self,
         worktree_path: Path,
         branch_config: BranchConfig,
         settings: EvalSettings,
         preexec_fn: Callable[[], None] | None = None,
         on_jobs: JobBatchCallback | None = None,
+        eval_cgroup: Path | None = None,
     ) -> EvalResult:
         cmd = build_full_command(worktree_path, branch_config, settings)
         logger.info(
@@ -524,7 +542,9 @@ class EvalRunner:
 
         if returncode != 0:
             tail = "\n".join(stderr_text.splitlines()[-50:])
-            if returncode in OOM_RETURN_CODES or "out of memory" in stderr_text:
+            # No stderr substring match: that would misclassify evals
+            # whose trace merely mentions "out of memory".
+            if returncode in OOM_RETURN_CODES or cgroup_oom_killed(eval_cgroup):
                 msg = (
                     "evaluation ran out of memory (cgroup limit "
                     f"{settings.max_memory_size_mib} MiB/worker); this is a "

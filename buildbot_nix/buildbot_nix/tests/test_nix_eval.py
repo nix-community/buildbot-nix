@@ -21,6 +21,7 @@ from buildbot_nix.memory import (
     get_memory_info,
 )
 from buildbot_nix.nix_eval import (
+    EvalError,
     EvalRunner,
     EvalSettings,
     build_eval_command,
@@ -395,3 +396,38 @@ def test_cgroup_limiter_retries_subtree_enable(tmp_path: Path) -> None:
     path = limiter.new_eval_cgroup(64)
     assert (tmp_path / "cgroup.subtree_control").read_text() == "+memory"
     assert (path / "memory.max").read_text() == str(64 * 1024 * 1024)
+
+
+def test_eval_failure_with_oom_text_in_stderr_is_not_oom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A failed eval whose trace merely mentions "out of memory" (e.g. a
+    # package description or nested builder output) must not be
+    # classified as a permanent cgroup OOM.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "nix-eval-jobs"
+    fake.write_text(
+        "#!/bin/sh\n"
+        'echo "error: package foo: never run out of memory again" >&2\n'
+        'echo "error: assertion failed" >&2\n'
+        "exit 1\n"
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", sandbox=False, systemd_scope=False
+    )
+    with pytest.raises(EvalError) as excinfo:
+        asyncio.run(EvalRunner().run(tmp_path, BranchConfig(), settings))
+    assert not isinstance(excinfo.value, nix_eval.EvalOOMError)
+
+
+def test_cgroup_oom_killed_reads_memory_events(tmp_path: Path) -> None:
+    assert not nix_eval.cgroup_oom_killed(None)
+    assert not nix_eval.cgroup_oom_killed(tmp_path)  # no memory.events
+    (tmp_path / "memory.events").write_text("low 0\nhigh 2\nmax 5\noom 0\noom_kill 0\n")
+    assert not nix_eval.cgroup_oom_killed(tmp_path)
+    (tmp_path / "memory.events").write_text("low 0\noom 1\noom_kill 3\n")
+    assert nix_eval.cgroup_oom_killed(tmp_path)
