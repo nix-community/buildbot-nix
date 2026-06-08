@@ -570,6 +570,35 @@ def test_parse_gitlab_events() -> None:
         # No base sha in the payload: merge against the target branch.
         base_sha="refs/heads/main",
     )
+    # A reopen by a maintainer must not hand them the author's
+    # build-control rights.
+    reopened = parse_gitlab_event(
+        "Merge Request Hook",
+        {
+            **GITLAB_MR,
+            "user": {"username": "mallory"},
+            "object_attributes": {
+                **GITLAB_MR["object_attributes"],
+                "action": "reopen",
+            },
+        },
+    )
+    assert isinstance(reopened, ChangeRequest)
+    assert reopened.pr_author is None
+
+    opened = parse_gitlab_event(
+        "Merge Request Hook",
+        {
+            **GITLAB_MR,
+            "object_attributes": {
+                **GITLAB_MR["object_attributes"],
+                "action": "open",
+            },
+        },
+    )
+    assert isinstance(opened, ChangeRequest)
+    assert opened.pr_author == "gitlab:bob"
+
     # Update without oldrev: metadata-only edit, nothing to build.
     metadata_update = parse_gitlab_event(
         "Merge Request Hook",

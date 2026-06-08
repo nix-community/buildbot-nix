@@ -277,13 +277,22 @@ def parse_gitlab_event(  # noqa: PLR0911
             return None
         # No commit_message; see parse_github_event.
         target_branch = attrs.get("target_branch", "")
+        # payload["user"] is the event actor, not the MR author (only
+        # the author's numeric id is in the payload). pr_author grants
+        # restart/cancel rights, so attribute the actor only where they
+        # own the change: "open" (author) and head-moving "update"
+        # (pusher), never "reopen" by someone else.
+        actor = (payload.get("user") or {}).get("username", "")
+        pr_author = (
+            f"gitlab:{actor}" if actor and action in ("open", "update") else None
+        )
         return ChangeRequest(
             forge="gitlab",
             forge_repo_id=repo_id,
             branch=target_branch,
             commit_sha=(attrs.get("last_commit") or {}).get("id", ""),
             pr_number=number,
-            pr_author=f"gitlab:{(payload.get('user') or {}).get('username', '')}",
+            pr_author=pr_author,
             # The payload has no base sha; the target branch head was
             # fetched alongside, so merge against its ref.
             base_sha=f"refs/heads/{target_branch}" if target_branch else None,
