@@ -130,9 +130,48 @@ class PrClosed:
 WebhookEvent = ChangeRequest | PrClosed
 
 
-def parse_github_event(  # noqa: PLR0911
-    event_type: str, payload: dict[str, Any]
+def _pr_action_builds(action: str, payload: dict[str, Any], sync_action: str) -> bool:
+    """ "edited" only matters when the base branch changed (retarget):
+    the existing status is green against the old base. Title/body edits
+    carry neither key and stay ignored. GitHub reports the old base as
+    changes.base, Gitea as changes.ref (PullRequestChangeTargetBranch)."""
+    if action == "edited":
+        changes = payload.get("changes") or {}
+        return bool(changes.get("base") or changes.get("ref"))
+    return action in ("opened", sync_action, "reopened")
+
+
+def _parse_pr_event(
+    forge: str, repo_id: str, payload: dict[str, Any], sync_action: str
 ) -> WebhookEvent | None:
+    """GitHub/Gitea pull_request payloads share this shape."""
+    pr = payload.get("pull_request") or {}
+    number = pr.get("number")
+    if number is None:
+        return None
+    action = payload.get("action", "")
+    if action == "closed":
+        if pr.get("merged"):
+            # No cancel on merge: the merge push reuses the PR build
+            # (same post-merge tree hash).
+            return None
+        return PrClosed(forge=forge, forge_repo_id=repo_id, pr_number=number)
+    if not _pr_action_builds(action, payload, sync_action):
+        return None
+    # No commit_message: the [skip ci] check must not run on the PR
+    # title, and the payload lacks the head commit message.
+    return ChangeRequest(
+        forge=forge,
+        forge_repo_id=repo_id,
+        branch=(pr.get("base") or {}).get("ref", ""),
+        commit_sha=(pr.get("head") or {}).get("sha", ""),
+        pr_number=number,
+        pr_author=f"{forge}:{(pr.get('user') or {}).get('login', '')}",
+        base_sha=(pr.get("base") or {}).get("sha"),
+    )
+
+
+def parse_github_event(event_type: str, payload: dict[str, Any]) -> WebhookEvent | None:
     repo = payload.get("repository") or {}
     repo_id = str(repo.get("id", ""))
     if not repo_id:
@@ -153,36 +192,11 @@ def parse_github_event(  # noqa: PLR0911
             commit_message=head_commit.get("message", ""),
         )
     if event_type == "pull_request":
-        action = payload.get("action", "")
-        pr = payload.get("pull_request") or {}
-        number = pr.get("number")
-        if number is None:
-            return None
-        if action == "closed":
-            if pr.get("merged"):
-                # No cancel on merge: the merge push reuses the PR
-                # build (same post-merge tree hash).
-                return None
-            return PrClosed(forge="github", forge_repo_id=repo_id, pr_number=number)
-        if action not in ("opened", "synchronize", "reopened"):
-            return None
-        # No commit_message: the [skip ci] check must not run on the
-        # PR title, and the payload lacks the head commit message.
-        return ChangeRequest(
-            forge="github",
-            forge_repo_id=repo_id,
-            branch=(pr.get("base") or {}).get("ref", ""),
-            commit_sha=(pr.get("head") or {}).get("sha", ""),
-            pr_number=number,
-            pr_author=f"github:{(pr.get('user') or {}).get('login', '')}",
-            base_sha=(pr.get("base") or {}).get("sha"),
-        )
+        return _parse_pr_event("github", repo_id, payload, "synchronize")
     return None
 
 
-def parse_gitea_event(  # noqa: PLR0911
-    event_type: str, payload: dict[str, Any]
-) -> WebhookEvent | None:
+def parse_gitea_event(event_type: str, payload: dict[str, Any]) -> WebhookEvent | None:
     repo = payload.get("repository") or {}
     repo_id = str(repo.get("id", ""))
     if not repo_id:
@@ -214,28 +228,7 @@ def parse_gitea_event(  # noqa: PLR0911
     # Gitea delivers PR head updates as a separate "pull_request_sync"
     # hook event (action "synchronized").
     if event_type in ("pull_request", "pull_request_sync"):
-        action = payload.get("action", "")
-        pr = payload.get("pull_request") or {}
-        number = pr.get("number")
-        if number is None:
-            return None
-        if action == "closed":
-            if pr.get("merged"):
-                # See GitHub case: no cancel on merge.
-                return None
-            return PrClosed(forge="gitea", forge_repo_id=repo_id, pr_number=number)
-        if action not in ("opened", "synchronized", "reopened"):
-            return None
-        # No commit_message; see parse_github_event.
-        return ChangeRequest(
-            forge="gitea",
-            forge_repo_id=repo_id,
-            branch=(pr.get("base") or {}).get("ref", ""),
-            commit_sha=(pr.get("head") or {}).get("sha", ""),
-            pr_number=number,
-            pr_author=f"gitea:{(pr.get('user') or {}).get('login', '')}",
-            base_sha=(pr.get("base") or {}).get("sha"),
-        )
+        return _parse_pr_event("gitea", repo_id, payload, "synchronized")
     return None
 
 

@@ -172,6 +172,53 @@ def test_parse_github_pr() -> None:
     assert parse_github_event("pull_request", payload) is None
 
 
+def test_parse_github_pr_retarget() -> None:
+    """Base-branch retarget (action edited with changes.base) must
+    rebuild; CI status would otherwise stay green against the old
+    base."""
+    payload: dict[str, Any] = {
+        "action": "edited",
+        "repository": {"id": 7},
+        "changes": {"base": {"ref": {"from": "main"}, "sha": {"from": "oldbase"}}},
+        "pull_request": {
+            "number": 12,
+            "user": {"login": "alice"},
+            "head": {"sha": "headsha"},
+            "base": {"ref": "release", "sha": "newbase"},
+        },
+    }
+    event = parse_github_event("pull_request", payload)
+    assert isinstance(event, ChangeRequest)
+    assert event.branch == "release"
+    assert event.base_sha == "newbase"
+
+    # Title/body edits carry no changes.base and must stay ignored.
+    payload["changes"] = {"title": {"from": "old title"}}
+    assert parse_github_event("pull_request", payload) is None
+
+
+def test_parse_gitea_pr_retarget() -> None:
+    # Gitea reports the old base branch as changes.ref, not changes.base
+    # (PullRequestChangeTargetBranch in services/webhook/notifier.go).
+    payload: dict[str, Any] = {
+        "action": "edited",
+        "repository": {"id": 3},
+        "changes": {"ref": {"from": "main"}},
+        "pull_request": {
+            "number": 4,
+            "user": {"login": "bob"},
+            "head": {"sha": "h"},
+            "base": {"ref": "release", "sha": "b"},
+        },
+    }
+    event = parse_gitea_event("pull_request", payload)
+    assert isinstance(event, ChangeRequest)
+    assert event.branch == "release"
+
+    payload["changes"] = {"title": {"from": "t"}}
+    assert parse_gitea_event("pull_request", payload) is None
+
+
 def test_parse_gitea_events() -> None:
     push = parse_gitea_event(
         "push",
