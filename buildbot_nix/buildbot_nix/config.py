@@ -79,7 +79,8 @@ class GiteaConfig(BaseModel):
     @property
     def oauth_secret(self) -> str:
         if self.oauth_secret_file is None:
-            raise ConfigError
+            msg = "gitea.oauth_id is set but gitea.oauth_secret_file is missing"
+            raise ConfigError(msg)
         return read_secret_file(self.oauth_secret_file)
 
     model_config = ConfigDict(
@@ -159,7 +160,8 @@ class GitHubConfig(BaseModel):
     @property
     def oauth_secret(self) -> str:
         if self.oauth_secret_file is None:
-            raise ConfigError
+            msg = "github.oauth_id is set but github.oauth_secret_file is missing"
+            raise ConfigError(msg)
         return read_secret_file(self.oauth_secret_file)
 
     model_config = ConfigDict(

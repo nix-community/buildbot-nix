@@ -7,7 +7,17 @@ globs differ -- otherwise every webhook for such a branch 500s.
 
 from __future__ import annotations
 
-from buildbot_nix.config import BranchConfig, BranchConfigDict
+from pathlib import Path
+
+import pytest
+
+from buildbot_nix.config import (
+    BranchConfig,
+    BranchConfigDict,
+    ConfigError,
+    GiteaConfig,
+    GitHubConfig,
+)
 
 
 def _bc(glob: str, *, gcroots: bool, outputs: bool) -> BranchConfig:
@@ -42,3 +52,14 @@ def test_lookup_single_match() -> None:
     assert merged.register_gcroots is True
     assert merged.update_outputs is False
     assert cfg.lookup_branch_config("main") is None
+
+
+def test_oauth_secret_without_file_has_message() -> None:
+    """Missing oauth_secret_file must fail with a descriptive error."""
+    gitea = GiteaConfig(instance_url="https://gitea.example.com", oauth_id="x")
+    with pytest.raises(ConfigError, match=r"gitea\.oauth_secret_file"):
+        _ = gitea.oauth_secret
+
+    github = GitHubConfig(id=1, secret_key_file=Path("key"), oauth_id="x")
+    with pytest.raises(ConfigError, match=r"github\.oauth_secret_file"):
+        _ = github.oauth_secret
