@@ -217,6 +217,26 @@ def test_github_fetch_credentials_enterprise_host(
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
+def test_github_discovery_isolates_failed_installation(
+    github_client: GitHubAppClient,
+) -> None:
+    """One suspended installation (403 on token mint) must not abort
+    discovery of the remaining installations."""
+    base = github_transport()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/app/installations/11/access_tokens":
+            return httpx.Response(403, json={"message": "suspended"})
+        response = base.handler(request)  # type: ignore[attr-defined]
+        assert isinstance(response, httpx.Response)
+        return response
+
+    github_client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    repos = asyncio.run(github_client.discover_repos())
+    assert {r.name for r in repos} == {"acme/repo22"}
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
 def test_github_fetch_credentials_repo_scoped(
     github_client: GitHubAppClient,
 ) -> None:
@@ -230,7 +250,9 @@ def test_github_fetch_credentials_repo_scoped(
         if request.url.path.endswith("/access_tokens"):
             body = json.loads(request.content) if request.content else {}
             scoped_requests.append(body.get("repositories"))
-        return base.handler(request)  # type: ignore[attr-defined]
+        response = base.handler(request)  # type: ignore[attr-defined]
+        assert isinstance(response, httpx.Response)
+        return response
 
     github_client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
@@ -307,11 +329,85 @@ def test_gitea_discovery() -> None:
         "tkn",
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    repos = asyncio.run(client.discover_repos())
+    repos = asyncio.run(client.discover_repos(fetch_topics=True))
     assert [r.forge_repo_id for r in repos] == ["7", "8"]
     assert repos[0].forge == "gitea"
     assert repos[0].topics == ("ci",)
     assert repos[0].private
+
+
+def test_gitea_discovery_skips_topics_by_default() -> None:
+    """Topics are only the one-shot legacy import aid; the hourly sync
+    must not pay one extra request per repo for them."""
+    topics_requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal topics_requests
+        path = request.url.path
+        if path == "/api/v1/user/repos":
+            if int(request.url.params["page"]) > 1:
+                return httpx.Response(200, json=[])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 7,
+                        "name": "widget",
+                        "owner": {"login": "acme"},
+                        "default_branch": "main",
+                        "clone_url": "https://gitea.example.com/acme/widget.git",
+                        "private": False,
+                    }
+                ],
+            )
+        if path.endswith("/topics"):
+            topics_requests += 1
+            return httpx.Response(200, json={"topics": ["ci"]})
+        return httpx.Response(404)
+
+    client = GiteaClient(
+        "https://gitea.example.com",
+        "tkn",
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    repos = asyncio.run(client.discover_repos())
+    assert topics_requests == 0
+    assert repos[0].topics == ()
+
+
+def test_gitea_discovery_null_topics() -> None:
+    """Gitea returns {"topics": null} for repos without topics; that
+    must not crash discovery."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v1/user/repos":
+            if int(request.url.params["page"]) > 1:
+                return httpx.Response(200, json=[])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 7,
+                        "name": "widget",
+                        "owner": {"login": "acme"},
+                        "default_branch": "main",
+                        "clone_url": "https://gitea.example.com/acme/widget.git",
+                        "private": False,
+                    }
+                ],
+            )
+        if path.endswith("/topics"):
+            return httpx.Response(200, json={"topics": None})
+        return httpx.Response(404)
+
+    client = GiteaClient(
+        "https://gitea.example.com",
+        "tkn",
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    repos = asyncio.run(client.discover_repos(fetch_topics=True))
+    assert repos[0].topics == ()
 
 
 # --- project store -----------------------------------------------------------------

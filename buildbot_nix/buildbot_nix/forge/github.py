@@ -204,24 +204,37 @@ class GitHubAppClient:
     async def discover_repos(self) -> list[DiscoveredRepo]:
         repos: list[DiscoveredRepo] = []
         for installation_id in await self.list_installations():
-            token = await self.installation_token(installation_id)
-            for repo in await self.paginated(
-                f"{self.api_url}/installation/repositories?per_page=100",
-                token,
-                subkey="repositories",
-            ):
-                discovered = DiscoveredRepo(
-                    forge="github",
-                    forge_repo_id=str(repo["id"]),
-                    owner=repo["owner"]["login"],
-                    repo=repo["name"],
-                    default_branch=repo.get("default_branch") or "main",
-                    clone_url=repo["clone_url"],
-                    private=repo.get("private", False),
-                    topics=tuple(repo.get("topics", [])),
+            try:
+                repos.extend(await self._discover_installation(installation_id))
+            except (ForgeError, httpx.HTTPError):
+                # e.g. suspended installation; keep discovering the rest.
+                logger.exception(
+                    "repo discovery failed for installation %s", installation_id
                 )
-                repos.append(discovered)
-                self.repo_installations[discovered.name.lower()] = installation_id
+        return repos
+
+    async def _discover_installation(
+        self, installation_id: int
+    ) -> list[DiscoveredRepo]:
+        repos: list[DiscoveredRepo] = []
+        token = await self.installation_token(installation_id)
+        for repo in await self.paginated(
+            f"{self.api_url}/installation/repositories?per_page=100",
+            token,
+            subkey="repositories",
+        ):
+            discovered = DiscoveredRepo(
+                forge="github",
+                forge_repo_id=str(repo["id"]),
+                owner=repo["owner"]["login"],
+                repo=repo["name"],
+                default_branch=repo.get("default_branch") or "main",
+                clone_url=repo["clone_url"],
+                private=repo.get("private", False),
+                topics=tuple(repo.get("topics", [])),
+            )
+            repos.append(discovered)
+            self.repo_installations[discovered.name.lower()] = installation_id
         return repos
 
 

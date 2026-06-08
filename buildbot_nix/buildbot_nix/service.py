@@ -62,8 +62,9 @@ if TYPE_CHECKING:
 
     import asyncpg
 
-    from .config import Config
+    from .config import Config, RepoFilters
     from .db import BuildRecord
+    from .forge import DiscoveredRepo
     from .orchestrator import Orchestrator
     from .polling import PolledRepository
     from .recovery import ResumableBuild
@@ -806,19 +807,23 @@ class CIService:
         # untagged repos never appear in the admin UI.
         if self.github is not None and self.config.github is not None:
             await self._warn_github_webhook_misconfig(self.github)
-            repos += filter_repos(
-                replace(self.config.github.filters, topic=None),
-                await self.github.discover_repos(),
+            repos += await self._discover_forge(
+                "github", self.github.discover_repos(), self.config.github.filters
             )
         if self.gitea is not None and self.config.gitea is not None:
-            repos += filter_repos(
-                replace(self.config.gitea.filters, topic=None),
-                await self.gitea.discover_repos(),
+            # Only the one-shot legacy import needs topics.
+            fetch_topics = (
+                self.config.gitea.filters.topic is not None
+                and await self.repo_store.is_empty()
+            )
+            repos += await self._discover_forge(
+                "gitea",
+                self.gitea.discover_repos(fetch_topics=fetch_topics),
+                self.config.gitea.filters,
             )
         if self.gitlab is not None and self.config.gitlab is not None:
-            repos += filter_repos(
-                replace(self.config.gitlab.filters, topic=None),
-                await self.gitlab.discover_repos(),
+            repos += await self._discover_forge(
+                "gitlab", self.gitlab.discover_repos(), self.config.gitlab.filters
             )
         topics = {
             forge: forge_config.filters.topic
@@ -832,6 +837,19 @@ class CIService:
         await self.repo_store.sync_discovered(repos, legacy_import_topics=topics)
         # Auto-register Gitea/GitLab webhooks for enabled projects.
         await self._register_hooks()
+
+    async def _discover_forge(
+        self,
+        forge: str,
+        discovery: Awaitable[list[DiscoveredRepo]],
+        filters: RepoFilters,
+    ) -> list[DiscoveredRepo]:
+        """One forge failing must not abort discovery for the others."""
+        try:
+            return filter_repos(replace(filters, topic=None), await discovery)
+        except Exception:
+            logger.exception("%s repo discovery failed", forge)
+            return []
 
     async def _register_hooks(self) -> None:
         registrars: dict[str, tuple[Any, Callable[..., Awaitable[None]]]] = {}

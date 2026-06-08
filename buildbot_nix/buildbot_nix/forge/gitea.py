@@ -40,21 +40,26 @@ class GiteaClient:
             results.extend(data)
             page += 1
 
-    async def discover_repos(self) -> list[DiscoveredRepo]:
+    async def discover_repos(
+        self, *, fetch_topics: bool = False
+    ) -> list[DiscoveredRepo]:
+        """List repos. Topics cost one extra request per repo and are
+        only needed by the one-shot legacy topic import, so they are
+        skipped unless `fetch_topics` is set."""
         repos = []
         for repo in await self.paginated(
             f"{self.instance_url}/api/v1/user/repos?limit=100"
         ):
-            topics_response = await self.http.get(
-                f"{self.instance_url}/api/v1/repos/"
-                f"{repo['owner']['login']}/{repo['name']}/topics",
-                headers=self.auth_headers(),
-            )
-            topics = (
-                topics_response.json().get("topics", [])
-                if topics_response.status_code < 400  # noqa: PLR2004
-                else []
-            )
+            topics: list[str] = []
+            if fetch_topics:
+                topics_response = await self.http.get(
+                    f"{self.instance_url}/api/v1/repos/"
+                    f"{repo['owner']['login']}/{repo['name']}/topics",
+                    headers=self.auth_headers(),
+                )
+                if topics_response.status_code < 400:  # noqa: PLR2004
+                    # Gitea reports repos without topics as null.
+                    topics = topics_response.json().get("topics") or []
             repos.append(
                 DiscoveredRepo(
                     forge="gitea",
