@@ -76,7 +76,7 @@ class Attribute(BaseModel):
     system: str | None
     drv_path: str | None
     outputs: dict[str, str | None] | None
-    # pending | building | succeeded | failed | cancelled | skipped
+    # pending | building | succeeded | failed | cancelled | skipped_local
     # | dependency_failed | cached_failure | failed_eval
     status: str
     cached: bool

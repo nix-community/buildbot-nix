@@ -45,7 +45,7 @@ FAILED_ATTRIBUTE_STATUSES = frozenset(
     {"failed", "failed_eval", "dependency_failed", "cached_failure"}
 )
 TERMINAL_ATTRIBUTE_STATUSES = FAILED_ATTRIBUTE_STATUSES | frozenset(
-    {"succeeded", "cancelled", "skipped_local", "skipped"}
+    {"succeeded", "cancelled", "skipped_local"}
 )
 
 
@@ -225,7 +225,7 @@ class BuildDB:
                 -- Invariant: non-terminal states never carry finished_at,
                 -- else reruns show negative durations.
                 finished_at = CASE
-                    WHEN $2 IN ('succeeded', 'failed', 'cancelled') THEN now()
+                    WHEN $2 = ANY($5::text[]) THEN now()
                     ELSE NULL
                 END
             WHERE id = $1
@@ -234,6 +234,7 @@ class BuildDB:
             status,
             error,
             eval_warnings,
+            list(BuildStatus.TERMINAL),
         )
         if status in (BuildStatus.FAILED, BuildStatus.CANCELLED):
             # Pending effect rows only get queue items when the build

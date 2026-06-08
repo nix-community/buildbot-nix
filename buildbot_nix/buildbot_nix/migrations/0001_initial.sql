@@ -62,7 +62,7 @@ CREATE TABLE build_attributes (
     drv_path TEXT,
     -- Output name -> store path (null when not statically known).
     outputs JSONB,
-    -- pending | building | succeeded | failed | cancelled | skipped
+    -- pending | building | succeeded | failed | cancelled | skipped_local
     -- | dependency_failed | cached_failure | failed_eval
     status TEXT NOT NULL DEFAULT 'pending',
     -- True when the result came from a cache/substituter or local store.
