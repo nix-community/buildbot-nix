@@ -36,7 +36,6 @@ from buildbot_nix.web.token_routes import create_token_router
 
 from .support import (
     WebHarness,
-    cookie_header,
     insert_build,
     insert_project,
     web_harness,
@@ -333,18 +332,8 @@ def test_api_token_lifecycle(harness: WebHarness) -> None:
 
 
 def test_token_creation_with_expiry(harness: WebHarness) -> None:
-
-    def create(data: dict) -> httpx.Response:
-        return harness.run(
-            harness.http.post(
-                "/settings/tokens",
-                data=data,
-                headers={"Origin": "http://test"}
-                | cookie_header(
-                    {"buildbot_nix_session": harness.signer.session_for(ALICE)}
-                ),
-            )
-        )
+    def create(data: dict[str, str]) -> httpx.Response:
+        return harness.post("/settings/tokens", ALICE, data=data)
 
     assert create({"name": "ci", "expires_days": "7"}).status_code == 200
     store = harness.ctx.token_store
@@ -498,7 +487,6 @@ def test_restart_clears_failed_cache_and_guards_running(
 
 
 def test_webhook_setup_shown_to_admin_only(harness: WebHarness) -> None:
-
     async def seed() -> None:
         ctx = harness.ctx
         project_id = await insert_project(
@@ -523,7 +511,6 @@ def test_webhook_setup_shown_to_admin_only(harness: WebHarness) -> None:
 
 
 def test_webhook_secret_regeneration(harness: WebHarness) -> None:
-
     async def project_id() -> int:
         ctx = harness.ctx
         return await ctx.pool.fetchval(

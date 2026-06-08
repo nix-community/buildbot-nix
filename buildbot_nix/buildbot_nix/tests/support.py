@@ -148,14 +148,13 @@ async def insert_project(  # noqa: PLR0913
     default_branch: str = "main",
     url: str = "u",
     private: bool = False,
-    enabled: bool = True,
 ) -> int:
-    """A projects row; idempotent on (forge, forge_repo_id)."""
+    """An enabled projects row; idempotent on (forge, forge_repo_id)."""
     return await pool.fetchval(
         """
         INSERT INTO projects (forge, forge_repo_id, owner, name,
                               default_branch, url, private, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
         ON CONFLICT (forge, forge_repo_id) DO UPDATE SET name = EXCLUDED.name
         RETURNING id
         """,
@@ -166,7 +165,6 @@ async def insert_project(  # noqa: PLR0913
         default_branch,
         url,
         private,
-        enabled,
     )
 
 
@@ -219,7 +217,6 @@ class WebHarness:
     loop: asyncio.AbstractEventLoop
     http: httpx.AsyncClient
     app: FastAPI
-    pool: asyncpg.Pool
     signer: SessionSigner
 
     @property
@@ -268,9 +265,8 @@ def web_harness(
     dsn: str,
     *,
     configure: Callable[[FastAPI, asyncpg.Pool], None] | None = None,
-    base_url: str = "http://test",
 ) -> Iterator[WebHarness]:
-    """Module-scoped web app harness on a dedicated event loop."""
+    """Web app harness on a dedicated event loop."""
     signer = SessionSigner([b"test-key"])
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -282,13 +278,13 @@ def web_harness(
         if configure is not None:
             configure(app, pool)
         client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url=base_url
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
         )
         return pool, client, app
 
     pool, client, app = loop.run_until_complete(setup())
     try:
-        yield WebHarness(loop, client, app, pool, signer)
+        yield WebHarness(loop, client, app, signer)
     finally:
         loop.run_until_complete(client.aclose())
         loop.run_until_complete(pool.close())

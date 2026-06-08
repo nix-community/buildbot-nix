@@ -146,7 +146,7 @@ def test_attribute_rows_fragment_paginates(client: WebHarness) -> None:
 
 def test_build_page_shows_eval_warnings_as_text(client: WebHarness) -> None:
     async def seed() -> None:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         await ctx.pool.execute(
             "UPDATE builds SET eval_warnings = $1::jsonb WHERE number = 2",
             json.dumps(["evaluation warning: foo is deprecated", "trace: bar"]),
@@ -388,7 +388,7 @@ def test_ansi_stream_state_across_chunks() -> None:
 
 def seed_log(client: WebHarness, tmp_path: Path) -> None:
     async def run() -> None:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         ctx.state_dir = tmp_path
         attr_id = await ctx.pool.fetchval(
             """
@@ -436,7 +436,7 @@ def test_log_viewer_and_raw(client: WebHarness, tmp_path: Path) -> None:
 def test_log_viewer_waits_for_queued_attribute(client: WebHarness) -> None:
     # The build page links queued attributes before any log exists.
     async def make_pending() -> None:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         await ctx.pool.execute(
             """
             UPDATE build_attributes a SET status = 'pending'
@@ -447,7 +447,7 @@ def test_log_viewer_waits_for_queued_attribute(client: WebHarness) -> None:
         )
 
     async def restore() -> None:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         await ctx.pool.execute(
             """
             UPDATE build_attributes a SET status = 'succeeded'
@@ -520,7 +520,7 @@ def test_attributes_sort_building_before_pending(client: WebHarness) -> None:
     seeded = ("a-pending", "b-building", "c-failed")
 
     async def run() -> list[str]:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 3")
         await ctx.pool.execute(
             """
@@ -547,7 +547,7 @@ def test_attributes_sort_building_before_pending(client: WebHarness) -> None:
 
 def test_queue_sorts_active_before_pending(client: WebHarness) -> None:
     async def run() -> list[int]:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         project_id = await ctx.pool.fetchval(
             "SELECT id FROM projects WHERE name = 'widget'"
         )
@@ -591,7 +591,7 @@ def test_openapi_docs(client: WebHarness) -> None:
 def test_live_log_history_before_completion(client: WebHarness, tmp_path: Path) -> None:
     """Running attributes have no logs DB row yet: viewer/raw/stream
     must fall back to the registered LogWriter's on-disk file."""
-    ctx = client.app.state.web_context
+    ctx = client.ctx
     ctx.state_dir = tmp_path
     registry = client.app.state.log_registry
 
@@ -738,7 +738,7 @@ def test_css_covers_every_status() -> None:
 
 def test_build_page_shows_effects(client: WebHarness) -> None:
     async def seed_effects() -> None:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 2")
         await ctx.pool.execute(
             """
@@ -765,7 +765,7 @@ def test_build_page_shows_effects(client: WebHarness) -> None:
 
 def test_effect_log_raw_text(client: WebHarness, tmp_path: Path) -> None:
     async def seed_effect_log() -> None:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         ctx.state_dir = tmp_path
         log_dir = tmp_path / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -791,7 +791,7 @@ def test_effect_changes_notify_build_events(client: WebHarness) -> None:
     on build_effects the Effects section never updates live."""
 
     async def run() -> list[str]:
-        ctx = client.app.state.web_context
+        ctx = client.ctx
         build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 3")
         received: list[str] = []
         conn = await ctx.pool.acquire()
