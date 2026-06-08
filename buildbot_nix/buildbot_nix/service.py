@@ -531,10 +531,12 @@ class CIService:
         # Queued, not started: the rerun decides whether this becomes
         # a re-eval (evaluating) or an attribute rerun (building).
         # Clearing finished_at keeps retention cleanup off a build
-        # that is about to rerun.
+        # that is about to rerun; clearing error/eval_warnings keeps
+        # a stale failure banner off a restart that succeeds.
         await self.pool.execute(
-            "UPDATE builds SET status = 'pending', "
-            "started_at = NULL, finished_at = NULL WHERE id = $1",
+            "UPDATE builds SET status = 'pending', error = NULL, "
+            "eval_warnings = NULL, started_at = NULL, finished_at = NULL "
+            "WHERE id = $1",
             build_id,
         )
         await self._rerun(build_id)

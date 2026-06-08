@@ -283,6 +283,52 @@ def test_restart_eval_failed_build_reevaluates(
     asyncio.run(run())
 
 
+def test_restart_clears_stale_error_and_warnings(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """A successful restart must not keep showing the old failure
+    banner: builds.error / eval_warnings are cleared on the claim."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="failed", error="eval boom"
+            )
+            await pool.execute(
+                "UPDATE builds SET eval_warnings = '[\"w\"]'::jsonb WHERE id = $1",
+                build_id,
+            )
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                pass
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            await service.restart_build(build_id)
+            await service.drain_work()
+            await asyncio.gather(*service._tasks)  # noqa: SLF001
+
+            row = await pool.fetchrow(
+                "SELECT error, eval_warnings FROM builds WHERE id = $1", build_id
+            )
+            assert row["error"] is None
+            assert row["eval_warnings"] is None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_restart_failed_eval_attribute_reevaluates(
     postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
 ) -> None:
