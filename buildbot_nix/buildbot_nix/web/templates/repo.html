@@ -36,7 +36,11 @@
             <p class="muted">
               The buildbot user cannot manage hooks without repo-admin
               permission; add this webhook manually under
-              Settings → Webhooks → Gitea:
+              {% if project.forge == "gitlab" %}
+                Settings → Webhooks:
+              {% else %}
+                Settings → Webhooks → Gitea:
+              {% endif %}
             </p>
             <dl>
               <dt>Target URL</dt>
@@ -44,11 +48,19 @@
                 <code>{{ webhook_url }}</code>
                 {{ copy_btn(webhook_url, "target URL") }}
               </dd>
-              <dt>Content type</dt>
-              <dd>
-                <code>application/json</code>
-              </dd>
-              <dt>Secret</dt>
+              {% if project.forge != "gitlab" %}
+                <dt>Content type</dt>
+                <dd>
+                  <code>application/json</code>
+                </dd>
+              {% endif %}
+              <dt>
+                {% if project.forge == "gitlab" %}
+                  Secret token
+                {% else %}
+                  Secret
+                {% endif %}
+              </dt>
               <dd id="webhook-secret">
                 <form method="post"
                       action="/admin/repos/{{ project.id }}/webhook-secret"
@@ -61,7 +73,11 @@
               </dd>
               <dt>Events</dt>
               <dd>
-                <code>push</code>, <code>pull_request</code>, <code>pull_request_sync</code>
+                {% if project.forge == "gitlab" %}
+                  <code>Push events</code>, <code>Merge request events</code>
+                {% else %}
+                  <code>push</code>, <code>pull_request</code>, <code>pull_request_sync</code>
+                {% endif %}
               </dd>
             </dl>
           </div>

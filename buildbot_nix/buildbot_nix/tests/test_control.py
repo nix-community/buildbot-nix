@@ -862,3 +862,42 @@ def test_effects_restart_route(harness: WebHarness) -> None:
     assert harness.post(url).status_code == 403
     assert harness.post(url, ROOT).status_code == 303
     assert BACKEND.effect_restarts == [1]
+
+
+def test_webhook_panel_is_forge_aware(harness: WebHarness) -> None:
+    """The manual webhook instructions must match the project's forge:
+    GitLab has no Gitea-style event names or content-type setting."""
+
+    async def seed() -> None:
+        await insert_project(
+            harness.ctx.pool,
+            "lab",
+            forge="gitlab",
+            forge_repo_id="hook-gl1",
+            url="https://gitlab.example.com/acme/lab.git",
+        )
+        await insert_project(
+            harness.ctx.pool,
+            "tea",
+            forge="gitea",
+            forge_repo_id="hook-gt1",
+            url="https://gitea.example.com/acme/tea.git",
+        )
+
+    harness.loop.run_until_complete(seed())
+    harness.ctx.webhook_base_url = "https://ci.example.com"
+    try:
+        gitlab_page = harness.get("/repos/gitlab/acme/lab", ROOT).text
+        assert "Merge request events" in gitlab_page
+        assert "pull_request_sync" not in gitlab_page
+        assert "/webhooks/gitlab" in gitlab_page
+
+        gitea_page = harness.get("/repos/gitea/acme/tea", ROOT).text
+        assert "pull_request_sync" in gitea_page
+        assert "Merge request events" not in gitea_page
+
+        # GitHub hooks come from the app subscription: no panel.
+        github_page = harness.get("/repos/github/acme/widget", ROOT).text
+        assert "webhook setup" not in github_page
+    finally:
+        harness.ctx.webhook_base_url = None
