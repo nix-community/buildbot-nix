@@ -319,7 +319,6 @@ class Config(BaseModel):
     db_url: str | None = None
     db_url_file: Path | None = None
     build_systems: list[str]
-    domain: str
     url: str
 
     # Webhook URL may differ from the UI URL (e.g. split ingress).
@@ -335,7 +334,6 @@ class Config(BaseModel):
     # Directory for persistent clones, worktrees, logs, gc-roots, keys.
     state_dir: Path = Path("/var/lib/buildbot-nix")
 
-    use_https: bool = False
     eval_max_memory_size: int = 4096
     admins: list[str] = []
     # Private visibility for non-forge logins; key/rule syntax in

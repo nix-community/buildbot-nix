@@ -160,7 +160,6 @@ def make_orchestrator(
     config = Config(
         db_url="unused",
         build_systems=["x86_64-linux"],
-        domain="ci.test",
         url="https://ci.test",
         state_dir=tmp_path / "state",
     )

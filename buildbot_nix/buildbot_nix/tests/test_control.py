@@ -444,7 +444,6 @@ def test_build_service_composition(postgres_dsn: str, tmp_path: Path) -> None:
         config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
-            domain="ci.test",
             url="http://ci.test",
             state_dir=tmp_path / "state",
         )
@@ -477,7 +476,6 @@ def test_restart_clears_failed_cache_and_guards_running(
         config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
-            domain="ci.test",
             url="http://ci.test",
             state_dir=tmp_path / "state",
         )
@@ -627,7 +625,6 @@ def test_report_retry(
         config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
-            domain="ci.test",
             url="http://ci.test",
             state_dir=tmp_path / "state",
         )
@@ -708,7 +705,6 @@ def test_effect_item_setup_failure_settles_row(
         config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
-            domain="ci.test",
             url="http://ci.test",
             state_dir=tmp_path / "state",
         )
@@ -753,7 +749,6 @@ def test_work_dispatch(postgres_dsn: str, tmp_path: Path) -> None:
         config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
-            domain="ci.test",
             url="http://ci.test",
             state_dir=tmp_path / "state",
         )
@@ -800,7 +795,6 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
         config = Config(
             db_url=postgres_dsn,
             build_systems=["x86_64-linux"],
-            domain="ci.test",
             url="http://ci.test",
             state_dir=tmp_path / "state",
         )

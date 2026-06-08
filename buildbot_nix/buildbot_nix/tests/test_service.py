@@ -37,7 +37,6 @@ def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> Config:
     return Config(
         db_url=dsn,
         build_systems=["x86_64-linux"],
-        domain="ci.test",
         url="http://ci.test",
         state_dir=state_dir,
         **kwargs,

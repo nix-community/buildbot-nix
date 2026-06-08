@@ -26,7 +26,6 @@ cat > /tmp/buildbot-nix.json <<EOF
 {
   "db_url": "postgresql://$(whoami)@/buildbot-nix?host=/tmp/bb-pg",
   "build_systems": ["x86_64-linux"],
-  "domain": "localhost",
   "url": "http://localhost:8010/",
   "state_dir": "/tmp/buildbot-nix-state",
   "pull_based": {

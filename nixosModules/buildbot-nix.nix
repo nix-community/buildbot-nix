@@ -35,11 +35,9 @@ let
   serviceConfig = (pkgs.formats.json { }).generate "buildbot-nix-config.json" (
     {
       build_systems = cfg.buildSystems;
-      domain = cfg.domain;
       url = baseUrl;
       webhook_base_url = cfg.webhookBaseUrl;
       state_dir = "/var/lib/buildbot-nix";
-      use_https = cfg.useHTTPS;
       admins = cfg.admins;
       private_repo_viewers = cfg.privateRepoViewers;
       eval_max_memory_size = cfg.evalMaxMemorySize;
