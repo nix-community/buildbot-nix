@@ -686,6 +686,40 @@ def test_live_log_history_before_completion(client: WebHarness, tmp_path: Path) 
     assert "event: done" in stream
 
 
+def test_log_sse_stream_caps_history_backlog(
+    client: WebHarness, tmp_path: Path
+) -> None:
+    """Subscribing late to a huge log must not render the entire
+    history through the ANSI pipeline; only a bounded tail replays."""
+    ctx = client.ctx
+    ctx.state_dir = tmp_path
+    registry = client.app.state.log_registry
+
+    async def run() -> str:
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 3")
+        writer = LogWriter(path=tmp_path / "logs" / "live" / "big.zst")
+        await writer.write(
+            "".join(f"line{i:05d}\n" for i in range(3000)).encode()
+        )
+        registry.register(build_id, "x86_64-linux.ok", writer)
+        try:
+            stream_task = asyncio.ensure_future(
+                client.http.get(
+                    "/repos/github/acme/widget/builds/3/logs/x86_64-linux.ok/stream"
+                )
+            )
+            await asyncio.sleep(0.1)
+            await writer.close()
+            return (await stream_task).text
+        finally:
+            registry.unregister(build_id, "x86_64-linux.ok")
+
+    stream = client.loop.run_until_complete(run())
+    assert "line02999" in stream
+    assert "line00000" not in stream
+    assert "truncated" in stream
+
+
 def test_log_sse_stream_neutralizes_carriage_returns(
     client: WebHarness, tmp_path: Path
 ) -> None:

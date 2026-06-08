@@ -239,6 +239,12 @@ async def _log_text(
     return data.decode(errors="replace")
 
 
+def _strip_tail(text: str, tail: int) -> str:
+    """ANSI-stripped last `tail` lines; CPU-bound on multi-MB logs, so
+    callers run it via asyncio.to_thread."""
+    return "\n".join(strip_ansi(text).splitlines()[-tail:])
+
+
 async def _failure_summary(
     ctx: WebContext, registry: LogRegistry, build: dict, tail: int
 ) -> dict:
@@ -248,14 +254,15 @@ async def _failure_summary(
             continue
         path = await _log_path(ctx, registry, build, a["attr"])
         text = await _log_text(registry, build, a["attr"], path)
-        if text is not None:
-            text = strip_ansi(text)
         failures.append(
             {
                 "attr": a["attr"],
                 "status": a["status"],
                 "error": strip_ansi(a["error"]) if a["error"] else None,
-                "log_tail": "\n".join(text.splitlines()[-tail:]) if text else None,
+                # Off the event loop: logs are up to 64 MB per attribute.
+                "log_tail": await asyncio.to_thread(_strip_tail, text, tail)
+                if text
+                else None,
             }
         )
     return {
@@ -266,6 +273,10 @@ async def _failure_summary(
         "failures": failures,
     }
 
+
+# SSE history replay bound (lines); full logs stay available as raw
+# downloads and in the static viewer.
+HISTORY_MAX_LINES = 2000
 
 _FAILURE_STATUSES = {s.value for s in TERMINAL_FAILURES} | {"cancelled"}
 
@@ -312,8 +323,10 @@ class _LogRoutes:
         if text is None:
             raise HTTPException(status_code=404)
         if tail:
-            text = "\n".join(text.splitlines()[-tail:]) + "\n"
-        return PlainTextResponse(strip_ansi(text))
+            return PlainTextResponse(
+                await asyncio.to_thread(_strip_tail, text, tail) + "\n"
+            )
+        return PlainTextResponse(await asyncio.to_thread(strip_ansi, text))
 
     async def scheduled_run_log(
         self,
@@ -334,7 +347,9 @@ class _LogRoutes:
         if row is None or not await asyncio.to_thread(path.exists):
             raise HTTPException(status_code=404)
         data = await asyncio.to_thread(read_log, path)
-        return PlainTextResponse(strip_ansi(data.decode(errors="replace")))
+        return PlainTextResponse(
+            await asyncio.to_thread(strip_ansi, data.decode(errors="replace"))
+        )
 
     async def build_failures(  # noqa: PLR0913
         self,
@@ -455,7 +470,9 @@ async def _stream_events(
 ) -> AsyncGenerator[str, None]:
     """History first, then live chunks (if a writer is running);
     everything rendered to HTML server-side so the client just
-    appends."""
+    appends; the replayed history is tail-limited so a late
+    subscriber to a huge log does not push megabytes through the
+    ANSI renderer."""
     ansi = AnsiHtmlStream()
     if writer is not None:
         history_bytes, queue = await writer.subscribe_with_history()
@@ -467,7 +484,13 @@ async def _stream_events(
             data = await asyncio.to_thread(read_log, path)
             history = data.decode(errors="replace")
     if history:
-        yield _sse(ansi.feed(history))
+        lines = history.splitlines(keepends=True)
+        if len(lines) > HISTORY_MAX_LINES:
+            history = (
+                "… earlier output truncated; use the raw log for full history …\n"
+                + "".join(lines[-HISTORY_MAX_LINES:])
+            )
+        yield _sse(await asyncio.to_thread(ansi.feed, history))
     if queue is None:
         yield "event: done\ndata: \n\n"
         return
