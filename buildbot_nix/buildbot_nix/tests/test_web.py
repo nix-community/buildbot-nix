@@ -391,6 +391,8 @@ def test_non_sgr_sequences_are_stripped() -> None:
     cases = {
         "\x1b]0;make all\x07hello": "hello",  # window title
         "\x1b(Bhello": "hello",  # charset select
+        "\x1b[0 qhello": "hello",  # CSI with intermediate byte (DECSCUSR)
+        "\x1b[?25lhi\x1b[?25h": "hi",  # private mode set/reset
         "\x1b7hello": "hello",  # DECSC
         "\x1b[>4;2mhello": "hello",  # xterm private CSI
         "ding\x07dong": "dingdong",  # BEL
@@ -424,6 +426,14 @@ def test_ansi_stream_state_across_chunks() -> None:
     assert stream.feed(".x\x1b") == ""
     link = '<a href="https://e.x" rel="nofollow">link</a>'
     assert stream.feed("\\link") == link
+    # A two-character escape split across chunks must not leak its
+    # final byte as text.
+    stream = AnsiHtmlStream()
+    assert stream.feed("a\x1b(") == "a"
+    assert stream.feed("Bhello") == "hello"
+    # A CSI sequence with an intermediate byte split across chunks.
+    assert stream.feed("b\x1b[0 ") == "b"
+    assert stream.feed("qworld") == "world"
 
 
 def seed_log(client: WebHarness, tmp_path: Path) -> None:

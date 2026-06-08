@@ -13,16 +13,20 @@ ANSI_TOKEN_RE = re.compile(
     r"\x1b\[(?P<sgr>[0-9;:]*)m"
     r"|\x1b\](?P<osc>[^\x07\x1b]*)(?:\x07|\x1b\\)"
     # Ordered after SGR: a plain [0-9;:]*m parameter list is colors,
-    # anything else (private markers like ?<=>) falls through here.
-    r"|\x1b\[[0-9;:?<=>]*[@-~]"
+    # anything else (private markers like ?<=>, intermediate bytes like
+    # the space in DECSCUSR \x1b[0 q) falls through here.
+    r"|\x1b\[[0-9;:?<=>]*[ -/]*[@-~]"
     r"|\x1b[()*+]."
     r"|\x1b[^\[\]]"
 )
 # C0 controls that mean nothing in a log (tab/newline/CR stay).
 CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]")
 # An escape sequence cut off at the end of a chunk; OSC is held back
-# until its terminator arrives.
-ANSI_PARTIAL_RE = re.compile(r"\x1b(\[[0-9;:?<=>]*|\][^\x07\x1b]*\x1b?)?\Z")
+# until its terminator arrives, as are charset selects (\x1b( without
+# the final byte) and CSI parameter/intermediate prefixes.
+ANSI_PARTIAL_RE = re.compile(
+    r"\x1b(\[[0-9;:?<=>]*[ -/]*|\][^\x07\x1b]*\x1b?|[()*+])?\Z"
+)
 
 
 def strip_ansi(text: str) -> str:
