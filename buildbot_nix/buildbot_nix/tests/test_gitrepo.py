@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -246,6 +247,44 @@ def test_cleanup_sweeps_orphans(manager: RepoManager, upstream: Path) -> None:
     asyncio.run(manager.gc())
 
 
+def test_cleanup_prunes_stale_pr_refs(manager: RepoManager, upstream: Path) -> None:
+    """PR refs accumulate forever otherwise: --prune only covers the
+    refspecs of the current fetch."""
+    sha = git(upstream, "rev-parse", "HEAD")
+    old_env = {
+        "GIT_COMMITTER_DATE": "2005-04-07T22:13:13",
+        "GIT_AUTHOR_DATE": "2005-04-07T22:13:13",
+    }
+    subprocess.run(  # noqa: S603
+        ["git", "-C", str(upstream), "commit", "--allow-empty", "-m", "old pr"],
+        env={**os.environ, **old_env},
+        check=True,
+    )
+    old_sha = git(upstream, "rev-parse", "HEAD")
+    git(upstream, "update-ref", "refs/pull/1/head", old_sha)
+    git(upstream, "update-ref", "refs/merge-requests/2/head", old_sha)
+    git(upstream, "update-ref", "refs/pull/3/head", sha)  # recent
+    git(upstream, "reset", "--hard", sha)
+    asyncio.run(
+        manager.fetch(
+            KEY,
+            str(upstream),
+            [
+                "+refs/heads/*:refs/heads/*",
+                "+refs/pull/1/*:refs/pull/1/*",
+                "+refs/merge-requests/2/*:refs/merge-requests/2/*",
+                "+refs/pull/3/*:refs/pull/3/*",
+            ],
+        )
+    )
+    asyncio.run(manager.cleanup())
+    clone = manager.clone_path(KEY)
+    refs = git(clone, "for-each-ref", "--format=%(refname)")
+    assert "refs/pull/1/head" not in refs
+    assert "refs/merge-requests/2/head" not in refs
+    assert "refs/pull/3/head" in refs
+    assert "refs/heads/main" in refs or "refs/heads/master" in refs
+
 
 @pytest.mark.usefixtures("submodule")
 def test_submodules_fetched_without_credentials(
@@ -293,6 +332,7 @@ def test_submodules_fetched_without_credentials(
     assert len(submodule_calls) == 2  # noqa: PLR2004 — one call per checkout
     assert submodule_calls[0][1] is None
     assert submodule_calls[1][1] is creds
+
 
 def test_static_credentials_provider(tmp_path: Path) -> None:
     netrc = tmp_path / "netrc"

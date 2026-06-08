@@ -24,6 +24,7 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -31,6 +32,10 @@ from typing import Protocol
 from .environ import passthrough_env
 
 logger = logging.getLogger(__name__)
+
+# PR/MR refs are fetched per PR and never covered by --prune of later
+# fetches; without an age-based sweep they accumulate forever.
+PR_REF_MAX_AGE = 90 * 86400
 
 
 class GitError(Exception):
@@ -318,8 +323,10 @@ class RepoManager:
                 await run_git(["worktree", "prune"], cwd=worktree.clone_path)
 
     async def cleanup(self) -> None:
-        """Prune stale worktrees and sweep orphans; run at startup and
-        periodically."""
+        """Prune stale worktrees/PR refs and sweep orphans; run at
+        startup and periodically."""
+        for clone in self.clones_dir.rglob("clone.git"):
+            await self._prune_stale_pr_refs(clone)
         # Snapshot candidates before scanning the clones: a worktree
         # created mid-scan would be missing from `registered` and must
         # not become a sweep candidate.
@@ -334,6 +341,26 @@ class RepoManager:
         for entry in candidates - registered:
             logger.info("removing orphan worktree", extra={"path": str(entry)})
             shutil.rmtree(entry, ignore_errors=True)
+
+    async def _prune_stale_pr_refs(self, clone: Path) -> None:
+        """Delete PR/MR refs whose tip commit is old: fetches only ever
+        add the current PR's refs, so abandoned ones pile up."""
+        with contextlib.suppress(GitError):
+            output = await run_git(
+                [
+                    "for-each-ref",
+                    "--format=%(refname) %(committerdate:unix)",
+                    "refs/pull",
+                    "refs/merge-requests",
+                ],
+                cwd=clone,
+            )
+            cutoff = time.time() - PR_REF_MAX_AGE
+            for line in output.splitlines():
+                refname, _, date = line.rpartition(" ")
+                if refname and date.isdigit() and int(date) < cutoff:
+                    with contextlib.suppress(GitError):
+                        await run_git(["update-ref", "-d", refname], cwd=clone)
 
     async def gc(self) -> None:
         """Periodic `git gc` over all clones."""
