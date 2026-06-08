@@ -35,7 +35,7 @@ def run(
     stdout: int | IO[str] | None = None,
     stderr: int | IO[str] | None = None,
     *,
-    debug: bool = True,
+    debug: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     if debug:
         print("$", shlex.join(cmd), file=sys.stderr)
