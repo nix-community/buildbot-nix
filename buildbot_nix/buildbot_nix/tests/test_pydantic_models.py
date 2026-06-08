@@ -1,4 +1,4 @@
-"""Test that all Pydantic models can be instantiated."""
+"""JSON round-trip test for every Pydantic model in the package."""
 
 from __future__ import annotations
 
@@ -15,34 +15,27 @@ import buildbot_nix
 
 
 def find_all_pydantic_models() -> list[type[BaseModel]]:
-    """Dynamically discover all Pydantic BaseModel subclasses in buildbot_nix."""
+    """Discover all BaseModel subclasses defined in buildbot_nix."""
     models = []
-
-    # Iterate through all modules in the package (supports namespace packages)
     for _importer, modname, _ispkg in pkgutil.walk_packages(
         path=list(buildbot_nix.__path__),
         prefix="buildbot_nix.",
         onerror=lambda _x: None,
     ):
-        # Skip modules that require environment variables or special setup
+        # The worker module needs environment setup at import time.
         if modname.endswith(".worker"):
             continue
         module = importlib.import_module(modname)
-
-        # Find all classes in the module
         for _name, obj in inspect.getmembers(module, inspect.isclass):
-            # Check if it's a Pydantic BaseModel subclass
             if (
                 issubclass(obj, BaseModel)
                 and obj is not BaseModel
-                and obj.__module__ == modname  # Only models defined in this module
+                and obj.__module__ == modname
             ):
                 models.append(obj)
-
     return models
 
 
-# Collect all models at module load time
 ALL_PYDANTIC_MODELS = sorted(
     set(find_all_pydantic_models()),
     key=lambda c: (c.__module__, c.__name__),
@@ -55,7 +48,7 @@ if not ALL_PYDANTIC_MODELS:
 def _handle_ref_field(
     model_class: type[BaseModel], field_info: dict[str, Any]
 ) -> Any | None:
-    """Handle reference to other models."""
+    """Minimal data for a $ref to a nested model."""
     if "$ref" not in field_info:
         return None
 
@@ -85,7 +78,7 @@ def _handle_ref_field(
 def _handle_union_field(
     model_class: type[BaseModel], field_name: str, field_info: dict[str, Any]
 ) -> Any | None:
-    """Handle anyOf (union types)."""
+    """Minimal data for an anyOf field: first non-null option."""
     if "anyOf" not in field_info:
         return None
 
@@ -109,20 +102,16 @@ type_map = {
 def get_minimal_value_for_field(
     model_class: type[BaseModel], field_name: str, field_info: dict[str, Any]
 ) -> Any:
-    """Generate a minimal valid value for a field based on its type information."""
-    # Check if it's a datetime field
-    if "format" in field_info and field_info["format"] == "date-time":
+    """Generate a minimal valid value for a field from its JSON schema."""
+    if field_info.get("format") == "date-time":
         return datetime.now(tz=UTC)
 
-    # Try reference field
     if (value := _handle_ref_field(model_class, field_info)) is not None:
         return value
 
-    # Try union field
     if (value := _handle_union_field(model_class, field_name, field_info)) is not None:
         return value
 
-    # Handle basic types
     return type_map.get(field_info.get("type", "string"))
 
 
@@ -131,30 +120,21 @@ def get_minimal_value_for_field(
     ALL_PYDANTIC_MODELS,
     ids=lambda c: f"{c.__module__}.{c.__name__}",
 )
-def test_pydantic_model_can_be_instantiated(
+def test_pydantic_model_round_trips(
     model_class: type[BaseModel],
 ) -> None:
-    """Test that each Pydantic model can be instantiated with minimal valid data."""
-    # Get the model's schema to understand required fields
+    """Every model survives a JSON round trip: catches alias mismatches
+    and serializers that drop or rename fields."""
     schema = model_class.model_json_schema()
-
-    # Build minimal valid data for required fields
-    required_fields = schema.get("required", [])
-    minimal_data: dict[str, Any] = {}
     properties = schema.get("properties", {})
-
-    for field in required_fields:
-        field_info = properties.get(field, {})
-        minimal_data[field] = get_minimal_value_for_field(
-            model_class, field, field_info
+    minimal_data: dict[str, Any] = {
+        field: get_minimal_value_for_field(
+            model_class, field, properties.get(field, {})
         )
+        for field in schema.get("required", [])
+    }
 
-    # Try to create an instance with minimal required data
     instance = model_class(**minimal_data)
-    assert instance is not None
-
-    # Verify the model can be serialized and deserialized
-    # Use by_alias=True to ensure proper serialization for models with aliases
     json_data = instance.model_dump_json(by_alias=True)
     restored = model_class.model_validate_json(json_data)
-    assert restored is not None
+    assert restored.model_dump(by_alias=True) == instance.model_dump(by_alias=True)
