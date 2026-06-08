@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import httpx
 import pytest
@@ -18,6 +18,7 @@ from buildbot_nix.forge import GitlabClient
 from buildbot_nix.models import NixEvalJobError
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 from buildbot_nix.status import (
+    POSTED_GENERATIONS_MAX,
     ForgeStatusReporter,
     GitlabStatusPoster,
     StatusState,
@@ -116,6 +117,21 @@ def make_reporter(
         failed_build_report_limit=limit,
     )
     return reporter, poster, store
+
+
+def test_posted_generations_bounded() -> None:
+    """One entry per build forever is a slow leak in a long-lived
+    process; the generation guard only matters short-term."""
+
+    async def run() -> None:
+        reporter, _poster, _store = make_reporter()
+        for build_id in range(POSTED_GENERATIONS_MAX + 100):
+            build = replace(BUILD, id=build_id)
+            await reporter.build_finished(EVENT, build, "succeeded", 1, [])
+        assert len(reporter._posted_generations) <= POSTED_GENERATIONS_MAX  # noqa: SLF001
+        assert (POSTED_GENERATIONS_MAX + 99) in reporter._posted_generations  # noqa: SLF001
+
+    asyncio.run(run())
 
 
 def test_context_names_unchanged() -> None:

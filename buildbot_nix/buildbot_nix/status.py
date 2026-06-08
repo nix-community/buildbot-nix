@@ -25,6 +25,7 @@ import contextlib
 import logging
 import math
 import time
+from collections import OrderedDict
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from enum import StrEnum
@@ -43,6 +44,10 @@ if TYPE_CHECKING:
     from .scheduler import AttributeResult
 
 logger = logging.getLogger(__name__)
+
+# Cap on remembered (build id -> posted generation) entries; one entry
+# per build forever would be a slow leak in a long-lived process.
+POSTED_GENERATIONS_MAX = 1024
 
 FAILED_STATUS_STATES = frozenset(
     {"failed", "failed_eval", "dependency_failed", "cached_failure", "cancelled"}
@@ -274,7 +279,9 @@ class ForgeStatusReporter:
         self.base_url = base_url.rstrip("/")
         self.failed_build_report_limit = failed_build_report_limit
         # build id -> highest generation posted (drop stale posts).
-        self._posted_generations: dict[int, int] = {}
+        # Bounded LRU: stale-post races only matter around a build's
+        # final re-aggregation, so old entries are safe to evict.
+        self._posted_generations: OrderedDict[int, int] = OrderedDict()
 
     def build_url(self, event: ChangeEvent, build: BuildRecord) -> str:
         return f"{self.base_url}/repos/{event.repo.forge}/{event.repo.name}/builds/{build.number}"
@@ -372,6 +379,9 @@ class ForgeStatusReporter:
             )
             return
         self._posted_generations[build.id] = generation
+        self._posted_generations.move_to_end(build.id)
+        while len(self._posted_generations) > POSTED_GENERATIONS_MAX:
+            self._posted_generations.popitem(last=False)
 
         counts = await self._post_attribute_statuses(event, build, results, attr_prefix)
         if attr_statuses is not None:
