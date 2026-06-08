@@ -448,6 +448,35 @@ def test_streaming_failed_dep_fails_late_dependent() -> None:
     asyncio.run(main())
 
 
+def test_streaming_cancelled_dep_cancels_late_dependent() -> None:
+    # A later-batch job depending on an already-cancelled (superseded)
+    # job must settle as cancelled, not dependency_failed: batch timing
+    # must not flip a superseded build from CANCELLED to FAILED.
+    dep_cancelled = asyncio.Event()
+
+    async def on_result(result: AttributeResult) -> None:
+        if result.attr == "dep":
+            dep_cancelled.set()
+
+    async def main() -> None:
+        executor = FakeExecutor({"dep": BuildOutcome.cancelled})
+        scheduler = JobScheduler(executor, [SYSTEM], on_result=on_result)
+        queue: asyncio.Queue[list[NixEvalJob] | None] = asyncio.Queue()
+        await queue.put([mk_job("dep")])
+        run_task = asyncio.create_task(scheduler.run_incremental(queue))
+        # Let the cancellation settle before the dependent arrives.
+        await asyncio.wait_for(dep_cancelled.wait(), timeout=5)
+        await queue.put([mk_job("top", deps=["dep"])])
+        await queue.put(None)
+        result = await asyncio.wait_for(run_task, timeout=5)
+        statuses = by_attr(result)
+        assert statuses["dep"] == AttributeStatus.cancelled
+        assert statuses["top"] == AttributeStatus.cancelled
+        assert "top" not in executor.built
+
+    asyncio.run(main())
+
+
 def test_streaming_batch_order_does_not_leak_failed_dependency() -> None:
     # Within one batch, a dependent listed before its dependency-failed
     # sibling must still settle as dependency_failed, not build.

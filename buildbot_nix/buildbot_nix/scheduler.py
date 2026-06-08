@@ -266,6 +266,11 @@ class _State:
     # build. post_build_failure drvs are absent on purpose - their
     # store paths exist.
     failed_drvs: set[str] = field(default_factory=set)
+    # Subset of failed_drvs that were cancelled rather than failed:
+    # their late-arriving dependents settle as cancelled, not
+    # dependency_failed (batch timing must not flip a superseded build
+    # from cancelled to failed).
+    cancelled_drvs: set[str] = field(default_factory=set)
     # Delivery is at-least-once (final re-send): re-ingesting a seen
     # attr must be a no-op or settled jobs build twice.
     seen_attrs: set[str] = field(default_factory=set)
@@ -277,13 +282,12 @@ class _State:
     def fail_dependents(self, job: NixEvalJobSuccess, status: AttributeStatus) -> None:
         """Invariant: dependents are computed BEFORE the finished job is
         pruned from the closures."""
-        self.failed_drvs.add(job.drv_path)
         dependents = get_failed_dependents(job, self.pending, self.job_closures)
-        if not dependents:
-            return
-        failed_drvs = {dependent.drv_path for dependent in dependents}
-        self.failed_drvs |= failed_drvs
-        self.pending = [j for j in self.pending if j.drv_path not in failed_drvs]
+        settled = {job.drv_path} | {d.drv_path for d in dependents}
+        self.failed_drvs |= settled
+        if status == AttributeStatus.cancelled:
+            self.cancelled_drvs |= settled
+        self.pending = [j for j in self.pending if j.drv_path not in settled]
         for dependent in dependents:
             self.result.results.append(
                 _success_result(dependent, status, dependency_attr=job.attr)
@@ -463,11 +467,17 @@ class JobScheduler:
             remaining: list[NixEvalJobSuccess] = []
             for job in candidates:
                 deps = {*job.needed_builds, *job.needed_substitutes}
-                if deps & state.failed_drvs:
+                blocking = deps & state.failed_drvs
+                if blocking:
                     state.failed_drvs.add(job.drv_path)
-                    state.result.results.append(
-                        _success_result(job, AttributeStatus.dependency_failed)
-                    )
+                    # A genuine failure among the deps wins; only purely
+                    # cancelled deps propagate cancellation.
+                    if blocking <= state.cancelled_drvs:
+                        state.cancelled_drvs.add(job.drv_path)
+                        status = AttributeStatus.cancelled
+                    else:
+                        status = AttributeStatus.dependency_failed
+                    state.result.results.append(_success_result(job, status))
                     settled_any = True
                 else:
                     remaining.append(job)
