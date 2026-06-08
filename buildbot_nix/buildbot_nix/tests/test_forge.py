@@ -1140,3 +1140,52 @@ def test_netrc_provider_cleanup_removes_tempdir() -> None:
     assert creds.netrc_file.exists()
     provider.cleanup()
     assert not creds.netrc_file.parent.exists()
+
+
+def test_gitea_legacy_hook_delete_failure_warns(
+    postgres_dsn: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failed legacy-hook DELETE silently leaves the old hook
+    delivering forever; it must at least be logged."""
+    hooks = [
+        {"id": 1, "config": {"url": "https://ci.example.com/change_hook/gitea"}},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "GET" and path.endswith("/hooks"):
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json=hooks if page == 1 else [])
+        if request.method == "DELETE":
+            return httpx.Response(500, text="boom")
+        if request.method == "POST" and path.endswith("/hooks"):
+            return httpx.Response(201, json={})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(
+                pool, forge="gitea", forge_repo_id="hook-del-1"
+            )
+            client = GiteaClient(
+                "https://gitea.example.com",
+                "tkn",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            with caplog.at_level("WARNING", logger="buildbot_nix.gitea_hooks"):
+                await register_repo_hook(
+                    client,
+                    WebhookSecrets(pool, "gitea"),
+                    project_id,
+                    "acme",
+                    "widget",
+                    "https://ci.example.com",
+                )
+            assert any(
+                "failed to remove legacy" in record.message for record in caplog.records
+            )
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

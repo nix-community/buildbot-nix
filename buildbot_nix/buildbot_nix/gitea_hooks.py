@@ -76,10 +76,20 @@ async def register_repo_hook(  # noqa: PLR0913
                 "removing legacy buildbot webhook",
                 extra={"repo": f"{owner}/{repo}", "url": url},
             )
-            await client.http.delete(
+            response = await client.http.delete(
                 f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks/{hook['id']}",
                 headers=client.auth_headers(),
             )
+            if response.status_code >= 400:  # noqa: PLR2004
+                # The old hook keeps delivering until removed manually.
+                logger.warning(
+                    "failed to remove legacy buildbot webhook",
+                    extra={
+                        "repo": f"{owner}/{repo}",
+                        "url": url,
+                        "status": response.status_code,
+                    },
+                )
 
     hook_body = {
         "name": "web",
