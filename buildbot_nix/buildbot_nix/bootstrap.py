@@ -113,6 +113,7 @@ async def _login_providers(config: Config) -> dict[str, OAuthProvider]:
             config.github.oauth_id,
             config.github.oauth_secret,
             config.github.api_url,
+            private_repo_scope=config.github.oauth_private_repo_scope,
         )
     if config.gitea is not None and config.gitea.oauth_id:
         providers["gitea"] = gitea_oauth(

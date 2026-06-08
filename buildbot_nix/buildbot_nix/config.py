@@ -148,6 +148,11 @@ class GitHubConfig(BaseModel):
 
     oauth_id: str | None = None
     oauth_secret_file: Path | None = None
+    # Request the write-capable "repo" OAuth scope at login so private
+    # repositories show up in the visibility check. GitHub has no
+    # read-only repo scope, so public-only instances should leave this
+    # off and not hold write-capable user tokens.
+    oauth_private_repo_scope: bool = False
 
     @property
     def secret_key(self) -> str:

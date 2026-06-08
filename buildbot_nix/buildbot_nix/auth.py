@@ -423,6 +423,8 @@ def github_oauth(
     client_id: str,
     client_secret: str,
     api_url: str = "https://api.github.com",
+    *,
+    private_repo_scope: bool = False,
 ) -> OAuthProvider:
     api = api_url.rstrip("/")
     if api == "https://api.github.com":
@@ -437,9 +439,11 @@ def github_oauth(
         userinfo_url=f"{api}/user",
         client_id=client_id,
         client_secret=client_secret,
-        # "repo" is required so the visibility repo-set fetch
-        # (GET /user/repos) can see private repositories.
-        scope="read:user repo",
+        # Private-repo visibility (GET /user/repos listing private
+        # repositories) requires "repo", which GitHub only offers with
+        # write access; instances without private repos should not hold
+        # write-capable tokens, so it is opt-in.
+        scope="read:user repo" if private_repo_scope else "read:user",
         username_field="login",
         provider_id="github",
     )

@@ -56,6 +56,12 @@ services.buildbot-nix = {
     oauthId = "<oauth-client-id>";
     oauthSecretFile = "/path/to/oauth-secret";
 
+    # Optional: request the write-capable "repo" OAuth scope at login so
+    # private repositories are visible to their members. GitHub has no
+    # read-only repo scope, so leave this off (the default) unless the
+    # instance builds private repositories.
+    # oauthPrivateRepoScope = true;
+
     # A random secret used to verify incoming webhooks from GitHub
     webhookSecretFile = "/path/to/webhook-secret";
 

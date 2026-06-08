@@ -335,9 +335,14 @@ def test_userinfo_rejects_null_or_empty_username() -> None:
 
 
 def test_github_oauth_scope_and_enterprise_urls() -> None:
+    # Default is the minimal read-only scope: "repo" grants full write
+    # access and the token is held server-side for the session lifetime.
     default = github_oauth("cid", "cs")
-    # "repo" is needed so /user/repos lists private repositories.
-    assert "repo" in default.scope.split()
+    assert default.scope.split() == ["read:user"]
+    # Private-repo visibility needs "repo" (GitHub has no read-only
+    # repo scope); explicit opt-in.
+    private = github_oauth("cid", "cs", private_repo_scope=True)
+    assert private.scope.split() == ["read:user", "repo"]
     assert default.authorize_url == "https://github.com/login/oauth/authorize"
     assert default.userinfo_url == "https://api.github.com/user"
 
