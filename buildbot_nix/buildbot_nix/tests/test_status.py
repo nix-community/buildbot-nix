@@ -245,6 +245,36 @@ def test_cancelled_attributes_recorded_as_failed_statuses() -> None:
     assert combined.state == StatusState.error
 
 
+def test_attribute_cancel_summary_is_not_superseded() -> None:
+    """Cancelling one attribute must aggregate like a failure, not
+    claim the whole build was superseded."""
+    reporter, poster, _ = make_reporter()
+    asyncio.run(
+        reporter.build_finished(
+            EVENT,
+            BUILD,
+            "cancelled",
+            1,
+            [
+                attr_result("a", AttributeStatus.cancelled),
+                attr_result("b", AttributeStatus.succeeded),
+                attr_result("c", AttributeStatus.succeeded),
+            ],
+        )
+    )
+    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
+    assert combined.state == StatusState.error
+    assert combined.description == "1 cancelled, 2 succeeded"
+    assert "superseded" not in combined.description
+
+
+def test_build_level_cancel_keeps_supersede_wording() -> None:
+    reporter, poster, _ = make_reporter()
+    asyncio.run(reporter.build_finished(EVENT, BUILD, "cancelled", 1, []))
+    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
+    assert combined.description == "build cancelled (superseded)"
+
+
 def test_attribute_descriptions_are_ansi_stripped() -> None:
     """failure_excerpt keeps ANSI colors for the web UI; forge statuses
     must not carry raw escape codes."""

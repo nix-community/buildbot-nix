@@ -249,6 +249,13 @@ class FailedStatusStore:
         )
 
 
+def _count_key(status: str) -> str:
+    """Summary bucket for one attribute status."""
+    if status == "cancelled":
+        return "cancelled"
+    return "failed" if status in FAILED_STATUS_STATES else "succeeded"
+
+
 def attr_status_context(
     forge: str, project_name: str, attr: str, prefix: str = "checks"
 ) -> str:
@@ -390,10 +397,9 @@ class ForgeStatusReporter:
         if attr_statuses is not None:
             # Reruns pass only the re-run subset as `results`: the
             # summary description must still cover the whole build.
-            counts = {"failed": 0, "succeeded": 0}
+            counts = {"failed": 0, "succeeded": 0, "cancelled": 0}
             for attr_status in attr_statuses.values():
-                key = "failed" if attr_status in FAILED_STATUS_STATES else "succeeded"
-                counts[key] += 1
+                counts[_count_key(attr_status)] += 1
         await self._post_summary(event, build, status, counts)
 
     async def _post_attribute_statuses(
@@ -408,14 +414,14 @@ class ForgeStatusReporter:
         revision = event.commit_sha
         previously_failed = await self.failed_statuses.get_failed(revision)
 
-        counts = {"failed": 0, "succeeded": 0}
+        counts = {"failed": 0, "succeeded": 0, "cancelled": 0}
         reported = 0
         for result in results:
             context = attr_status_context(
                 event.repo.forge, event.repo.name, result.attr, attr_prefix
             )
             if result.status.value in FAILED_STATUS_STATES:
-                counts["failed"] += 1
+                counts[_count_key(result.status.value)] += 1
                 if context not in previously_failed:
                     # Only new failures consume the report budget;
                     # previously-failed contexts always re-post so they
@@ -450,12 +456,19 @@ class ForgeStatusReporter:
             description = f"{counts['succeeded']} attributes built"
         elif status == "cancelled":
             state = StatusState.error
-            description = "build cancelled (superseded)"
+            # Attribute-level cancels aggregate like failures; only a
+            # build-level cancel (no attribute info at all) was
+            # superseded by a newer build.
+            parts = [
+                f"{counts[key]} {key}"
+                for key in ("cancelled", "failed", "succeeded")
+                if counts[key]
+            ]
+            description = ", ".join(parts) if parts else "build cancelled (superseded)"
         else:
             state = StatusState.failure
             description = (
-                f"{counts['failed']} of {counts['failed'] + counts['succeeded']} "
-                "attributes failed"
+                f"{counts['failed']} of {sum(counts.values())} attributes failed"
                 if counts["failed"]
                 else (build.tree_hash and "build failed") or "merge conflict"
             )
