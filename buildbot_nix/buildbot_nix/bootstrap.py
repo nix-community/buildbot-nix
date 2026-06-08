@@ -30,6 +30,7 @@ from .config import (
     ConfigError,
     GiteaConfig,
     GitlabConfig,
+    OIDCConfig,
     read_secret_file,
     resolve_credential_path,
 )
@@ -74,7 +75,10 @@ from .webhooks import (
 from .work_queue import WorkQueue
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fastapi import FastAPI
+    from uvicorn._types import ASGIApplication
 
     from .config import Config
 
@@ -133,20 +137,48 @@ async def _login_providers(config: Config) -> dict[str, OAuthProvider]:
             config.gitlab.oauth_id,
             config.gitlab.oauth_secret,
         )
-    if config.oidc is not None:
-        try:
-            providers["oidc"] = await oidc_provider(
-                httpx.AsyncClient(),
-                config.oidc.discovery_url,
-                config.oidc.client_id,
-                config.oidc.client_secret,
-                config.oidc.scope,
-                username_claim=config.oidc.mapping.username,
-                groups_claim=config.oidc.mapping.groups,
-            )
-        except Exception:
-            logger.exception("OIDC discovery failed; OIDC login disabled")
     return providers
+
+
+async def _oidc_login_provider(
+    oidc: OIDCConfig, http_factory: Callable[[], httpx.AsyncClient]
+) -> OAuthProvider:
+    async with http_factory() as http:
+        return await oidc_provider(
+            http,
+            oidc.discovery_url,
+            oidc.client_id,
+            oidc.client_secret,
+            oidc.scope,
+            username_claim=oidc.mapping.username,
+            groups_claim=oidc.mapping.groups,
+        )
+
+
+async def register_oidc_with_retry(
+    oidc: OIDCConfig,
+    providers: dict[str, OAuthProvider],
+    on_registered: Callable[[], None] | None = None,
+    retry_delay: float = 60,
+    http_factory: Callable[[], httpx.AsyncClient] = httpx.AsyncClient,
+) -> None:
+    """Register the OIDC provider, retrying with backoff: a transient
+    IdP outage at startup must not permanently disable OIDC login. The
+    auth router looks providers up per request, so late registration
+    takes effect immediately."""
+    delay = retry_delay
+    while True:
+        try:
+            providers["oidc"] = await _oidc_login_provider(oidc, http_factory)
+        except Exception:
+            logger.exception("OIDC discovery failed; retrying in %ss", delay)
+            await asyncio.sleep(delay)
+            if delay:
+                delay = min(delay * 2, 600)
+            continue
+        if on_registered is not None:
+            on_registered()
+        return
 
 
 @dataclass
@@ -287,7 +319,16 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
     )
 
     providers = await _login_providers(config)
-    if providers:
+    oidc_pending = False
+    if config.oidc is not None:
+        try:
+            providers["oidc"] = await _oidc_login_provider(
+                config.oidc, httpx.AsyncClient
+            )
+        except Exception:
+            logger.exception("OIDC discovery failed; retrying in background")
+            oidc_pending = True
+    if providers or oidc_pending:
         app.include_router(
             create_auth_router(
                 providers,
@@ -303,9 +344,20 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
         labels = {"github": "GitHub", "gitea": "Gitea", "gitlab": "GitLab"}
         if config.oidc is not None:
             labels["oidc"] = config.oidc.name
-        ctx.env.globals["login_providers"] = [
-            {"key": key, "label": labels.get(key, key)} for key in sorted(providers)
-        ]
+
+        def refresh_login_buttons() -> None:
+            ctx.env.globals["login_providers"] = [
+                {"key": key, "label": labels.get(key, key)} for key in sorted(providers)
+            ]
+
+        refresh_login_buttons()
+        if oidc_pending and config.oidc is not None:
+            # Keep a reference so the task is not garbage collected.
+            app.state.oidc_retry_task = asyncio.create_task(
+                register_oidc_with_retry(
+                    config.oidc, providers, on_registered=refresh_login_buttons
+                )
+            )
     app.include_router(
         create_control_router(ctx, service, authz, config.url), include_in_schema=False
     )
