@@ -14,6 +14,8 @@ from __future__ import annotations
 import urllib.parse
 from pathlib import Path
 
+from .gcroots import safe_attr_filename
+
 
 class OutputsPathError(Exception):
     pass
@@ -59,7 +61,9 @@ def write_output_path(  # noqa: PLR0913
         urllib.parse.quote_plus(owner),
         urllib.parse.quote_plus(repo),
         urllib.parse.quote_plus(branch),
-        urllib.parse.quote_plus(attr),
+        # Shared with gcroots: handles ""/"."/".." attribute names,
+        # which quote_plus leaves as path hazards.
+        safe_attr_filename(attr),
     )
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text(out_path)

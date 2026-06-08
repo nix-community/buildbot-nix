@@ -173,3 +173,17 @@ def test_write_output_path_is_forge_scoped(tmp_path: Path) -> None:
     assert f1 != f2
     assert f1.read_text() == "/nix/store/1"
     assert f2.read_text() == "/nix/store/2"
+
+
+def test_write_output_path_pathological_attrs(tmp_path: Path) -> None:
+    # ""/"."/".." must yield a real file, not vanish, escape, or crash.
+    attrs = ("", ".", "..")
+    files = set()
+    for attr in attrs:
+        file = write_output_path(
+            tmp_path, "github", "acme", "widget", "main", attr, "/nix/store/o"
+        )
+        assert file.parent == tmp_path / "github" / "acme" / "widget" / "main"
+        assert file.read_text() == "/nix/store/o"
+        files.add(file)
+    assert len(files) == len(attrs)

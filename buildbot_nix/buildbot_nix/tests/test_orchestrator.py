@@ -1780,7 +1780,7 @@ def test_attach_to_already_terminal_build_replays_status(
             assert finished
             assert finished[-1][2] == BuildStatus.SUCCEEDED
         finally:
-            orchestrator.cancel_events.pop(build.id, None)
+            orchestrator.cancel_events.clear()
             await pool.close()
 
     asyncio.run(run())
