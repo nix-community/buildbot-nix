@@ -30,7 +30,7 @@ from buildbot_nix.gitea_hooks import (
 )
 from buildbot_nix.gitlab_hooks import register_repo_hook as gitlab_register_repo_hook
 from buildbot_nix.hook_secrets import WebhookSecrets
-from buildbot_nix.reconcile import gitea_heads, reconcile_repo
+from buildbot_nix.reconcile import gitea_heads, gitlab_heads, reconcile_repo
 from buildbot_nix.repos import RepoStore
 from buildbot_nix.status import (
     GiteaStatusPoster,
@@ -467,6 +467,50 @@ def test_gitea_hook_registration(postgres_dsn: str) -> None:
 
 
 # --- startup reconciliation ----------------------------------------
+
+
+def test_gitlab_heads_carry_target_branch_base(postgres_dsn: str) -> None:
+    """GitLab's MR API has no base sha; reconciliation must still merge
+    MR heads into the target branch."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v4/projects/acme/glrecon/repository/branches/main":
+            return httpx.Response(200, json={"commit": {"id": "head-main"}})
+        if path == "/api/v4/projects/acme/glrecon/merge_requests":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "iid": 5,
+                        "sha": "head-mr5",
+                        "target_branch": "main",
+                        "author": {"username": "alice"},
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            await insert_project(
+                pool, "glrecon", forge="gitlab", forge_repo_id="glrecon-1"
+            )
+            project = await RepoStore(pool).by_forge_id("gitlab", "glrecon-1")
+            assert project is not None
+            client = GitlabClient(
+                "https://gitlab.example.com",
+                "tkn",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            heads = await gitlab_heads(client, project)
+            mr_head = next(h for h in heads if h.pr_number == 5)
+            assert mr_head.base_sha == "refs/heads/main"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
 
 
 def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:

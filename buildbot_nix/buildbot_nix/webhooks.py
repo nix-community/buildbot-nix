@@ -272,13 +272,17 @@ def parse_gitlab_event(  # noqa: PLR0911
         if action not in ("open", "update", "reopen"):
             return None
         # No commit_message; see parse_github_event.
+        target_branch = attrs.get("target_branch", "")
         return ChangeRequest(
             forge="gitlab",
             forge_repo_id=repo_id,
-            branch=attrs.get("target_branch", ""),
+            branch=target_branch,
             commit_sha=(attrs.get("last_commit") or {}).get("id", ""),
             pr_number=number,
             pr_author=f"gitlab:{(payload.get('user') or {}).get('username', '')}",
+            # The payload has no base sha; the target branch head was
+            # fetched alongside, so merge against its ref.
+            base_sha=f"refs/heads/{target_branch}" if target_branch else None,
         )
     return None
 

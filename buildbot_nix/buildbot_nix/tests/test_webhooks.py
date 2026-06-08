@@ -566,6 +566,8 @@ def test_parse_gitlab_events() -> None:
         commit_sha="def",
         pr_number=4,
         pr_author="gitlab:bob",
+        # No base sha in the payload: merge against the target branch.
+        base_sha="refs/heads/main",
     )
     closed = parse_gitlab_event(
         "Merge Request Hook",

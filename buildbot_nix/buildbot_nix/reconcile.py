@@ -125,6 +125,9 @@ async def gitlab_heads(client: GitlabClient, project: RepoRecord) -> list[Remote
             commit_sha=pull["sha"],
             pr_number=pull["iid"],
             pr_author=f"gitlab:{pull['author']['username']}",
+            # The MR API exposes no base sha; merge against the
+            # target branch ref instead.
+            base_sha=f"refs/heads/{pull['target_branch']}",
         )
         for pull in pulls
     )
