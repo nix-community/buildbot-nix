@@ -9,7 +9,6 @@ import contextlib
 import json
 import socket
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +21,7 @@ from buildbot_nix.config import (
     PullBasedConfig,
     PullBasedRepository,
 )
+from buildbot_nix.events import NullStatusReporter
 from buildbot_nix.forge import DiscoveredRepo, GitlabClient
 from buildbot_nix.scheduled import DueEffect, ScheduleWhen
 from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
@@ -276,17 +276,9 @@ def test_restart_failed_eval_attribute_reevaluates(
 # --- cancel of a non-running build ---------------------------------------
 
 
-@dataclass
-class RecordingReporter:
-    finished: list[tuple[int, str, int]] = field(default_factory=list)
-
-    async def build_started(self, event: Any, build: Any) -> None:
-        pass
-
-    async def eval_finished(
-        self, event: Any, build: Any, *, success: bool, warnings: list[str]
-    ) -> None:
-        pass
+class RecordingReporter(NullStatusReporter):
+    def __init__(self) -> None:
+        self.finished: list[tuple[int, str, int]] = []
 
     async def build_finished(
         self,
@@ -314,7 +306,7 @@ def test_cancel_not_running_posts_forge_status(
                 pool, project_id, commit_sha="c1", status="building"
             )
             reporter = RecordingReporter()
-            service.orchestrator.reporter = reporter  # type: ignore[assignment]
+            service.orchestrator.reporter = reporter
 
             await service.cancel_build(build_id)
 
