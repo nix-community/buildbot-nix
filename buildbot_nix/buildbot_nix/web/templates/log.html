@@ -12,7 +12,7 @@
           <code>{{ attr }}</code>
           <small>
             <a href="{{ build_path(project, build.number) }}">build #{{ build.number }}</a>
-            · <a href="{{ build_path(project, build.number) }}/logs/{{ attr }}.txt">raw</a>
+            · <a href="{{ build_path(project, build.number) }}/logs/raw/{{ attr }}">raw</a>
             {% if prev_number %}
               · <a href="{{ build_path(project, prev_number) }}/logs/{{ attr }}"
     rel="prev">‹ #{{ prev_number }}</a>

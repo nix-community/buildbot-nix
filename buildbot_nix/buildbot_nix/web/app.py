@@ -548,7 +548,7 @@ the instance restricts project visibility.
 - GET /api/repos/{forge}/{owner}/{name}/builds/{number} -> build + all attributes
 - GET /api/repos/{forge}/{owner}/{name}/attrs/{attr} -> per-attribute history
 - GET /api/queue -> global build queue
-- GET /repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}.txt?tail=N
+- GET /repos/{forge}/{owner}/{name}/builds/{number}/logs/raw/{attr}?tail=N
   -> plain-text log (full when tail is omitted)
 
 ## Control (Authorization: Bearer <token>; create tokens at /settings)

@@ -495,6 +495,59 @@ def test_log_viewer_and_raw(client: WebHarness, tmp_path: Path) -> None:
     assert missing.status_code == 404
 
 
+def test_attr_named_dot_txt_not_shadowed_by_raw_route(
+    client: WebHarness, tmp_path: Path
+) -> None:
+    """An attribute literally named "foo.txt" used to be unreachable:
+    /logs/foo.txt matched the raw route and served attr "foo"'s log."""
+    ctx = client.ctx
+    ctx.state_dir = tmp_path
+
+    async def setup() -> int:
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 2")
+        for attr, content in (
+            ("foo", b"plain foo log\n"),
+            ("foo.txt", b"dot txt log\n"),
+        ):
+            attr_id = await ctx.pool.fetchval(
+                "INSERT INTO build_attributes (build_id, attr, system, status)"
+                " VALUES ($1, $2, 'x86_64-linux', 'failed') RETURNING id",
+                build_id,
+                attr,
+            )
+            rel = f"logs/2/{attr}.zst"
+            f = tmp_path / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(zstandard.ZstdCompressor().compress(content))
+            await ctx.pool.execute(
+                "INSERT INTO logs (attribute_id, path, size_bytes) VALUES ($1, $2, $3)",
+                attr_id,
+                rel,
+                f.stat().st_size,
+            )
+        return build_id
+
+    build_id = client.loop.run_until_complete(setup())
+    try:
+        base = "/repos/github/acme/widget/builds/2/logs"
+        viewer = client.get(f"{base}/foo.txt")
+        assert viewer.headers["content-type"].startswith("text/html")
+        assert "dot txt log" in viewer.text
+        assert client.get(f"{base}/raw/foo").text == "plain foo log\n"
+        assert client.get(f"{base}/raw/foo.txt").text == "dot txt log\n"
+        # The legacy suffix route still serves raw when nothing collides.
+        assert client.get(f"{base}/foo.txt.txt").text == "dot txt log\n"
+        assert client.get(f"{base}/raw/nope").status_code == 404
+    finally:
+        client.loop.run_until_complete(
+            ctx.pool.execute(
+                "DELETE FROM build_attributes WHERE build_id = $1"
+                " AND attr IN ('foo', 'foo.txt')",
+                build_id,
+            )
+        )
+
+
 def test_log_viewer_waits_for_queued_attribute(client: WebHarness) -> None:
     # The build page links queued attributes before any log exists.
     async def make_pending() -> None:

@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
+    Response,
     StreamingResponse,
 )
 
@@ -328,6 +329,30 @@ class _LogRoutes:
             )
         return PlainTextResponse(await asyncio.to_thread(strip_ansi, text))
 
+    async def log_raw_text_legacy(  # noqa: PLR0913
+        self,
+        request: Request,
+        forge: str,
+        owner: str,
+        name: str,
+        number: int,
+        attr: str,
+        tail: int | None = Query(None, ge=1),
+    ) -> Response:
+        """Legacy /logs/{attr}.txt suffix route. It shadows the HTML
+        viewer of an attribute literally named "{attr}.txt": when such
+        an attribute exists its viewer wins (raw logs are always
+        reachable under /logs/raw/), otherwise serve raw as before."""
+        _, build = await self._build_or_404(request, forge, owner, name, number)
+        shadowed = f"{attr}.txt"
+        if await self.ctx.pool.fetchval(
+            "SELECT 1 FROM build_attributes WHERE build_id = $1 AND attr = $2",
+            build["id"],
+            shadowed,
+        ):
+            return await self.log_viewer(request, forge, owner, name, number, shadowed)
+        return await self.log_raw_text(request, forge, owner, name, number, attr, tail)
+
     async def scheduled_run_log(
         self,
         request: Request,
@@ -445,7 +470,10 @@ _BASE = "/repos/{forge}/{owner}/{name}/builds/{number}"
 def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
     router = APIRouter()
     routes = _LogRoutes(ctx, registry)
-    router.get(f"{_BASE}/logs/{{attr}}.txt")(routes.log_raw_text)
+    # /logs/raw/{attr} is the unambiguous raw route; the .txt suffix
+    # stays as a fallback for existing consumers.
+    router.get(f"{_BASE}/logs/raw/{{attr}}")(routes.log_raw_text)
+    router.get(f"{_BASE}/logs/{{attr}}.txt")(routes.log_raw_text_legacy)
     router.get(f"{_BASE}/logs/{{attr}}/stream")(routes.log_stream)
     router.get(f"{_BASE}/logs/{{attr}}", response_class=HTMLResponse)(routes.log_viewer)
     router.get("/repos/{forge}/{owner}/{name}/schedules/runs/{run_id}.txt")(
