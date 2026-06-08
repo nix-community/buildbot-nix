@@ -786,24 +786,14 @@ in
           allow hijacking someone else's admin entry.
         '';
         default = {
-          email = "email";
           username = "sub";
-          full_name = "name";
           groups = null;
         };
         type = lib.types.submodule {
           options = {
-            email = lib.mkOption {
-              type = lib.types.str;
-              default = "email";
-            };
             username = lib.mkOption {
               type = lib.types.str;
               default = "sub";
-            };
-            full_name = lib.mkOption {
-              type = lib.types.str;
-              default = "name";
             };
             groups = lib.mkOption {
               type = lib.types.nullOr lib.types.str;

@@ -199,12 +199,10 @@ class GitHubConfig(BaseModel):
 class OIDCMappingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str = "email"
     # Identity claim for admin/viewer matching. Defaults to the stable
     # "sub": a mutable claim like preferred_username would let a user
     # who can edit it hijack someone else's admin entry.
     username: str = "sub"
-    full_name: str = "name"
     groups: str | None = None
 
 

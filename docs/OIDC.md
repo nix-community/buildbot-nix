@@ -36,9 +36,7 @@ etc.) for user login.
 
       # Claim mapping (defaults shown)
       mapping = {
-        email = "email";
         username = "sub";  # Identity claim used for admin matching
-        full_name = "name";
         groups = null;  # Set to "groups" if using group sync
       };
     };
@@ -68,9 +66,7 @@ file passed to `buildbot-nix --config`:
     "client_secret_file": "/path/to/client_secret",
     "scope": ["openid", "email", "profile"],
     "mapping": {
-      "email": "email",
       "username": "sub",
-      "full_name": "name",
       "groups": null
     }
   }
@@ -131,9 +127,7 @@ Then configure buildbot-nix to use it (in the JSON config file):
   "client_secret_file": "/tmp/client_secret",
   "scope": ["openid", "email", "profile"],
   "mapping": {
-    "email": "email",
     "username": "sub",
-    "full_name": "name",
     "groups": null
   }
 }
