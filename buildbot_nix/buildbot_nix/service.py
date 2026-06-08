@@ -881,10 +881,7 @@ class CIService:
                 await cleanup_old_builds(
                     self.pool, self.config.state_dir, self.config.retention_days
                 )
-                build_ids = {
-                    row["id"] for row in await self.pool.fetch("SELECT id FROM builds")
-                }
-                cleanup_orphan_log_dirs(build_ids, self.config.state_dir)
+                await cleanup_orphan_log_dirs(self.pool, self.config.state_dir)
                 await WorkQueue(self.pool).cleanup(self.config.retention_days)
                 await self.orchestrator.repos.cleanup()
                 await self.orchestrator.repos.gc()

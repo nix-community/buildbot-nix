@@ -23,6 +23,7 @@ from buildbot_nix.recovery import (
 from .support import insert_build, insert_project
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -139,14 +140,55 @@ def test_retention_cleanup(postgres_dsn: str, tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+class _FakePool:
+    """Returns the given build ids; optionally runs a callback first."""
+
+    def __init__(
+        self, ids: set[int], on_fetch: Callable[[], None] | None = None
+    ) -> None:
+        self.ids = ids
+        self.on_fetch = on_fetch
+
+    async def fetch(self, _query: str) -> list[dict]:
+        if self.on_fetch is not None:
+            self.on_fetch()
+        return [{"id": build_id} for build_id in self.ids]
+
+
 def test_orphan_log_dirs(tmp_path: Path) -> None:
     (tmp_path / "logs" / "42").mkdir(parents=True)
     (tmp_path / "logs" / "43").mkdir(parents=True)
     (tmp_path / "logs" / "not-a-build").mkdir(parents=True)
-    cleanup_orphan_log_dirs({42}, tmp_path)
+    asyncio.run(cleanup_orphan_log_dirs(_FakePool({42}), tmp_path, grace_seconds=0))
     assert (tmp_path / "logs" / "42").exists()
     assert not (tmp_path / "logs" / "43").exists()
     assert (tmp_path / "logs" / "not-a-build").exists()  # ignored
+
+
+def test_orphan_log_dirs_grace_period(tmp_path: Path) -> None:
+    """A freshly created log dir is kept even without a build row: its
+    build may have been inserted after the id snapshot."""
+    (tmp_path / "logs" / "77").mkdir(parents=True)
+    asyncio.run(cleanup_orphan_log_dirs(_FakePool(set()), tmp_path))
+    assert (tmp_path / "logs" / "77").exists()
+
+
+def test_orphan_log_dirs_scan_before_id_snapshot(tmp_path: Path) -> None:
+    """Dirs created after the directory scan must survive even when the
+    id snapshot does not contain them (creation race)."""
+
+    (tmp_path / "logs" / "1").mkdir(parents=True)  # triggers the snapshot
+
+    def create_late_dir() -> None:
+        (tmp_path / "logs" / "99").mkdir(parents=True)
+
+    asyncio.run(
+        cleanup_orphan_log_dirs(
+            _FakePool(set(), on_fetch=create_late_dir), tmp_path, grace_seconds=0
+        )
+    )
+    assert (tmp_path / "logs" / "99").exists()
+    assert not (tmp_path / "logs" / "1").exists()
 
 
 def test_resume_includes_interrupted_building_attributes(postgres_dsn: str) -> None:

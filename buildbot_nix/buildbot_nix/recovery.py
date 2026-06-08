@@ -27,6 +27,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -279,16 +280,36 @@ async def cleanup_old_builds(
     return len(rows)
 
 
-def cleanup_orphan_log_dirs(pool_build_ids: set[int], state_dir: Path) -> None:
-    """Remove log directories whose build row no longer exists."""
+ORPHAN_LOG_GRACE_SECONDS = 3600
+
+
+async def cleanup_orphan_log_dirs(
+    pool: asyncpg.Pool,
+    state_dir: Path,
+    grace_seconds: int = ORPHAN_LOG_GRACE_SECONDS,
+) -> None:
+    """Remove log directories whose build row no longer exists.
+
+    The directory scan happens BEFORE the build-id snapshot and young
+    directories are skipped: a build created concurrently with the
+    sweep must not get its live log directory deleted."""
     logs_root = state_dir / "logs"
     if not logs_root.is_dir():
         return
+    cutoff = time.time() - grace_seconds
+    candidates: list[tuple[int, str]] = []
     for entry in os.scandir(logs_root):
         try:
             build_id = int(entry.name)
         except ValueError:
             continue
-        if build_id not in pool_build_ids:
+        with contextlib.suppress(OSError):
+            if entry.stat().st_mtime <= cutoff:
+                candidates.append((build_id, entry.path))
+    if not candidates:
+        return
+    build_ids = {row["id"] for row in await pool.fetch("SELECT id FROM builds")}
+    for build_id, path in candidates:
+        if build_id not in build_ids:
             with contextlib.suppress(OSError):
-                shutil.rmtree(entry.path)
+                shutil.rmtree(path)
