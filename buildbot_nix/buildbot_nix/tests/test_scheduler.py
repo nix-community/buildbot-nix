@@ -18,6 +18,7 @@ from buildbot_nix.scheduler import (
     BuildOutcome,
     CachedFailure,
     JobScheduler,
+    ScheduleResult,
     compute_job_closures,
     get_failed_dependents,
     sort_jobs_by_closures,
@@ -58,12 +59,12 @@ class FakeCache:
         self.entries.pop(drv_path, None)
 
 
-def run_scheduler(scheduler: JobScheduler, jobs: list) -> object:
+def run_scheduler(scheduler: JobScheduler, jobs: list) -> ScheduleResult:
     return asyncio.run(scheduler.run(jobs))
 
 
-def by_attr(result: object) -> dict[str, AttributeStatus]:
-    return {r.attr: r.status for r in result.results}  # type: ignore[attr-defined]
+def by_attr(result: ScheduleResult) -> dict[str, AttributeStatus]:
+    return {r.attr: r.status for r in result.results}
 
 
 def test_topological_order() -> None:
@@ -79,7 +80,7 @@ def test_topological_order() -> None:
     result = run_scheduler(JobScheduler(executor, [SYSTEM]), [c, a, b])
     assert executor.built.index("a") < executor.built.index("b")
     assert executor.built.index("b") < executor.built.index("c")
-    assert result.success  # type: ignore[attr-defined]
+    assert result.success
 
 
 def test_get_failed_dependents_transitive() -> None:
@@ -110,10 +111,10 @@ def test_dependency_failure_propagation() -> None:
     assert statuses["d"] == AttributeStatus.succeeded
     assert "b" not in executor.built
     assert "c" not in executor.built
-    deps = {r.attr: r.dependency_attr for r in result.results}  # type: ignore[attr-defined]
+    deps = {r.attr: r.dependency_attr for r in result.results}
     assert deps["b"] == "a"
     assert deps["c"] == "a"
-    assert not result.success  # type: ignore[attr-defined]
+    assert not result.success
 
 
 def test_supported_systems_filter() -> None:
@@ -131,8 +132,8 @@ def test_local_jobs_skipped_with_out_path_recorded() -> None:
     result = run_scheduler(JobScheduler(executor, [SYSTEM]), [local])
     assert executor.built == []
     assert by_attr(result)["local"] == AttributeStatus.skipped_local
-    assert result.skipped_out_paths == [("local", "/nix/store/local-out")]  # type: ignore[attr-defined]
-    assert result.success  # type: ignore[attr-defined]
+    assert result.skipped_out_paths == [("local", "/nix/store/local-out")]
+    assert result.success
 
 
 def test_local_job_unblocks_dependents() -> None:
@@ -141,7 +142,7 @@ def test_local_job_unblocks_dependents() -> None:
     executor = FakeExecutor()
     result = run_scheduler(JobScheduler(executor, [SYSTEM]), [base, top])
     assert executor.built == ["top"]
-    assert result.success  # type: ignore[attr-defined]
+    assert result.success
 
 
 def test_cached_jobs_scheduled_for_substitution() -> None:
@@ -159,9 +160,9 @@ def test_failed_eval_records() -> None:
     statuses = by_attr(result)
     assert statuses["bad"] == AttributeStatus.failed_eval
     assert statuses["good"] == AttributeStatus.succeeded
-    errors = {r.attr: r.error for r in result.results}  # type: ignore[attr-defined]
+    errors = {r.attr: r.error for r in result.results}
     assert errors["bad"] == "boom"
-    assert not result.success  # type: ignore[attr-defined]
+    assert not result.success
 
 
 def test_cached_failure_skip() -> None:
@@ -180,10 +181,10 @@ def test_cached_failure_skip() -> None:
         JobScheduler(executor, [SYSTEM], failed_build_cache=cache), [job]
     )
     assert executor.built == []
-    record = result.results[0]  # type: ignore[attr-defined]
+    record = result.results[0]
     assert record.status == AttributeStatus.cached_failure
     assert record.first_failure_url == "http://ci/builds/1"
-    assert not result.success  # type: ignore[attr-defined]
+    assert not result.success
 
 
 def test_cached_failure_propagates_to_dependents() -> None:
@@ -222,7 +223,7 @@ def test_rebuild_clears_cached_failure_and_builds() -> None:
     )
     assert executor.built == ["flaky"]
     assert cache.removed == [job.drv_path]
-    assert result.success  # type: ignore[attr-defined]
+    assert result.success
 
 
 def test_failure_recorded_in_cache() -> None:
@@ -275,7 +276,7 @@ def test_mixed_eval_results_independent() -> None:
         "a": AttributeStatus.succeeded,
         "b": AttributeStatus.succeeded,
     }
-    assert not result.success  # type: ignore[attr-defined]
+    assert not result.success
 
 
 def test_skipped_local_frees_dependents_immediately() -> None:
@@ -298,7 +299,7 @@ def test_skipped_local_frees_dependents_immediately() -> None:
                 started_child.set()
             return BuildOutcome.success
 
-    async def run() -> object:
+    async def run() -> ScheduleResult:
         executor = BlockingExecutor()
         return await asyncio.wait_for(
             JobScheduler(executor, [SYSTEM]).run([other, parent, child]), timeout=5
@@ -340,8 +341,9 @@ def test_cached_failure_error_includes_url() -> None:
     result = run_scheduler(
         JobScheduler(FakeExecutor(), [SYSTEM], failed_build_cache=cache), [job]
     )
-    (res,) = result.results  # type: ignore[attr-defined]
+    (res,) = result.results
     assert res.status == AttributeStatus.cached_failure
+    assert res.error is not None
     assert "https://ci.example/builds/1" in res.error
 
 
