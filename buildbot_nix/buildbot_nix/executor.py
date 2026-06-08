@@ -230,9 +230,26 @@ class LogWriter:
 
     async def subscribe_with_history(self) -> tuple[bytes, asyncio.Queue[bytes | None]]:
         """Snapshot of the log plus a live subscription: no chunk is
-        lost or duplicated between the two."""
-        history = await self.snapshot()
+        lost or duplicated between the two.
+
+        Subscribe first, then snapshot: a chunk written during the
+        snapshot's await points would otherwise be in neither. Chunks
+        written during the snapshot land in both; the overlap is
+        dropped from the queue by byte count."""
         queue = self.subscribe()
+        start_offset = self.bytes_seen
+        history = await self.snapshot()
+        overlap = self.bytes_seen - start_offset
+        while overlap > 0:
+            try:
+                chunk = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                # A stalled-queue drop during the snapshot: fewer bytes
+                # queued than written; nothing left to dedupe.
+                break
+            if chunk is None:
+                break  # close() ran during the snapshot; re-signalled below
+            overlap -= len(chunk)
         if self.closed:
             # Closed but not yet unregistered: terminate immediately
             # instead of leaving the subscriber waiting forever.

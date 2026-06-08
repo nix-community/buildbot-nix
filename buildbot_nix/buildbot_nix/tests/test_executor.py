@@ -9,11 +9,13 @@ import asyncio
 import contextlib
 import os
 import stat
+import threading
 import time
 from typing import TYPE_CHECKING
 
 import pytest
 
+import buildbot_nix.executor as executor_mod
 from buildbot_nix.executor import (
     FRAME_FLUSH_THRESHOLD,
     SUBSCRIBER_QUEUE_MAXSIZE,
@@ -150,6 +152,43 @@ def test_log_writer_subscribe_with_history(tmp_path: Path) -> None:
         history, queue = await writer.subscribe_with_history()
         assert history == b"early\nlate\n"
         assert await queue.get() is None
+
+    asyncio.run(run())
+
+
+def test_log_writer_no_chunk_lost_during_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chunk written while subscribe_with_history reads the on-disk
+    history must arrive exactly once (in the history or the queue)."""
+    started = threading.Event()
+    release = threading.Event()
+    orig_read_log = executor_mod.read_log
+
+    def slow_read(path: Path) -> bytes:
+        started.set()
+        release.wait(5)
+        return orig_read_log(path)
+
+    monkeypatch.setattr(executor_mod, "read_log", slow_read)
+
+    async def run() -> None:
+        writer = LogWriter(path=tmp_path / "log.zst")
+        await writer.write(b"early\n")
+        task = asyncio.create_task(writer.subscribe_with_history())
+        while (  # noqa: ASYNC110 — polling a threading.Event is the point
+            not started.is_set()
+        ):
+            await asyncio.sleep(0.01)
+        await writer.write(b"during\n")
+        release.set()
+        history, queue = await task
+        await writer.close()
+        chunks = []
+        while (chunk := await queue.get()) is not None:
+            chunks.append(chunk)
+        combined = history + b"".join(chunks)
+        assert combined == b"early\nduring\n"
 
     asyncio.run(run())
 
