@@ -30,7 +30,7 @@ from buildbot_nix.scheduler import (
 )
 from buildbot_nix.work_queue import WorkQueue
 
-from .support import git, init_upstream, insert_project, mk_job, truncate_work_queue
+from .support import git, insert_project, mk_job
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -38,20 +38,10 @@ if TYPE_CHECKING:
     from buildbot_nix.db import BuildRecord
     from buildbot_nix.models import NixEvalJobSuccess
 
-pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
-
-
-# --- fixtures ---------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _fresh_work_queue(postgres_dsn: str) -> None:
-    truncate_work_queue(postgres_dsn)
-
-
-@pytest.fixture
-def upstream(tmp_path: Path) -> Path:
-    return init_upstream(tmp_path / "upstream")
+pytestmark = [
+    pytest.mark.skipif(shutil.which("git") is None, reason="git not available"),
+    pytest.mark.usefixtures("fresh_work_queue"),
+]
 
 
 # --- fakes --------------------------------------------------------------------

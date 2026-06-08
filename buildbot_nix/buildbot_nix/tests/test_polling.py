@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,36 +17,15 @@ from buildbot_nix.polling import (
     poll_head,
 )
 
+from .support import git, init_upstream
+
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
-
-
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(  # noqa: S603
-        ["git", "-C", str(repo), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={
-            "GIT_AUTHOR_NAME": "t",
-            "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "t",
-            "GIT_COMMITTER_EMAIL": "t@t",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_SYSTEM": "/dev/null",
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        },
-    ).stdout.strip()
 
 
 @pytest.fixture
 def upstream(tmp_path: Path) -> Path:
-    repo = tmp_path / "upstream"
-    repo.mkdir()
-    git(repo, "init", "-b", "main")
-    (repo / "f").write_text("1")
-    git(repo, "add", ".")
-    git(repo, "commit", "-m", "c1")
-    return repo
+    # "f" is committed so later `git commit -am` picks up edits to it.
+    return init_upstream(tmp_path / "upstream", {"f": "1"})
 
 
 @dataclass

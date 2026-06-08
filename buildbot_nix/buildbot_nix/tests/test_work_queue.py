@@ -9,12 +9,7 @@ import pytest
 
 from buildbot_nix.work_queue import WorkQueue
 
-from .support import truncate_work_queue
-
-
-@pytest.fixture(autouse=True)
-def _fresh_work_queue(postgres_dsn: str) -> None:
-    truncate_work_queue(postgres_dsn)
+pytestmark = pytest.mark.usefixtures("fresh_work_queue")
 
 
 def test_enqueue_dedupes_pending(postgres_dsn: str) -> None:

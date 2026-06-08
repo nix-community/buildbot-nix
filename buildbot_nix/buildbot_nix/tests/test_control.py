@@ -39,9 +39,10 @@ from .support import (
     cookie_header,
     insert_build,
     insert_project,
-    truncate_work_queue,
     web_harness,
 )
+
+pytestmark = pytest.mark.usefixtures("fresh_work_queue")
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -88,11 +89,6 @@ class FakeBackend:
 def postgres_dsn(postgres_dsn: str) -> str:
     asyncio.run(seed(postgres_dsn))
     return postgres_dsn
-
-
-@pytest.fixture(autouse=True)
-def _fresh_work_queue(postgres_dsn: str) -> None:
-    truncate_work_queue(postgres_dsn)
 
 
 async def seed(dsn: str) -> None:

@@ -27,18 +27,9 @@ from buildbot_nix.scheduled import DueEffect, ScheduleWhen
 from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
 from buildbot_nix.webhooks import ChangeRequest, PrClosed
 
-from .support import (
-    git,
-    init_upstream,
-    insert_build,
-    insert_project,
-    truncate_work_queue,
-)
+from .support import git, insert_build, insert_project
 
-
-@pytest.fixture(autouse=True)
-def _fresh_work_queue(postgres_dsn: str) -> None:
-    truncate_work_queue(postgres_dsn)
+pytestmark = pytest.mark.usefixtures("fresh_work_queue")
 
 
 def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> Config:
@@ -53,9 +44,8 @@ def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> Config:
 
 
 @pytest.fixture
-def git_repo(tmp_path: Path) -> tuple[Path, str]:
-    repo = init_upstream(tmp_path / "origin")
-    return repo, git(repo, "rev-parse", "HEAD")
+def git_repo(upstream: Path) -> tuple[Path, str]:
+    return upstream, git(upstream, "rev-parse", "HEAD")
 
 
 # --- pure helpers ------------------------------------------------------
