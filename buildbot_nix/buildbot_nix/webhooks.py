@@ -52,16 +52,22 @@ def should_build_branch(
 # --- signature validation -------------------------------------------------------
 
 
+def _constant_time_eq(a: str, b: str) -> bool:
+    """hmac.compare_digest with str args raises TypeError on non-ASCII
+    input; forge headers are attacker-controlled, so compare bytes."""
+    return hmac.compare_digest(a.encode("utf-8", "replace"), b.encode())
+
+
 def verify_github_signature(secret: str, body: bytes, signature_header: str) -> bool:
     if not signature_header.startswith("sha256="):
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(signature_header.removeprefix("sha256="), expected)
+    return _constant_time_eq(signature_header.removeprefix("sha256="), expected)
 
 
 def verify_gitea_signature(secret: str, body: bytes, signature_header: str) -> bool:
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(signature_header, expected)
+    return _constant_time_eq(signature_header, expected)
 
 
 class DeliveryDeduper:
@@ -394,7 +400,7 @@ class _WebhookHandlers:
         except Exception as e:
             raise HTTPException(status_code=500, detail="database unavailable") from e
         token = request.headers.get("X-Gitlab-Token", "")
-        if secret is None or not hmac.compare_digest(secret, token):
+        if secret is None or not _constant_time_eq(token, secret):
             raise HTTPException(status_code=403, detail="invalid token")
         guid = request.headers.get("X-Gitlab-Event-UUID", "")
         if self.deduper.is_duplicate(guid):

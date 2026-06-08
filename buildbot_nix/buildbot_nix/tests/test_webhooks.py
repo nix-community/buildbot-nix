@@ -28,6 +28,7 @@ from buildbot_nix.webhooks import (
     parse_github_event,
     parse_gitlab_event,
     should_build_branch,
+    verify_gitea_signature,
     verify_github_signature,
 )
 
@@ -88,6 +89,16 @@ def test_signature_validation() -> None:
     assert verify_github_signature(SECRET, body, sign_github(body))
     assert not verify_github_signature(SECRET, body, "sha256=deadbeef")
     assert not verify_github_signature(SECRET, body, "")
+
+
+def test_signature_validation_non_ascii() -> None:
+    """Non-ASCII signature headers must be rejected, not raise
+    (hmac.compare_digest with str args is ASCII-only)."""
+    body = b'{"x": 1}'
+    assert not verify_github_signature(SECRET, body, "sha256=d\u00e9adbeef")
+    assert not verify_gitea_signature(SECRET, body, "d\u00e9adbeef")
+    # The GitLab handler compares the plain token through the same helper.
+    assert not webhooks._constant_time_eq("s\u00e9cret", SECRET)  # noqa: SLF001
 
 
 # --- parsing ------------------------------------------------------------------
