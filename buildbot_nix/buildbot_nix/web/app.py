@@ -151,6 +151,17 @@ class WebContext:
     ) -> HTMLResponse:
         if request is not None and "user" not in context:
             context["user"] = await self.request_user(request)
+        if request is not None and "forge_token_expired" not in context:
+            # The forge token can expire long before the session does;
+            # private-repo visibility then silently degrades to public,
+            # so tell the user a re-login restores it.
+            context["forge_token_expired"] = (
+                self.visibility is not None
+                and self.forge_tokens is not None
+                and context.get("user") is not None
+                and request.cookies.get(SESSION_COOKIE) is not None
+                and await self._forge_token(request) is None
+            )
         return HTMLResponse(self.env.get_template(template).render(**context))
 
     async def visible_repo_ids(self, request: Request) -> list[int] | None:

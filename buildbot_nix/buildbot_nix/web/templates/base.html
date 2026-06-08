@@ -43,6 +43,9 @@
           <div class="menu-panel">
             {% if user %}
               <span class="muted">{{ user.qualified }}</span>
+              {% if forge_token_expired %}
+                <span class="muted">forge access expired — log in again to see private repos</span>
+              {% endif %}
               <a href="/settings">settings</a>
               <form action="/logout" method="post">
                 <button>logout</button>

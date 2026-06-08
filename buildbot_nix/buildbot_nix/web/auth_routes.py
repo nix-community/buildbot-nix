@@ -109,7 +109,7 @@ def create_auth_router(  # noqa: PLR0913
         _check_callback_params(request, code, state, error)
         redirect_uri = f"{base_url}/auth/{provider_name}/callback"
         try:
-            user, access_token = await provider.exchange_code(http, code, redirect_uri)
+            user, token = await provider.exchange_code(http, code, redirect_uri)
         except (OAuthError, httpx.HTTPError) as exc:
             # Expired/reused codes are routine (refresh, stale tab).
             raise HTTPException(
@@ -121,7 +121,13 @@ def create_auth_router(  # noqa: PLR0913
                 user, groups=relevant_groups(user.groups, private_repo_viewers or {})
             )
         session_id = secrets.token_urlsafe(32)
-        await forge_tokens.save(session_id, access_token, signer.lifetime)
+        # Cap the stored forge token at its own expiry: a Gitea token
+        # dies ~1h into a 30-day session, and an expired-but-stored
+        # token would fire a failing forge call on every request.
+        token_lifetime = signer.lifetime
+        if token.expires_in is not None:
+            token_lifetime = min(token_lifetime, token.expires_in)
+        await forge_tokens.save(session_id, token.access_token, token_lifetime)
         response = RedirectResponse("/")
         response.delete_cookie(_state_cookie(state))
         response.set_cookie(

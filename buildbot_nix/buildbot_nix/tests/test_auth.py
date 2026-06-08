@@ -50,9 +50,11 @@ class DictVault:
 
     def __init__(self) -> None:
         self.tokens: dict[str, str] = {}
+        self.lifetimes: dict[str, int] = {}
 
-    async def save(self, session_id: str, token: str, lifetime: int) -> None:  # noqa: ARG002
+    async def save(self, session_id: str, token: str, lifetime: int) -> None:
         self.tokens[session_id] = token
+        self.lifetimes[session_id] = lifetime
 
     async def get(self, session_id: str) -> str | None:
         return self.tokens.get(session_id)
@@ -262,6 +264,51 @@ def test_oauth_login_flow() -> None:
             assert ok.status_code == 303
             # Logout invalidates the server-side forge token.
             assert vault.tokens == {}
+
+    asyncio.run(run())
+
+
+def test_forge_token_lifetime_capped_by_expires_in() -> None:
+    """Gitea access tokens expire after ~1h while the session lives
+    30 days; the stored forge token must expire with the token, not
+    the session, so visibility falls back to public instead of
+    re-firing failing forge calls."""
+    provider = github_oauth("cid", "csecret")
+    vault = DictVault()
+    signer = SessionSigner([b"k"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/login/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "at", "expires_in": 3600})
+        if request.url.path == "/user":
+            return httpx.Response(200, json={"login": "alice"})
+        return httpx.Response(404)
+
+    app = FastAPI()
+    app.include_router(
+        create_auth_router(
+            {"github": provider},
+            signer,
+            "https://ci.test",
+            vault,
+            http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+    )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://ci.test"
+        ) as client:
+            login = await client.get("/login/github")
+            state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
+            callback = await client.get(
+                f"/auth/github/callback?code=c&state={state}",
+                headers=cookie_header({f"buildbot_nix_oauth_state_{state}": state}),
+            )
+            assert callback.status_code == 307
+            session_id = signer.session_id_from(callback.cookies[SESSION_COOKIE])
+            assert session_id is not None
+            assert vault.lifetimes[session_id] == 3600
 
     asyncio.run(run())
 

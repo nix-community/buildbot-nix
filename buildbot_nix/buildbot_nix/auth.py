@@ -312,6 +312,15 @@ def can_control_build(
 # --- OAuth/OIDC flows ---------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ForgeToken:
+    """Access token plus its advertised lifetime (None = the provider
+    did not say, e.g. classic GitHub OAuth tokens that never expire)."""
+
+    access_token: str
+    expires_in: int | None = None
+
+
 class OAuthError(Exception):
     """Token exchange or userinfo fetch failed (expired/reused code,
     provider error response, malformed body)."""
@@ -354,7 +363,7 @@ class OAuthProvider:
 
     async def exchange_code(
         self, http: httpx.AsyncClient, code: str, redirect_uri: str
-    ) -> tuple[User, str]:
+    ) -> tuple[User, ForgeToken]:
         data = {
             "code": code,
             "grant_type": "authorization_code",
@@ -388,6 +397,10 @@ class OAuthProvider:
         if not access_token:
             msg = f"token exchange failed: {token_body.get('error', 'no access_token')}"
             raise OAuthError(msg)
+        # Gitea/OIDC tokens expire (typically 1h); record the lifetime
+        # so the stored forge token is not trusted past it.
+        raw_expires = token_body.get("expires_in")
+        expires_in = int(raw_expires) if isinstance(raw_expires, (int, float)) else None
         userinfo = await http.get(
             self.userinfo_url,
             headers={"Authorization": f"Bearer {access_token}"},
@@ -417,7 +430,7 @@ class OAuthProvider:
             username=username,
             avatar_url=str(avatar) if avatar else None,
             groups=groups,
-        ), access_token
+        ), ForgeToken(access_token, expires_in)
 
 
 def github_oauth(
