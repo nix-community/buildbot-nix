@@ -39,6 +39,17 @@ def read_secret_file(secret_file: Path) -> str:
     return Path(directory).joinpath(secret_file).read_text().rstrip()
 
 
+def resolve_credential_path(path: Path | None) -> Path | None:
+    """Relative secret paths are systemd LoadCredential names; resolve
+    them against $CREDENTIALS_DIRECTORY (mirrors read_secret_file)."""
+    if path is None or path.is_absolute():
+        return path
+    directory = os.environ.get("CREDENTIALS_DIRECTORY")
+    if directory is None:
+        return path
+    return Path(directory) / path
+
+
 # Note that serialization isn't correct, as there is no way to *rename* the
 # field `nix_type` to `_type`; one must always specify `by_alias=True`, such
 # as `model_dump(by_alias=True)`. Relevant issue:

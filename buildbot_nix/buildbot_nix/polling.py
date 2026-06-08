@@ -14,30 +14,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import random
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
+from .config import resolve_credential_path
 from .gitrepo import FetchCredentials, GitError, run_git
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 logger = logging.getLogger(__name__)
-
-
-def resolve_credential_path(path: Path | None) -> Path | None:
-    """Resolve a relative path against $CREDENTIALS_DIRECTORY.
-
-    The NixOS module configures only the systemd LoadCredential name;
-    the file lives in $CREDENTIALS_DIRECTORY (read_secret_file does the
-    same for other secrets).
-    """
-    if path is None or path.is_absolute():
-        return path
-    directory = os.environ.get("CREDENTIALS_DIRECTORY")
-    if directory is None:
-        return path
-    return Path(directory) / path
 
 
 @dataclass(frozen=True)

@@ -25,7 +25,13 @@ from .auth import (
     load_signing_keys,
     oidc_provider,
 )
-from .config import ConfigError, GiteaConfig, GitlabConfig, read_secret_file
+from .config import (
+    ConfigError,
+    GiteaConfig,
+    GitlabConfig,
+    read_secret_file,
+    resolve_credential_path,
+)
 from .db import BuildDB
 from .executor import BuildSettings, FairScheduler, NixBuildExecutor
 from .failed_builds import PostgresFailedBuildCache
@@ -75,7 +81,6 @@ from .service import (
     CIService,
     PullBasedCredentialsProvider,
     RetryingReporter,
-    resolve_credential_path,
 )
 
 logger = logging.getLogger(__name__)

@@ -20,11 +20,12 @@ from buildbot_nix.config import (
     Config,
     PullBasedConfig,
     PullBasedRepository,
+    resolve_credential_path,
 )
 from buildbot_nix.events import NullStatusReporter
 from buildbot_nix.forge import DiscoveredRepo, GitlabClient
 from buildbot_nix.scheduled import DueEffect, ScheduleWhen
-from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
+from buildbot_nix.service import scheduled_worktree_id
 from buildbot_nix.webhooks import ChangeRequest, PrClosed
 
 from .support import git, insert_build, insert_project

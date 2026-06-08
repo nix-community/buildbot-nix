@@ -9,12 +9,10 @@ import asyncio
 import contextlib
 import dataclasses
 import logging
-import os
 import re
 import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .config import ScheduleWhen
@@ -81,17 +79,6 @@ _STATIC_CREDENTIALS = StaticCredentialsProvider()
 DISCOVERY_INTERVAL = 60 * 60
 REFRESH_COOLDOWN = 60
 MAINTENANCE_INTERVAL = 60 * 60
-
-
-def resolve_credential_path(path: Path | None) -> Path | None:
-    """Relative secret paths are systemd LoadCredential names; resolve
-    them against $CREDENTIALS_DIRECTORY (mirrors read_secret_file)."""
-    if path is None or path.is_absolute():
-        return path
-    directory = os.environ.get("CREDENTIALS_DIRECTORY")
-    if directory is None:
-        return path
-    return Path(directory) / path
 
 
 def scheduled_worktree_id(due: DueEffect, run_id: int) -> str:
