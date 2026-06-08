@@ -19,7 +19,7 @@ from buildbot_nix.config import Config
 from buildbot_nix.db import BuildDB, BuildStatus
 from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
-from buildbot_nix.memory import calculate_eval_workers
+from buildbot_nix.memory import EvalWorkerConfig
 from buildbot_nix.nix_eval import EvalError, EvalResult, EvalSettings
 from buildbot_nix.orchestrator import AttributeExecutor, EvalRunnerLike, Orchestrator
 from buildbot_nix.recovery import fail_interrupted_effects
@@ -1043,7 +1043,20 @@ def test_eval_failure_cleans_cancel_events(
     asyncio.run(run())
 
 
-def test_eval_settings_wired(postgres_dsn: str, tmp_path: Path, upstream: Path) -> None:
+def test_eval_settings_wired(
+    postgres_dsn: str,
+    tmp_path: Path,
+    upstream: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Pin the auto-sizing: it reads live memory, which shifts under
+    # parallel test load.
+    monkeypatch.setattr(
+        orch_mod,
+        "calculate_eval_workers",
+        lambda: EvalWorkerConfig(count=3, max_memory_mib=1234),
+    )
+
     async def run() -> None:
         sha = add_commit(upstream, "setw")
         eval_runner = FakeEvalRunner([mk_job("a")])
@@ -1059,7 +1072,12 @@ def test_eval_settings_wired(postgres_dsn: str, tmp_path: Path, upstream: Path) 
             )
             settings = eval_runner.last_settings
             assert settings is not None
-            assert settings.worker_count == calculate_eval_workers().count
+            assert settings.worker_count == 3
+            # Auto-sized workers carry the computed per-worker memory
+            # limit, capped by the configured ceiling.
+            assert settings.max_memory_size_mib == min(
+                orchestrator.config.eval_max_memory_size, 1234
+            )
             assert settings.netrc_file == netrc
         finally:
             await pool.close()

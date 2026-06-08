@@ -101,7 +101,9 @@ def calculate_eval_workers(
     # If memory-limited, try to fit more workers with less memory each.
     if memory_based_workers < cpu_based_workers:
         possible_workers = min(
-            cpu_based_workers, memory_for_workers // MIN_EVAL_MEMORY_MIB
+            cpu_based_workers,
+            memory_for_workers // MIN_EVAL_MEMORY_MIB,
+            MAX_EVAL_WORKERS,
         )
         if possible_workers > optimal_workers:
             eval_max_memory = max(

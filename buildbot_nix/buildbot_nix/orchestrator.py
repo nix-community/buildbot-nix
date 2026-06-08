@@ -296,6 +296,36 @@ class Orchestrator:
             # cleanup the nix store grows unboundedly.
             shutil.rmtree(self._gcroots_dir(build), ignore_errors=True)
 
+    def _eval_settings(
+        self,
+        event: ChangeEvent,
+        build: BuildRecord,
+        credentials: FetchCredentials | None,
+    ) -> EvalSettings:
+        # Auto-sized workers come with a matching per-worker memory
+        # limit; the configured limit acts as a ceiling. An explicit
+        # worker count keeps the configured limit as-is.
+        if self.config.eval_worker_count:
+            worker_count = self.config.eval_worker_count
+            eval_max_memory = self.config.eval_max_memory_size
+        else:
+            worker_config = calculate_eval_workers()
+            worker_count = worker_config.count
+            eval_max_memory = min(
+                self.config.eval_max_memory_size, worker_config.max_memory_mib
+            )
+        return EvalSettings(
+            gc_roots_dir=self._gcroots_dir(build),
+            timeout=self.config.eval_timeout,
+            worker_count=worker_count,
+            max_memory_size_mib=eval_max_memory,
+            show_trace=self.config.show_trace_on_failure,
+            netrc_file=credentials.netrc_file if credentials is not None else None,
+            # The worktree's .git points into the central clone; the
+            # sandboxed evaluator needs to read it.
+            extra_ro_paths=[self.repos.clone_path(event.repo.key)],
+        )
+
     async def _run_build_inner(
         self,
         event: ChangeEvent,
@@ -307,18 +337,7 @@ class Orchestrator:
         await self.db.set_build_status(build.id, BuildStatus.EVALUATING)
 
         branch_config = BranchConfig.load(worktree_path)
-        eval_settings = EvalSettings(
-            gc_roots_dir=self._gcroots_dir(build),
-            timeout=self.config.eval_timeout,
-            worker_count=self.config.eval_worker_count
-            or calculate_eval_workers().count,
-            max_memory_size_mib=self.config.eval_max_memory_size,
-            show_trace=self.config.show_trace_on_failure,
-            netrc_file=credentials.netrc_file if credentials is not None else None,
-            # The worktree's .git points into the central clone; the
-            # sandboxed evaluator needs to read it.
-            extra_ro_paths=[self.repos.clone_path(event.repo.key)],
-        )
+        eval_settings = self._eval_settings(event, build, credentials)
         # Race the evaluation against the cancel event: a superseded
         # build must not hold the eval slot to completion.
         cancel_event = self.cancel_events.setdefault(build.id, asyncio.Event())

@@ -15,6 +15,7 @@ import pytest
 
 from buildbot_nix import nix_eval
 from buildbot_nix.memory import (
+    MAX_EVAL_WORKERS,
     EvalWorkerConfig,
     MemoryInfo,
     calculate_eval_workers,
@@ -196,6 +197,13 @@ def test_calculate_eval_workers() -> None:
         MemoryInfo(total_memory_mib=16384, available_memory_mib=4096), cpu_count=16
     )
     assert with_arc.count >= without_arc.count
+
+    # The memory-refit branch must not exceed the global worker cap on
+    # many-core, memory-limited hosts.
+    config = calculate_eval_workers(
+        MemoryInfo(total_memory_mib=49152, available_memory_mib=44000), cpu_count=64
+    )
+    assert config.count <= MAX_EVAL_WORKERS
 
 
 @pytest.mark.skipif(
