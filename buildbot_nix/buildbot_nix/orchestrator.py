@@ -489,9 +489,7 @@ class Orchestrator:
         async def record_early(result: AttributeResult) -> None:
             """Persist skips and dependency failures as they happen;
             otherwise they stay pending until the whole build ends."""
-            recorded = await self.db.get_attribute_statuses(build.id)
-            if recorded.get(result.attr) in (None, "pending", "building"):
-                await self.db.complete_attribute(build.id, result)
+            await self.db.complete_attribute(build.id, result, if_unfinished=True)
 
         failed_build_cache: FailedBuildCache | None = (
             self.failed_build_cache if self.config.cache_failed_builds else None
@@ -512,10 +510,8 @@ class Orchestrator:
 
         # Persist results the executor adapter didn't already write
         # (failed_eval, dependency_failed, cached_failure, skips).
-        recorded = await self.db.get_attribute_statuses(build.id)
         for result in schedule_result.results:
-            if recorded.get(result.attr) in (None, "pending", "building"):
-                await self.db.complete_attribute(build.id, result)
+            await self.db.complete_attribute(build.id, result, if_unfinished=True)
 
         # Skipped-as-local attributes still get gcroots/outputs
         # updates. A filesystem error here must not skip the final

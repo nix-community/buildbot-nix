@@ -688,3 +688,55 @@ def test_mark_attribute_building_sets_status_and_started_at(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_complete_attribute_if_unfinished_skips_terminal_rows(
+    postgres_dsn: str,
+) -> None:
+    """The early-result path must not overwrite an attribute that
+    already settled, without a per-result status round trip."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "if-unfinished")
+            db = BuildDB(pool)
+            build, _ = await db.get_or_create_build(project_id, "tree-u", "sha", "main")
+            job = mk_job("foo")
+
+            def result(status: AttributeStatus) -> AttributeResult:
+                return AttributeResult(
+                    attr="foo",
+                    status=status,
+                    job=job,
+                    drv_path=job.drv_path,
+                    system=job.system,
+                )
+
+            await db.record_attributes(build.id, [job])
+            await db.complete_attribute(
+                build.id, result(AttributeStatus.succeeded), if_unfinished=True
+            )
+            assert await db.get_attribute_statuses(build.id) == {"foo": "succeeded"}
+            await db.complete_attribute(
+                build.id, result(AttributeStatus.cancelled), if_unfinished=True
+            )
+            assert await db.get_attribute_statuses(build.id) == {"foo": "succeeded"}
+            job_b = mk_job("bar")
+            await db.complete_attribute(
+                build.id,
+                AttributeResult(
+                    attr="bar",
+                    status=AttributeStatus.skipped_local,
+                    job=job_b,
+                    drv_path=job_b.drv_path,
+                    system=job_b.system,
+                ),
+                if_unfinished=True,
+            )
+            statuses = await db.get_attribute_statuses(build.id)
+            assert statuses["bar"] == "skipped_local"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

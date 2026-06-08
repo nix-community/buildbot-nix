@@ -323,7 +323,7 @@ class BuildDB:
             drv_path,
         )
 
-    async def complete_attribute(
+    async def complete_attribute(  # noqa: PLR0913
         self,
         build_id: int,
         result: AttributeResult,
@@ -331,9 +331,12 @@ class BuildDB:
         log_path: str | None = None,
         log_size: int = 0,
         log_truncated: bool = False,
+        if_unfinished: bool = False,
     ) -> None:
         """Single transactional write: status, outputs, error and log
-        metadata together (crash-recovery invariant)."""
+        metadata together (crash-recovery invariant). With
+        if_unfinished, already-terminal rows are left untouched (early
+        results must not overwrite settled attributes)."""
         async with self.pool.acquire() as conn, conn.transaction():
             attr_id = await conn.fetchval(
                 """
@@ -356,6 +359,8 @@ class BuildDB:
                     error = EXCLUDED.error,
                     cached = EXCLUDED.cached,
                     finished_at = now()
+                WHERE NOT $9
+                    OR build_attributes.status IN ('pending', 'building')
                 RETURNING id
                 """,
                 build_id,
@@ -373,6 +378,7 @@ class BuildDB:
                     and isinstance(result.job, NixEvalJobSuccess)
                     and result.job.cache_status == CacheStatus.cached
                 ),
+                if_unfinished,
             )
             if log_path is not None:
                 # Reruns rewrite the same log file; replace the
