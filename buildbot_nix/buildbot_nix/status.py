@@ -125,12 +125,9 @@ class GitHubStatusPoster:
         description: str,
         target_url: str,
     ) -> None:
-        installation_id = self.client.repo_installations.get(f"{owner}/{repo}".lower())
+        installation_id = await self.client.installation_for_repo(f"{owner}/{repo}")
         if installation_id is None:
-            logger.warning(
-                "no installation for repo, dropping status",
-                extra={"repo": f"{owner}/{repo}"},
-            )
+            # installation_for_repo already logged the failed lookup.
             return
         token = await self.client.installation_token(installation_id)
         response = await self.client.http.post(

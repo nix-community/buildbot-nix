@@ -38,8 +38,8 @@ class RemoteHead:
 async def github_heads(
     client: GitHubAppClient, project: RepoRecord
 ) -> list[RemoteHead]:
-    installation_id = client.repo_installations.get(
-        f"{project.owner}/{project.name}".lower()
+    installation_id = await client.installation_for_repo(
+        f"{project.owner}/{project.name}"
     )
     if installation_id is None:
         return []

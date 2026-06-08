@@ -195,6 +195,30 @@ class GitHubAppClient:
         )
         return problems
 
+    async def installation_for_repo(self, name: str) -> int | None:
+        """Installation id for owner/repo, looked up on demand when
+        discovery has not filled the map yet (webhooks are served
+        before the initial discovery finishes)."""
+        cached = self.repo_installations.get(name.lower())
+        if cached is not None:
+            return cached
+        response = await self.http.get(
+            f"{self.api_url}/repos/{name}/installation",
+            headers={
+                "Authorization": f"Bearer {await self._app_jwt()}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        if response.status_code >= 400:  # noqa: PLR2004
+            logger.warning(
+                "no GitHub installation found for repo",
+                extra={"repo": name, "status": response.status_code},
+            )
+            return None
+        installation_id = int(response.json()["id"])
+        self.repo_installations[name.lower()] = installation_id
+        return installation_id
+
     async def list_installations(self) -> list[int]:
         installations = await self.paginated(
             f"{self.api_url}/app/installations?per_page=100", await self._app_jwt()
@@ -255,7 +279,7 @@ class GitHubFetchCredentialsProvider:
         name = _repo_name_from_url(repo_url)
         if name is None:
             return FetchCredentials()
-        installation_id = self.client.repo_installations.get(name.lower())
+        installation_id = await self.client.installation_for_repo(name)
         if installation_id is None:
             return FetchCredentials()
         # Fetch credentials reach PR-controlled paths (submodule

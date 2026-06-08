@@ -267,6 +267,34 @@ def test_github_fetch_credentials_repo_scoped(
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
+def test_github_credentials_before_discovery(github_client: GitHubAppClient) -> None:
+    """Webhooks are served before the initial discovery finishes; an
+    unknown repo's installation must be looked up on demand instead of
+    dropping credentials (private fetch and statuses would fail)."""
+    base = github_transport()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/acme/repo22/installation":
+            return httpx.Response(200, json={"id": 22})
+        response = base.handler(request)  # type: ignore[attr-defined]
+        assert isinstance(response, httpx.Response)
+        return response
+
+    github_client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async def run() -> None:
+        provider = GitHubFetchCredentialsProvider(github_client)
+        creds = await provider.get("https://github.com/acme/repo22.git")
+        assert creds.token == "ghs_token_22"  # noqa: S105
+        # Cached: later lookups must not re-query the API.
+        assert github_client.repo_installations["acme/repo22"] == 22
+        # Unknown repo (404) degrades to no credentials.
+        assert (await provider.get("https://github.com/acme/nope.git")).token is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
 def test_github_jwt_is_signed(github_client: GitHubAppClient) -> None:
     token = asyncio.run(github_client._app_jwt())  # noqa: SLF001
     header_b64, payload_b64, signature = token.split(".")
