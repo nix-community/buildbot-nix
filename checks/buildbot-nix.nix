@@ -329,8 +329,12 @@ in
 
     with subtest("gitea: buildbot-nix becomes healthy"):
         gitea.wait_for_unit("buildbot-nix.service")
+        # The gitea node keeps the default managed nginx vhost; the
+        # engine only listens on the unix socket there, so probe
+        # through nginx (the github node covers the plain TCP mode).
+        gitea.wait_for_unit("nginx.service")
         gitea.wait_until_succeeds(
-            "curl --fail -s http://127.0.0.1:8010/health", timeout=120
+            "curl --fail -s http://localhost/health", timeout=120
         )
 
     with subtest("gitea: project discovered and webhook registered"):
