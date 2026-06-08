@@ -460,7 +460,7 @@ def run_effects(  # noqa: PLR0913
     clear_env: set[str] = set()
     bwrap = shutil.which("bwrap")
     if bwrap is None:
-        msg = "bwrap' executable not found"
+        msg = "bwrap executable not found"
         raise BuildbotEffectsError(msg)
     work_dir, build_dir, etc_dir = _work_dirs()
     pass_env, pass_clear = pass_as_file_env(drv_env, build_dir)
