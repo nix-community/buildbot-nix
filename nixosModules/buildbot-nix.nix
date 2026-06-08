@@ -1209,6 +1209,9 @@ in
           "/" = {
             proxyPass = "http://unix:${webUnixSocket}";
             extraConfig = ''
+              # Webhook deliveries can exceed nginx's 1m default
+              # (GitHub caps payloads at 25 MB).
+              client_max_body_size 25m;
               proxy_connect_timeout 120s;
               proxy_send_timeout 120s;
               # Long timeout keeps SSE log streams alive.
