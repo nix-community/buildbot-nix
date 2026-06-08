@@ -6,6 +6,8 @@ metrics are aggregated by status/state only, never labeled by project.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
@@ -20,19 +22,19 @@ async def render_metrics(pool: asyncpg.Pool) -> str:
     # cleanup shrink the table-derived values, so they are not counters.
     lines: list[str] = []
 
-    lines.append("# HELP buildbot_nix_builds_total Builds by final status.")
-    lines.append("# TYPE buildbot_nix_builds_total gauge")
+    lines.append("# HELP buildbot_nix_builds Builds by final status.")
+    lines.append("# TYPE buildbot_nix_builds gauge")
     lines.extend(
-        f'buildbot_nix_builds_total{{status="{row["status"]}"}} {row["count"]}'
+        f'buildbot_nix_builds{{status="{row["status"]}"}} {row["count"]}'
         for row in await pool.fetch(
             "SELECT status, count(*) AS count FROM builds GROUP BY status"
         )
     )
 
-    lines.append("# HELP buildbot_nix_attributes_total Attribute results by status.")
-    lines.append("# TYPE buildbot_nix_attributes_total gauge")
+    lines.append("# HELP buildbot_nix_attributes Attribute results by status.")
+    lines.append("# TYPE buildbot_nix_attributes gauge")
     lines.extend(
-        f'buildbot_nix_attributes_total{{status="{row["status"]}"}} {row["count"]}'
+        f'buildbot_nix_attributes{{status="{row["status"]}"}} {row["count"]}'
         for row in await pool.fetch(
             "SELECT status, count(*) AS count FROM build_attributes GROUP BY status"
         )
@@ -76,13 +78,24 @@ async def render_metrics(pool: asyncpg.Pool) -> str:
     return "\n".join(lines) + "\n"
 
 
+# /metrics is unauthenticated: without a cache anyone could run the
+# full-table aggregations in a loop.
+CACHE_TTL = 15.0
+
+
 def create_metrics_router(pool: asyncpg.Pool) -> APIRouter:
     router = APIRouter()
+    cached: tuple[float, str] | None = None
+    lock = asyncio.Lock()
 
     @router.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> PlainTextResponse:
+        nonlocal cached
+        async with lock:  # one query burst even under concurrent scrapes
+            if cached is None or time.monotonic() - cached[0] > CACHE_TTL:
+                cached = (time.monotonic(), await render_metrics(pool))
         return PlainTextResponse(
-            await render_metrics(pool),
+            cached[1],
             media_type="text/plain; version=0.0.4",
         )
 

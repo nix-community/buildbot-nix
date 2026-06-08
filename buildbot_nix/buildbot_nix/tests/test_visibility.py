@@ -237,7 +237,7 @@ def test_cache_negative_results() -> None:
 def test_metrics_unauthenticated_no_private_names(harness: WebHarness) -> None:
     response = harness.get("/metrics")
     assert response.status_code == 200
-    assert "buildbot_nix_builds_total" in response.text
+    assert "buildbot_nix_builds" in response.text
     assert "buildbot_nix_queue_depth" in response.text
     assert "buildbot_nix_projects" in response.text
     # No private repo names leak into metrics.

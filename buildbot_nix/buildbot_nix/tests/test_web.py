@@ -291,10 +291,39 @@ def test_project_rows_fragment_filters(client: WebHarness) -> None:
 
 
 def test_metrics_are_gauges(client: WebHarness) -> None:
-    # Table-derived series shrink, so they must not be counters.
+    # Table-derived series shrink, so they must not be counters — and
+    # per Prometheus conventions non-monotonic series must not be
+    # named _total either.
     text = client.get("/metrics").text
-    assert "# TYPE buildbot_nix_builds_total gauge" in text
+    assert "# TYPE buildbot_nix_builds gauge" in text
+    assert "# TYPE buildbot_nix_attributes gauge" in text
+    assert "_total" not in text
     assert "counter" not in text
+
+
+def test_metrics_are_cached(client: WebHarness) -> None:
+    """/metrics is unauthenticated: a scrape (or a curl loop) must not
+    run full-table aggregations every time."""
+    ctx = client.ctx
+    first = client.get("/metrics").text
+
+    async def insert() -> int:
+        project_id = await ctx.pool.fetchval(
+            "SELECT id FROM projects WHERE name = 'widget'"
+        )
+        return await ctx.pool.fetchval(
+            "INSERT INTO builds (project_id, number, commit_sha, branch, status)"
+            " VALUES ($1, 70, 'm1', 'main', 'pending') RETURNING id",
+            project_id,
+        )
+
+    build_id = client.loop.run_until_complete(insert())
+    try:
+        assert client.get("/metrics").text == first
+    finally:
+        client.loop.run_until_complete(
+            ctx.pool.execute("DELETE FROM builds WHERE id = $1", build_id)
+        )
 
 
 def test_static_urls_carry_content_version(client: WebHarness) -> None:
