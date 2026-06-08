@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import time
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -334,7 +335,9 @@ def test_interrupted_effects_fail_on_recovery(postgres_dsn: str) -> None:
                 "effect) VALUES ($1, 's', 'beat')",
                 project_id,
             )
-            await fail_interrupted_effects(pool)
+            await fail_interrupted_effects(
+                pool, datetime.now(UTC) + timedelta(minutes=1)
+            )
             for table, column in [
                 ("build_effects", "build_id"),
                 ("scheduled_effect_runs", "project_id"),
@@ -347,6 +350,31 @@ def test_interrupted_effects_fail_on_recovery(postgres_dsn: str) -> None:
                 assert row["status"] == "failed"
                 assert "interrupted" in row["error"]
                 assert row["finished_at"] is not None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_interrupted_effects_sweep_spares_live_effects(postgres_dsn: str) -> None:
+    """The startup sweep runs concurrently with the work loop: effect
+    rows created after process start are live deploys and must not be
+    flipped to failed."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            build_id = await make_build(pool, "fx-live")
+            process_start = datetime.now(UTC)
+            await pool.execute(
+                "INSERT INTO build_effects (build_id, name) VALUES ($1, 'deploy')",
+                build_id,
+            )
+            await fail_interrupted_effects(pool, process_start)
+            status = await pool.fetchval(
+                "SELECT status FROM build_effects WHERE build_id = $1", build_id
+            )
+            assert status == "running"
         finally:
             await pool.close()
 

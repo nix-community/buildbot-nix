@@ -233,6 +233,9 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
         gitea=gitea,
         gitlab=gitlab,
         credentials_providers=credentials_providers,
+        # DB clock, not app clock: the crash sweep compares it against
+        # started_at columns set by now() in SQL.
+        _started_at=await pool.fetchval("SELECT now()"),
     )
     if reporter is not None:
         orchestrator.reporter = RetryingReporter(reporter, service)

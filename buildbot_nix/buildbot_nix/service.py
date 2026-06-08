@@ -13,6 +13,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -226,6 +227,9 @@ class CIService:
     _last_discovery: float = 0.0
     # Wakes the dispatcher early on local enqueues and completions.
     _work_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # Process start (DB clock when constructed via bootstrap): effect
+    # rows started after this are live deploys, not crash leftovers.
+    _started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def _credentials_provider(self, forge: str) -> CredentialsProvider:
         return self.credentials_providers.get(forge, _STATIC_CREDENTIALS)
@@ -622,7 +626,7 @@ class CIService:
         """Crash recovery: settle already-built attributes, then queue
         reruns for the rest. Builds interrupted mid-eval (no attribute
         rows) re-evaluate via the rerun path."""
-        await fail_interrupted_effects(self.pool)
+        await fail_interrupted_effects(self.pool, self._started_at)
         for resumable in await find_unfinished_builds(self.pool):
             remaining, settled = await settle_already_built(
                 self.orchestrator.db, resumable

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -1423,7 +1424,9 @@ def test_effect_items_resume_only_pending(
                 "UPDATE build_effects SET status = 'running' WHERE build_id = $1",
                 build.id,
             )
-            await fail_interrupted_effects(pool)
+            await fail_interrupted_effects(
+                pool, datetime.now(UTC) + timedelta(minutes=1)
+            )
             await orchestrator.run_effect_item(project, build, "deploy")
             assert ran == ["deploy"]
             # Crash before the run: the pending row resumes.

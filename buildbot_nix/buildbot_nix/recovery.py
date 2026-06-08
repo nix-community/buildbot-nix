@@ -38,6 +38,7 @@ from .scheduler import AttributeResult, AttributeStatus
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from datetime import datetime
 
     from .db import BuildDB
 
@@ -184,23 +185,29 @@ def _valid_paths_from_db(paths: list[str], nix_db: Path) -> set[str]:
         con.close()
 
 
-async def fail_interrupted_effects(pool: asyncpg.Pool) -> None:
+async def fail_interrupted_effects(
+    pool: asyncpg.Pool, started_before: datetime
+) -> None:
     """Settle effect rows left running by a crash: started effects
     never auto-re-run. Pending rows keep their queued items and run
-    after the requeue."""
+    after the requeue. Only rows started before `started_before`
+    (process start) are swept: the sweep runs concurrently with the
+    work loop, and newer rows are live effects."""
     await pool.execute(
         """
         UPDATE build_effects SET status = 'failed',
             error = 'interrupted by a service restart', finished_at = now()
-        WHERE status = 'running'
-        """
+        WHERE status = 'running' AND started_at < $1
+        """,
+        started_before,
     )
     await pool.execute(
         """
         UPDATE scheduled_effect_runs SET status = 'failed',
             error = 'interrupted by a service restart', finished_at = now()
-        WHERE status = 'running'
-        """
+        WHERE status = 'running' AND started_at < $1
+        """,
+        started_before,
     )
 
 
