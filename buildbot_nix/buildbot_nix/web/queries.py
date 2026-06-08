@@ -80,7 +80,7 @@ class WebQueries:
                 ORDER BY owner, name
                 """,
                 enabled,
-                f"%{_like_escape(q)}%" if q else None,
+                _like_pattern(q),
             )
         )
 
@@ -164,7 +164,7 @@ class WebQueries:
             ORDER BY p.owner, p.name
             """,
             project_ids,
-            f"%{_like_escape(q)}%" if q else None,
+            _like_pattern(q),
         )
         overview = _rows(rows)
         for row in overview:
