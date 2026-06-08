@@ -46,6 +46,10 @@ OOM_RETURN_CODES = (-9, 137)
 # which easily exceeds asyncio's 64 KiB default readline limit.
 STREAM_LIMIT = 64 * 1024 * 1024
 
+# Retain only the tail of evaluator stderr: huge eval traces (deep
+# --show-trace output) would otherwise be buffered unbounded in memory.
+STDERR_TAIL_LIMIT = 1024 * 1024
+
 JOB_BATCH_SIZE = 100
 # Flush a partial batch after this long without new output so trickling
 # evals still surface jobs promptly.
@@ -379,6 +383,18 @@ async def _drain(stream: asyncio.StreamReader) -> None:
         pass
 
 
+async def _read_stderr_tail(
+    stream: asyncio.StreamReader, limit: int = STDERR_TAIL_LIMIT
+) -> bytes:
+    """Read a stream to EOF keeping only the last `limit` bytes."""
+    buf = bytearray()
+    while chunk := await stream.read(64 * 1024):
+        buf += chunk
+        if len(buf) > 2 * limit:
+            del buf[:-limit]
+    return bytes(buf[-limit:])
+
+
 async def _read_job_stream(
     stdout: asyncio.StreamReader,
     jobs: list[NixEvalJob],
@@ -557,7 +573,7 @@ class EvalRunner:
 
         async def read_stderr() -> bytes:
             assert proc.stderr is not None  # noqa: S101
-            return await proc.stderr.read()
+            return await _read_stderr_tail(proc.stderr)
 
         try:
             async with asyncio.timeout(settings.timeout):

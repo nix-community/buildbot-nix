@@ -233,6 +233,29 @@ def test_eval_runner_integration(tmp_path: Path) -> None:
     assert any("eval warning here" in w for w in result.warnings)
 
 
+def test_stderr_tail_is_bounded(tmp_path: Path) -> None:
+    script = tmp_path / "noisy.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        "yes FILLER | head -c 3145728 >&2\n"
+        "echo 'final error marker' >&2\n"
+        "exit 1\n"
+    )
+    script.chmod(0o755)
+
+    async def run() -> None:
+        proc = await asyncio.create_subprocess_exec(
+            str(script), stderr=asyncio.subprocess.PIPE
+        )
+        assert proc.stderr is not None
+        tail = await nix_eval._read_stderr_tail(proc.stderr)  # noqa: SLF001
+        await proc.wait()
+        assert len(tail) <= nix_eval.STDERR_TAIL_LIMIT
+        assert tail.endswith(b"final error marker\n")
+
+    asyncio.run(run())
+
+
 def test_eval_runner_times_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(nix_eval, "build_full_command", lambda *_args: ["sleep", "60"])
     settings = EvalSettings(
