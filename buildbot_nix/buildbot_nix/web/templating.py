@@ -85,8 +85,19 @@ def duration_secs(value: float | None) -> str:
     return f"{seconds}s"
 
 
+def _forge_base(project: dict[str, Any]) -> str | None:
+    """Web URL base for forge links, or None for pull_based projects
+    with a non-http clone URL (an SSH remote makes no valid href)."""
+    url: str = project["url"]
+    if project["forge"] == "pull_based" and not url.startswith(("http://", "https://")):
+        return None
+    return url.removesuffix(".git")
+
+
 def commit_url(project: dict[str, Any], sha: str) -> str:
-    base = project["url"].removesuffix(".git")
+    base = _forge_base(project)
+    if base is None:
+        return ""
     if project["forge"] == "gitlab":
         return f"{base}/-/commit/{sha}"
     # GitHub and Gitea share the commit URL scheme.
@@ -105,7 +116,9 @@ def build_path(project: dict[str, Any], number: int) -> str:
 
 
 def pr_url(project: dict[str, Any], pr_number: int) -> str:
-    base = project["url"].removesuffix(".git")
+    base = _forge_base(project)
+    if base is None:
+        return ""
     if project["forge"] == "github":
         return f"{base}/pull/{pr_number}"
     if project["forge"] == "gitlab":
@@ -114,7 +127,9 @@ def pr_url(project: dict[str, Any], pr_number: int) -> str:
 
 
 def branch_url(project: dict[str, Any], branch: str) -> str:
-    base = project["url"].removesuffix(".git")
+    base = _forge_base(project)
+    if base is None:
+        return ""
     if project["forge"] == "github":
         return f"{base}/tree/{quote(branch)}"
     if project["forge"] == "gitlab":

@@ -7,56 +7,65 @@
     <span class="status-icon {{ status }}" aria-hidden="true"></span>
   {%- endif -%}
 {%- endmacro %}
+{# The *_url helpers return "" for pull_based projects with non-http
+   clone URLs; render plain text instead of a broken href then. #}
+{% macro maybe_link(url) -%}
+  {%- if url -%}
+    <a href="{{ url }}" rel="nofollow">{{ caller() }}</a>
+  {%- else -%}
+    {{ caller() }}
+  {%- endif -%}
+{%- endmacro %}
 {% macro ref_link(project, build) -%}
   {%- if build.pr_number -%}
-    <a href="{{ pr_url(project, build.pr_number) }}" rel="nofollow">PR #{{ build.pr_number }}</a>
-  {%- else -%}
-    <a href="{{ branch_url(project, build.branch) }}" rel="nofollow">{{ build.branch }}</a>
-  {%- endif -%}
-{%- endmacro %}
-{% macro commit_link(project, sha) -%}
-  <a href="{{ commit_url(project, sha) }}" rel="nofollow"><code>{{ sha[:10] }}</code></a>
-{%- endmacro %}
-{% macro ago(ts) -%}
-  <time datetime="{{ ts.isoformat() }}" title="{{ ts }}">{{ ts | timeago }}</time>
-{%- endmacro %}
-{% macro status_pill(status) -%}
-  <span class="status {{ status }}">{{ status.replace('_', ' ') }}</span>
-{%- endmacro %}
-{# Pull-based projects carry a local path, not a web URL. #}
-{% macro project_link(p, class="") -%}
-  {%- if p.url.startswith("http") -%}
-    <a {% if class %}class="{{ class }}"{% endif %} href="{{ p.url }}">{{ repo_name(p.owner, p.name) }}</a>
-  {%- elif class -%}
-    <span class="{{ class }}">{{ repo_name(p.owner, p.name) }}</span>
-  {%- else -%}
-    {{ repo_name(p.owner, p.name) }}
-  {%- endif -%}
-{%- endmacro %}
-{% macro toggle_form(p, q, label) -%}
-  <form method="post"
-        action="/admin/repos/{{ p.id }}/toggle"
-        hx-post="/admin/repos/{{ p.id }}/toggle"
-        hx-select="#main"
-        hx-target="#main"
-        hx-swap="morph:outerHTML">
-    <input type="hidden" name="q" value="{{ q }}">
-    <button class="toggle-btn">{{ label }}</button>
-  </form>
-{%- endmacro %}
-{% macro copy_btn(value, label) -%}
-  <button class="copy-btn"
-          type="button"
-          data-copy="{{ value }}"
-          aria-label="copy {{ label }}">copy</button>
-{%- endmacro %}
-{% macro error_row(error, colspan=3) -%}
-  <tr>
-    <td colspan="{{ colspan }}">
-      <details class="error">
-        <summary>{{ error | plain | excerpt(160) }}</summary>
-        <pre class="error">{{ error | ansi }}</pre>
-      </details>
-    </td>
-  </tr>
-{%- endmacro %}
+    {%- call maybe_link(pr_url(project, build.pr_number)) -%}PR #{{ build.pr_number }}{%- endcall -%}
+    {%- else -%}
+      {%- call maybe_link(branch_url(project, build.branch)) -%}{{ build.branch }}{%- endcall -%}
+      {%- endif -%}
+    {%- endmacro %}
+    {% macro commit_link(project, sha) -%}
+      {%- call maybe_link(commit_url(project, sha)) -%}<code>{{ sha[:10] }}</code>{%- endcall -%}
+    {%- endmacro %}
+    {% macro ago(ts) -%}
+      <time datetime="{{ ts.isoformat() }}" title="{{ ts }}">{{ ts | timeago }}</time>
+    {%- endmacro %}
+    {% macro status_pill(status) -%}
+      <span class="status {{ status }}">{{ status.replace('_', ' ') }}</span>
+    {%- endmacro %}
+    {# Pull-based projects carry a local path, not a web URL. #}
+    {% macro project_link(p, class="") -%}
+      {%- if p.url.startswith("http") -%}
+        <a {% if class %}class="{{ class }}"{% endif %} href="{{ p.url }}">{{ repo_name(p.owner, p.name) }}</a>
+      {%- elif class -%}
+        <span class="{{ class }}">{{ repo_name(p.owner, p.name) }}</span>
+      {%- else -%}
+        {{ repo_name(p.owner, p.name) }}
+      {%- endif -%}
+    {%- endmacro %}
+    {% macro toggle_form(p, q, label) -%}
+      <form method="post"
+            action="/admin/repos/{{ p.id }}/toggle"
+            hx-post="/admin/repos/{{ p.id }}/toggle"
+            hx-select="#main"
+            hx-target="#main"
+            hx-swap="morph:outerHTML">
+        <input type="hidden" name="q" value="{{ q }}">
+        <button class="toggle-btn">{{ label }}</button>
+      </form>
+    {%- endmacro %}
+    {% macro copy_btn(value, label) -%}
+      <button class="copy-btn"
+              type="button"
+              data-copy="{{ value }}"
+              aria-label="copy {{ label }}">copy</button>
+    {%- endmacro %}
+    {% macro error_row(error, colspan=3) -%}
+      <tr>
+        <td colspan="{{ colspan }}">
+          <details class="error">
+            <summary>{{ error | plain | excerpt(160) }}</summary>
+            <pre class="error">{{ error | ansi }}</pre>
+          </details>
+        </td>
+      </tr>
+    {%- endmacro %}

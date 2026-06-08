@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import error_row, status_icon, status_pill %}
+{% from "_macros.html" import commit_link, error_row, maybe_link, status_icon, status_pill %}
 {% block title %}
   {{ repo_name(project.owner,
     project.name) }} #{{ build.number }}
@@ -44,9 +44,12 @@
           <p class="build-meta">
             branch {{ build.branch }}
             {% if build.pr_number %}
-              · <a href="{{ pr_url(project, build.pr_number) }}">PR #{{ build.pr_number }}</a>
+              ·
+              {% call maybe_link(pr_url(project, build.pr_number)) %}
+                PR #{{ build.pr_number }}
+              {% endcall %}
             {% endif %}
-            · commit <a href="{{ commit_url(project, build.commit_sha) }}"><code>{{ build.commit_sha[:10] }}</code></a>
+            · commit {{ commit_link(project, build.commit_sha) }}
             · <time datetime="{{ build.created_at.isoformat() }}"
        title="{{ build.created_at }}">{{ build.created_at | timeago }}</time>
             · took {{ build | duration }}

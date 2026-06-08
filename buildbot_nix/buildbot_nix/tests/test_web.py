@@ -36,7 +36,13 @@ from buildbot_nix.web.logs import (
     strip_ansi,
 )
 from buildbot_nix.web.state_routes import create_state_router
-from buildbot_nix.web.templating import branch_url, commit_url, pr_url, timeago
+from buildbot_nix.web.templating import (
+    branch_url,
+    commit_url,
+    make_env,
+    pr_url,
+    timeago,
+)
 
 from .e2e.support import seed
 from .support import (
@@ -519,6 +525,31 @@ def test_forge_urls() -> None:
         commit_url(gitlab, "abc")
         == "https://gitlab.example.com/acme/widget/-/commit/abc"
     )
+
+    # pull_based with an SSH clone URL: no valid href can be built,
+    # the helpers return "" and templates fall back to plain text.
+    ssh = {"forge": "pull_based", "url": "git@host.example.com:acme/widget.git"}
+    assert commit_url(ssh, "abc") == ""
+    assert branch_url(ssh, "main") == ""
+    assert pr_url(ssh, 7) == ""
+    # ... but http(s) pull_based URLs keep their links.
+    http = {"forge": "pull_based", "url": "https://host.example.com/acme/widget.git"}
+    assert commit_url(http, "abc") == "https://host.example.com/acme/widget/commit/abc"
+
+
+def test_link_macros_plain_for_ssh_pull_based() -> None:
+    """SSH clone URLs of pull_based projects must not leak into hrefs;
+    the macros fall back to plain text."""
+    env = make_env()
+    project = {"forge": "pull_based", "url": "git@host.example.com:acme/machine.git"}
+    out = env.from_string(
+        '{% from "_macros.html" import commit_link, ref_link %}'
+        '{{ commit_link(p, "c" * 40) }} {{ ref_link(p, b) }}'
+    ).render(p=project, b={"pr_number": None, "branch": "main"})
+    assert "git@" not in out
+    assert "<a" not in out
+    assert "cccccccccc" in out
+    assert "main" in out
 
 
 # --- log viewer / streaming / raw download ---------------------------
