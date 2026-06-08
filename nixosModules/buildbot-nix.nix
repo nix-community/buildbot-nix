@@ -74,6 +74,8 @@ let
               topic = cfg.gitlab.topic;
             };
             token_file = "gitlab-token";
+            oauth_id = cfg.gitlab.oauthId;
+            oauth_secret_file = if cfg.gitlab.oauthSecretFile != null then "gitlab-oauth-secret" else null;
             ssh_private_key_file = if cfg.gitlab.sshPrivateKeyFile != null then "gitlab-ssh-key" else null;
             ssh_known_hosts_file = cfg.gitlab.sshKnownHostsFile;
           };
@@ -689,6 +691,18 @@ in
         description = "GitLab access token file (api scope).";
       };
 
+      oauthId = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "GitLab OAuth application id, used for the login button.";
+      };
+
+      oauthSecretFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "GitLab OAuth application secret file.";
+      };
+
       userAllowlist = lib.mkOption {
         type = lib.types.nullOr (lib.types.listOf lib.types.str);
         default = null;
@@ -1028,6 +1042,10 @@ in
         message = "gitea.oauthId and gitea.oauthSecretFile must be set together.";
       }
       {
+        assertion = (cfg.gitlab.oauthId != null) == (cfg.gitlab.oauthSecretFile != null);
+        message = "gitlab.oauthId and gitlab.oauthSecretFile must be set together.";
+      }
+      {
         assertion =
           cfg.oidc.enable
           -> (
@@ -1128,6 +1146,9 @@ in
             cfg.gitea.enable && cfg.gitea.sshPrivateKeyFile != null
           ) "gitea-ssh-key:${cfg.gitea.sshPrivateKeyFile}"
           ++ lib.optional cfg.gitlab.enable "gitlab-token:${cfg.gitlab.tokenFile}"
+          ++ lib.optional (
+            cfg.gitlab.enable && cfg.gitlab.oauthSecretFile != null
+          ) "gitlab-oauth-secret:${cfg.gitlab.oauthSecretFile}"
           ++ lib.optional (
             cfg.gitlab.enable && cfg.gitlab.sshPrivateKeyFile != null
           ) "gitlab-ssh-key:${cfg.gitlab.sshPrivateKeyFile}"

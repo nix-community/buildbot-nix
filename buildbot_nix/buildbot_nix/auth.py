@@ -480,6 +480,26 @@ def gitea_oauth(instance_url: str, client_id: str, client_secret: str) -> OAuthP
     )
 
 
+def gitlab_oauth(
+    instance_url: str, client_id: str, client_secret: str
+) -> OAuthProvider:
+    base = instance_url.rstrip("/")
+    return OAuthProvider(
+        name="gitlab",
+        authorize_url=f"{base}/oauth/authorize",
+        token_url=f"{base}/oauth/token",
+        userinfo_url=f"{base}/api/v4/user",
+        client_id=client_id,
+        client_secret=client_secret,
+        # read_api is required so the visibility repo-set fetch
+        # (GET /api/v4/projects?membership=true) works.
+        scope="read_user read_api",
+        username_field="username",
+        avatar_field="avatar_url",
+        provider_id="gitlab",
+    )
+
+
 async def oidc_provider(  # noqa: PLR0913
     http: httpx.AsyncClient,
     discovery_url: str,

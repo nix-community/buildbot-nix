@@ -22,6 +22,7 @@ from .auth import (
     SessionSigner,
     gitea_oauth,
     github_oauth,
+    gitlab_oauth,
     load_signing_keys,
     oidc_provider,
 )
@@ -125,6 +126,12 @@ async def _login_providers(config: Config) -> dict[str, OAuthProvider]:
             config.gitea.instance_url,
             config.gitea.oauth_id,
             config.gitea.oauth_secret,
+        )
+    if config.gitlab is not None and config.gitlab.oauth_id:
+        providers["gitlab"] = gitlab_oauth(
+            config.gitlab.instance_url,
+            config.gitlab.oauth_id,
+            config.gitlab.oauth_secret,
         )
     if config.oidc is not None:
         try:
@@ -269,6 +276,10 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
         fetcher=ForgeRepoAccessFetcher(
             httpx.AsyncClient(),
             gitea_url=config.gitea.instance_url if config.gitea else None,
+            gitlab_url=config.gitlab.instance_url if config.gitlab else None,
+            github_api_url=config.github.api_url
+            if config.github
+            else "https://api.github.com",
         ),
         cache=AccessCache(config.repo_acl_cache_ttl),
     )
@@ -287,7 +298,7 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
             ),
             include_in_schema=False,
         )
-        labels = {"github": "GitHub", "gitea": "Gitea"}
+        labels = {"github": "GitHub", "gitea": "Gitea", "gitlab": "GitLab"}
         if config.oidc is not None:
             labels["oidc"] = config.oidc.name
         ctx.env.globals["login_providers"] = [

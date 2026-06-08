@@ -15,7 +15,12 @@ import pytest
 from buildbot_nix.api_tokens import ApiTokenStore
 from buildbot_nix.auth import AuthzConfig, User
 from buildbot_nix.forge_tokens import ForgeTokenStore
-from buildbot_nix.visibility import AccessCache, RepoAccess, VisibilityService
+from buildbot_nix.visibility import (
+    AccessCache,
+    ForgeRepoAccessFetcher,
+    RepoAccess,
+    VisibilityService,
+)
 from buildbot_nix.web.auth_routes import SESSION_COOKIE, create_auth_router
 
 from .support import (
@@ -344,3 +349,60 @@ def test_logout_invalidates_access_cache(postgres_dsn: str) -> None:
         headers = cookie_header({SESSION_COOKIE: cookie}) | {"Origin": "http://test"}
         assert h.run(h.http.post("/logout", headers=headers)).status_code == 303
         assert visibility.cache.get(CAROL.qualified) is None
+
+
+def test_gitlab_repo_access_fetcher() -> None:
+    """Private GitLab projects were invisible to everyone but admins
+    because no GitLab access fetcher existed."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v4/projects"
+        assert request.url.params["membership"] == "true"
+        assert request.headers["Authorization"] == "Bearer tok-gl"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 31,
+                    "permissions": {
+                        "project_access": {"access_level": 40},
+                        "group_access": None,
+                    },
+                },
+                {
+                    "id": 32,
+                    "permissions": {
+                        "project_access": None,
+                        "group_access": {"access_level": 20},
+                    },
+                },
+            ],
+        )
+
+    fetcher = ForgeRepoAccessFetcher(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        gitlab_url="https://gitlab.example.com",
+    )
+    user = User(provider="gitlab", username="dora")
+    access = asyncio.run(fetcher.repo_access(user, "tok-gl"))
+    assert access.accessible == frozenset({"gitlab:31", "gitlab:32"})
+    assert access.admin == frozenset({"gitlab:31"})
+
+
+def test_github_repo_access_fetcher_enterprise_api_url() -> None:
+    """GitHub Enterprise: the fetch must hit the configured API base,
+    not hardcoded api.github.com."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "ghe.example.com"
+        assert request.url.path == "/api/v3/user/repos"
+        return httpx.Response(200, json=[{"id": 5, "permissions": {"admin": True}}])
+
+    fetcher = ForgeRepoAccessFetcher(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        github_api_url="https://ghe.example.com/api/v3",
+    )
+    user = User(provider="github", username="erik")
+    access = asyncio.run(fetcher.repo_access(user, "tok"))
+    assert access.accessible == frozenset({"github:5"})
+    assert access.admin == frozenset({"github:5"})

@@ -106,12 +106,22 @@ class GitlabConfig(BaseModel):
 
     token_file: Path = Field(default=Path("gitlab-token"))
 
+    oauth_id: str | None = None
+    oauth_secret_file: Path | None = None
+
     ssh_private_key_file: Path | None = None
     ssh_known_hosts_file: Path | None = None
 
     @property
     def token(self) -> str:
         return read_secret_file(self.token_file)
+
+    @property
+    def oauth_secret(self) -> str:
+        if self.oauth_secret_file is None:
+            msg = "gitlab.oauth_id is set but gitlab.oauth_secret_file is missing"
+            raise ConfigError(msg)
+        return read_secret_file(self.oauth_secret_file)
 
     model_config = ConfigDict(
         extra="forbid",

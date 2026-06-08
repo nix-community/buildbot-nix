@@ -21,6 +21,8 @@ import httpx
 from .auth import can_view_private, is_admin
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import asyncpg
 
     from .auth import AuthzConfig, User
@@ -76,33 +78,57 @@ class RepoAccessFetcher(Protocol):
     async def repo_access(self, user: User, token: str) -> RepoAccess: ...
 
 
+# GitLab access_level for Maintainer; the lowest level allowed to
+# manage CI settings, mapped to our per-repo "admin" permission.
+_GITLAB_MAINTAINER = 40
+
+
 class ForgeRepoAccessFetcher:
     """Lists the user's accessible repos with their own OAuth token."""
 
-    def __init__(self, http: httpx.AsyncClient, gitea_url: str | None = None) -> None:
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        gitea_url: str | None = None,
+        gitlab_url: str | None = None,
+        github_api_url: str = "https://api.github.com",
+    ) -> None:
         self.http = http
         self.gitea_url = gitea_url.rstrip("/") if gitea_url else None
+        self.gitlab_url = gitlab_url.rstrip("/") if gitlab_url else None
+        self.github_api_url = github_api_url.rstrip("/")
 
     async def repo_access(self, user: User, token: str) -> RepoAccess:
         if user.provider == "github":
             return await self._github(token)
         if user.provider == "gitea" and self.gitea_url:
             return await self._gitea(token)
+        if user.provider == "gitlab" and self.gitlab_url:
+            return await self._gitlab(token)
         return RepoAccess(frozenset(), frozenset())
 
-    async def _github(self, token: str) -> RepoAccess:
+    async def _link_paginated(self, url: str | None, token: str) -> list[dict]:
+        """Follow RFC 5988 Link headers (GitHub and GitLab pagination).
+        Raises instead of truncating: a partial/empty set cached by the
+        caller would hide private projects for the whole TTL."""
         repos: list[dict] = []
-        url: str | None = "https://api.github.com/user/repos?per_page=100"
         while url:
             response = await self.http.get(
                 url, headers={"Authorization": f"Bearer {token}"}
             )
-            # Raise instead of truncating: a partial/empty set cached by
-            # the caller would hide private projects for the whole TTL.
             response.raise_for_status()
             repos += response.json()
             url = response.links.get("next", {}).get("url")
-        return _collect("github", repos)
+        return repos
+
+    async def _github(self, token: str) -> RepoAccess:
+        return _collect(
+            "github",
+            await self._link_paginated(
+                f"{self.github_api_url}/user/repos?per_page=100", token
+            ),
+            _flag_admin,
+        )
 
     async def _gitea(self, token: str) -> RepoAccess:
         repos: list[dict] = []
@@ -113,20 +139,44 @@ class ForgeRepoAccessFetcher:
                 headers={"Authorization": f"Bearer {token}"},
             )
             response.raise_for_status()
-            if not response.json():
-                return _collect("gitea", repos)
-            repos += response.json()
+            data = response.json()
+            if not data:
+                return _collect("gitea", repos, _flag_admin)
+            repos += data
             page += 1
 
+    async def _gitlab(self, token: str) -> RepoAccess:
+        return _collect(
+            "gitlab",
+            await self._link_paginated(
+                f"{self.gitlab_url}/api/v4/projects?membership=true&per_page=100",
+                token,
+            ),
+            _gitlab_admin,
+        )
 
-def _collect(forge: str, repos: list[dict]) -> RepoAccess:
-    """Both forges report per-repo permissions in the listing itself."""
+
+def _flag_admin(repo: dict) -> bool:
+    """GitHub and Gitea report an admin flag in the repo listing."""
+    return bool((repo.get("permissions") or {}).get("admin"))
+
+
+def _gitlab_admin(repo: dict) -> bool:
+    permissions = repo.get("permissions") or {}
+    levels = (
+        (permissions.get("project_access") or {}).get("access_level", 0),
+        (permissions.get("group_access") or {}).get("access_level", 0),
+    )
+    return max(levels) >= _GITLAB_MAINTAINER
+
+
+def _collect(
+    forge: str, repos: list[dict], is_admin: Callable[[dict], bool]
+) -> RepoAccess:
     keys = [(f"{forge}:{repo['id']}", repo) for repo in repos]
     return RepoAccess(
         accessible=frozenset(key for key, _ in keys),
-        admin=frozenset(
-            key for key, repo in keys if repo.get("permissions", {}).get("admin")
-        ),
+        admin=frozenset(key for key, repo in keys if is_admin(repo)),
     )
 
 
