@@ -342,7 +342,16 @@ class BuildDB:
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, now())
                 ON CONFLICT (build_id, attr) DO UPDATE SET
                     status = EXCLUDED.status,
-                    outputs = EXCLUDED.outputs,
+                    -- Eval recorded the full outputs map (multi-output
+                    -- drvs); merge the freshly-known "out" path into it
+                    -- instead of replacing it, and never NULL an
+                    -- existing map when no out path is known.
+                    outputs = CASE
+                        WHEN EXCLUDED.outputs IS NULL
+                            THEN build_attributes.outputs
+                        ELSE COALESCE(build_attributes.outputs, '{}'::jsonb)
+                            || EXCLUDED.outputs
+                    END,
                     error = EXCLUDED.error,
                     cached = EXCLUDED.cached,
                     finished_at = now()

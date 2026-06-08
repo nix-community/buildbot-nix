@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import asyncpg
 import pytest
@@ -397,6 +398,75 @@ def test_pr_does_not_capture_branch_push_build(postgres_dsn: str) -> None:
             )
             assert row["pr_number"] is None
             assert row["pr_author"] is None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_complete_attribute_preserves_eval_outputs(postgres_dsn: str) -> None:
+    # Eval records the full outputs map (multi-output drvs); completion
+    # must merge the freshly-known "out" path into it, not replace the
+    # map, and must never NULL an existing map when no out path is
+    # known (restarted/cancelled attributes).
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "multi-out")
+            db = BuildDB(pool)
+            build, _ = await db.get_or_create_build(project_id, "tree-o", "sha", "main")
+            job = mk_job("foo")
+            job = job.model_copy(
+                update={
+                    "outputs": {
+                        "out": "/nix/store/foo-out",
+                        "dev": "/nix/store/foo-dev",
+                    }
+                }
+            )
+            await db.record_attributes(build.id, [job])
+
+            async def outputs() -> dict:
+                return json.loads(
+                    await pool.fetchval(
+                        "SELECT outputs FROM build_attributes "
+                        "WHERE build_id = $1 AND attr = 'foo'",
+                        build.id,
+                    )
+                )
+
+            # Completion without an out path (e.g. cancelled) keeps the map.
+            await db.complete_attribute(
+                build.id,
+                AttributeResult(
+                    attr="foo",
+                    status=AttributeStatus.cancelled,
+                    job=job,
+                    drv_path=job.drv_path,
+                    system=job.system,
+                ),
+            )
+            assert await outputs() == {
+                "out": "/nix/store/foo-out",
+                "dev": "/nix/store/foo-dev",
+            }
+
+            # Successful completion updates "out" but keeps "dev".
+            await db.complete_attribute(
+                build.id,
+                AttributeResult(
+                    attr="foo",
+                    status=AttributeStatus.succeeded,
+                    job=job,
+                    out_path="/nix/store/foo-out-new",
+                    drv_path=job.drv_path,
+                    system=job.system,
+                ),
+            )
+            assert await outputs() == {
+                "out": "/nix/store/foo-out-new",
+                "dev": "/nix/store/foo-dev",
+            }
         finally:
             await pool.close()
 
