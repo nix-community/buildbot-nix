@@ -114,21 +114,29 @@ def _run_effect_derivation(drv_path: str, options: EffectsOptions) -> None:
     )
 
 
-def run_command(args: argparse.Namespace) -> None:
-    options = _options_from_args(args)
-    effect = args.effect
-
-    # Support flakeref#effect syntax: github:org/repo/branch#my-effect
-    if "#" in effect:
-        flake_ref, _, effect = effect.partition("#")
-        options = options_from_flake_ref(flake_ref, options)
-    elif ":" in effect or effect.startswith("/"):
+def _split_flake_ref(
+    name: str, options: EffectsOptions, usage: str
+) -> tuple[str, EffectsOptions]:
+    """Split flakeref#name syntax (e.g. github:org/repo/branch#my-effect);
+    reject a bare flake ref, which would otherwise be treated as a name."""
+    if "#" in name:
+        flake_ref, _, name = name.partition("#")
+        return name, options_from_flake_ref(flake_ref, options)
+    if ":" in name or name.startswith("/"):
         print(
-            f"error: '{effect}' looks like a flake reference but is missing '#<effect>'\n"
-            f"  usage: buildbot-effects run {effect}#<effect-name>",
+            f"error: '{name}' looks like a flake reference but is missing the"
+            f" '#' fragment\n  usage: {usage}",
             file=sys.stderr,
         )
         sys.exit(1)
+    return name, options
+
+
+def run_command(args: argparse.Namespace) -> None:
+    options = _options_from_args(args)
+    effect, options = _split_flake_ref(
+        args.effect, options, f"buildbot-effects run {args.effect}#<effect-name>"
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         gcroot = Path(tmpdir) / "result"
@@ -153,20 +161,12 @@ def list_schedules_command(args: argparse.Namespace) -> None:
 def run_scheduled_command(args: argparse.Namespace) -> None:
     """Run a specific effect from a schedule."""
     options = _options_from_args(args)
-    schedule_name = args.schedule_name
     effect = args.effect
-
-    # Support flakeref#schedule syntax: github:org/repo/branch#my-schedule
-    if "#" in schedule_name:
-        flake_ref, _, schedule_name = schedule_name.partition("#")
-        options = options_from_flake_ref(flake_ref, options)
-    elif ":" in schedule_name or schedule_name.startswith("/"):
-        print(
-            f"error: '{schedule_name}' looks like a flake reference but is missing '#<schedule>'\n"
-            f"  usage: buildbot-effects run-scheduled {schedule_name}#<schedule-name> <effect>",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    schedule_name, options = _split_flake_ref(
+        args.schedule_name,
+        options,
+        f"buildbot-effects run-scheduled {args.schedule_name}#<schedule-name> <effect>",
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         gcroot = Path(tmpdir) / "result"
