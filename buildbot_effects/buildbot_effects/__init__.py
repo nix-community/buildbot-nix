@@ -142,7 +142,8 @@ def _flake_url(opts: EffectsOptions, rev: str) -> str:
     return f"git+file://{opts.path}?rev={rev}#"
 
 
-def effect_function(opts: EffectsOptions) -> str:
+def _effects_expr(opts: EffectsOptions, accessor: str) -> str:
+    """Nix expression selecting `accessor` from the herculesCI/effects output."""
     args = effects_args(opts)
     rev = args["rev"]
     escaped_args = json.dumps(json.dumps(args))
@@ -161,32 +162,17 @@ def effect_function(opts: EffectsOptions) -> str:
           {{}}
         else
           (flake.outputs.${{outputName}}
-            (builtins.fromJSON {escaped_args})).onPush.default.outputs.effects or {{}}
+            (builtins.fromJSON {escaped_args})).{accessor} or {{}}
     """
+
+
+def effect_function(opts: EffectsOptions) -> str:
+    return _effects_expr(opts, "onPush.default.outputs.effects")
 
 
 def scheduled_effect_function(opts: EffectsOptions) -> str:
     """Generate Nix expression to evaluate onSchedule attributes."""
-    args = effects_args(opts)
-    rev = args["rev"]
-    escaped_args = json.dumps(json.dumps(args))
-    url = json.dumps(_flake_url(opts, rev))
-    return f"""
-      let
-        flake = builtins.getFlake {url};
-        outputName = if flake.outputs ? herculesCI then
-          "herculesCI"
-        else if flake.outputs ? effects then
-          "effects"
-        else
-          null;
-      in
-        if outputName == null then
-          {{}}
-        else
-          (flake.outputs.${{outputName}}
-            (builtins.fromJSON {escaped_args})).onSchedule or {{}}
-    """
+    return _effects_expr(opts, "onSchedule")
 
 
 def list_effects(opts: EffectsOptions) -> list[str]:
