@@ -66,6 +66,18 @@ def test_should_run_effects_pr_gated() -> None:
     )
 
 
+def test_should_run_effects_pr_targeting_default_branch_gated() -> None:
+    """Webhooks store the PR's BASE ref in event.branch, so a PR
+    targeting the default branch must still respect the PR gate."""
+    assert not should_run_effects(BranchConfig(), "main", "main", is_pull_request=True)
+    assert should_run_effects(
+        BranchConfig(effects_on_pull_requests=True),
+        "main",
+        "main",
+        is_pull_request=True,
+    )
+
+
 def test_should_run_effects_branch_globs() -> None:
     config = BranchConfig(effects_branches=["release-*", "staging"])
     assert should_run_effects(config, "main", "release-1.0", is_pull_request=False)

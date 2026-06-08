@@ -72,11 +72,15 @@ def should_run_effects(
     *,
     is_pull_request: bool,
 ) -> bool:
-    """Effects scope follows the default branch's repo config."""
-    if branch == default_branch:
-        return True
+    """Effects scope follows the default branch's repo config.
+
+    PRs first: webhooks store the PR's BASE ref in `branch`, so a PR
+    targeting the default branch must not match the default-branch rule.
+    """
     if is_pull_request:
         return default_branch_config.effects_on_pull_requests
+    if branch == default_branch:
+        return True
     return any(
         fnmatch(branch, pattern) for pattern in default_branch_config.effects_branches
     )
