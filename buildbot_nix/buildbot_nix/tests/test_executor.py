@@ -9,11 +9,13 @@ import asyncio
 import contextlib
 import os
 import stat
+import time
 from typing import TYPE_CHECKING
 
 import pytest
 
 from buildbot_nix.executor import (
+    FRAME_FLUSH_THRESHOLD,
     SUBSCRIBER_QUEUE_MAXSIZE,
     BuildSettings,
     FairScheduler,
@@ -150,6 +152,36 @@ def test_log_writer_subscribe_with_history(tmp_path: Path) -> None:
         assert await queue.get() is None
 
     asyncio.run(run())
+
+
+def test_log_writer_concurrent_flush_keeps_frame_order(tmp_path: Path) -> None:
+    """A snapshot racing a threshold flush must not write zstd frames
+    out of order (or share the compressor across threads)."""
+
+    async def run() -> bytes:
+        writer = LogWriter(path=tmp_path / "log.zst")
+        orig_compress = writer._compressor.compress  # noqa: SLF001
+
+        class SlowCompressor:
+            @staticmethod
+            def compress(data: bytes) -> bytes:
+                time.sleep(0.05)
+                return orig_compress(data)
+
+        writer._compressor = SlowCompressor()  # type: ignore[assignment] # noqa: SLF001
+        big = b"A" * FRAME_FLUSH_THRESHOLD
+        flush_task = asyncio.create_task(writer.write(big))
+        await asyncio.sleep(0.01)  # flush is inside the slow compress
+        await writer.write(b"tail\n")
+        snapshot = await writer.snapshot()
+        await flush_task
+        await writer.close()
+        return snapshot
+
+    snapshot = asyncio.run(run())
+    big = b"A" * FRAME_FLUSH_THRESHOLD
+    assert snapshot == big + b"tail\n"
+    assert read_log(tmp_path / "log.zst") == big + b"tail\n"
 
 
 def test_log_writer_truncation_keeps_head_and_tail(tmp_path: Path) -> None:

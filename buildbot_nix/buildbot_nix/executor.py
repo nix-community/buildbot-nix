@@ -183,6 +183,10 @@ class LogWriter:
     _compressor: zstandard.ZstdCompressor = field(
         default_factory=zstandard.ZstdCompressor
     )
+    # Serializes frame flushes: a snapshot racing a threshold flush
+    # must not write frames out of order or share the (stateful)
+    # compressor across to_thread workers.
+    _flush_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def __post_init__(self) -> None:
         self._head_budget = self.size_limit // 2
@@ -214,10 +218,15 @@ class LogWriter:
             self._subscribers.remove(queue)
 
     async def snapshot(self) -> bytes:
-        """Full log content so far: flushed frames plus buffered tail."""
-        await self._flush_frame()
-        history = await asyncio.to_thread(read_log, self.path)
-        return history + b"".join(self._tail)
+        """Full log content so far: flushed frames plus the unflushed
+        frame buffer and the in-memory tail. The lock excludes a
+        concurrent flush moving bytes from buffer to file mid-read."""
+        async with self._flush_lock:
+            history = await asyncio.to_thread(read_log, self.path)
+            # Captured after the file read: a write landing during the
+            # read appends here and is still included.
+            pending = bytes(self._frame_buffer)
+        return history + pending + b"".join(self._tail)
 
     async def subscribe_with_history(self) -> tuple[bytes, asyncio.Queue[bytes | None]]:
         """Snapshot of the log plus a live subscription: no chunk is
@@ -267,13 +276,14 @@ class LogWriter:
             await self._flush_frame()
 
     async def _flush_frame(self) -> None:
-        if not self._frame_buffer:
-            return
-        chunk = bytes(self._frame_buffer)
-        self._frame_buffer.clear()
-        frame = await asyncio.to_thread(self._compressor.compress, chunk)
-        with self.path.open("ab") as f:
-            f.write(frame)
+        async with self._flush_lock:
+            if not self._frame_buffer:
+                return
+            chunk = bytes(self._frame_buffer)
+            self._frame_buffer.clear()
+            frame = await asyncio.to_thread(self._compressor.compress, chunk)
+            with self.path.open("ab") as f:
+                f.write(frame)
 
     def tail_lines(self, max_lines: int = 30, max_chars: int = 4000) -> str:
         """The last lines of output, for failure excerpts."""
