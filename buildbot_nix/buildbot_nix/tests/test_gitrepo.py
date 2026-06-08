@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from buildbot_nix import gitrepo
 from buildbot_nix.gitrepo import (
+    FetchCredentials,
     GitError,
     MergeConflictError,
     RepoManager,
@@ -243,6 +245,54 @@ def test_cleanup_sweeps_orphans(manager: RepoManager, upstream: Path) -> None:
     assert live.path.exists()
     asyncio.run(manager.gc())
 
+
+
+@pytest.mark.usefixtures("submodule")
+def test_submodules_fetched_without_credentials(
+    manager: RepoManager,
+    upstream: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """.gitmodules is PR-controlled: a malicious PR could point a
+    submodule at another private repo on the same forge and exfiltrate
+    it via build outputs. Submodule checkout must not see the fetch
+    credentials."""
+    fetch(manager, upstream)
+    sha = git(upstream, "rev-parse", "HEAD")
+    netrc = tmp_path / "netrc"
+    netrc.write_text("machine example.com login x password y\n")
+    creds = FetchCredentials(netrc_file=netrc)
+
+    calls: list[tuple[list[str], FetchCredentials | None]] = []
+    orig_run_git = gitrepo.run_git
+
+    async def spy_run_git(
+        args: list[str],
+        *,
+        cwd: Path | None = None,
+        credentials: FetchCredentials | None = None,
+    ) -> str:
+        calls.append((args, credentials))
+        return await orig_run_git(args, cwd=cwd, credentials=credentials)
+
+    monkeypatch.setattr(gitrepo, "run_git", spy_run_git)
+
+    async def run() -> None:
+        # Default: no credentials reach the submodule checkout.
+        wt = await manager.checkout_for_build(KEY, "sub-creds", base_commit=sha)
+        await manager.remove_worktree(wt)
+        # Explicit opt-in forwards them.
+        wt = await manager.checkout_for_build(
+            KEY, "sub-creds-2", base_commit=sha, submodule_credentials=creds
+        )
+        await manager.remove_worktree(wt)
+
+    asyncio.run(run())
+    submodule_calls = [c for c in calls if c[0][0] == "submodule"]
+    assert len(submodule_calls) == 2  # noqa: PLR2004 — one call per checkout
+    assert submodule_calls[0][1] is None
+    assert submodule_calls[1][1] is creds
 
 def test_static_credentials_provider(tmp_path: Path) -> None:
     netrc = tmp_path / "netrc"

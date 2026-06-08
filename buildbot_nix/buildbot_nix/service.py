@@ -463,7 +463,6 @@ class CIService:
             info.key,
             f"schedules-{project_id}",
             base_commit=rev,
-            credentials=credentials,
         )
         try:
             ctx = EffectsContext(
@@ -934,7 +933,6 @@ class CIService:
             info.key,
             scheduled_worktree_id(due, run_id),
             base_commit=info.default_branch,
-            credentials=credentials,
         )
         task_token = self.orchestrator.task_tokens.issue(due.project_id)
         log_dir = self.config.state_dir / "logs" / "scheduled"

@@ -170,7 +170,6 @@ class Orchestrator:
                 f"{repo.id}-{event.commit_sha[:12]}-{uuid.uuid4().hex[:8]}",
                 base_commit=event.base_sha or event.commit_sha,
                 head_commit=event.commit_sha if event.base_sha else None,
-                credentials=credentials,
             )
         except MergeConflictError as e:
             # Merge conflict: failed build, status on the head SHA.
@@ -601,7 +600,6 @@ class Orchestrator:
             info.key,
             f"{prefix}-{build.id}",
             base_commit=build.commit_sha,
-            credentials=credentials,
         )
         try:
             yield event, worktree.path

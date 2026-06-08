@@ -348,21 +348,25 @@ class RepoManager:
         *,
         base_commit: str,
         head_commit: str | None = None,
-        credentials: FetchCredentials | None = None,
+        submodule_credentials: FetchCredentials | None = None,
     ) -> Worktree:
         """Create the build worktree: base commit, optionally merging a
         PR head into it. Submodules are checked out recursively (the
-        bare clone does not carry submodule objects). Returns the
-        worktree; identity is its tree hash."""
+        bare clone does not carry submodule objects) WITHOUT the fetch
+        credentials unless explicitly opted in. Returns the worktree;
+        identity is its tree hash."""
         worktree = await self.create_worktree(project_key, worktree_id, base_commit)
         try:
             if head_commit is not None and head_commit != base_commit:
                 await worktree.merge(head_commit)
             if (worktree.path / ".gitmodules").exists():
+                # .gitmodules is PR-controlled: with the primary repo's
+                # credentials a malicious PR could exfiltrate any other
+                # private repo on the same forge via build outputs.
                 await run_git(
                     ["submodule", "update", "--init", "--recursive"],
                     cwd=worktree.path,
-                    credentials=credentials,
+                    credentials=submodule_credentials,
                 )
         except BaseException:
             # Callers only remove worktrees they received; a failed
