@@ -56,6 +56,16 @@ def timeago(value: datetime | None) -> str:
     return f"{max(seconds, 0)}s ago"
 
 
+def timeuntil(value: datetime | None) -> str:
+    if value is None:
+        return "—"
+    seconds = int((value - datetime.now(tz=UTC)).total_seconds())
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size:
+            return f"in {seconds // size}{unit}"
+    return f"in {max(seconds, 0)}s"
+
+
 def duration(row: dict[str, Any]) -> str:
     started, finished = row.get("started_at"), row.get("finished_at")
     if not started:
@@ -124,6 +134,7 @@ def make_env() -> Environment:
     )
     env.globals["static_v"] = _static_version()
     env.filters["timeago"] = timeago
+    env.filters["timeuntil"] = timeuntil
     env.filters["duration"] = duration
     env.filters["duration_secs"] = duration_secs
     env.filters["excerpt"] = excerpt

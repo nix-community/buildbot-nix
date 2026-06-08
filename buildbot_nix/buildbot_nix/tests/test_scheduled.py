@@ -18,6 +18,7 @@ from buildbot_nix.scheduled import (
     ScheduledEffectsStore,
     due_occurrence,
     is_due,
+    next_occurrence,
     parse_schedules_from_json,
     run_scheduled_effect,
     schedule_overview,
@@ -63,6 +64,23 @@ def test_is_due_hour_list_and_days() -> None:
     monthly = ScheduleWhen(minute=0, hour=0, dayOfMonth=[15])
     assert is_due(monthly, "s", datetime(2026, 6, 15, 0, 0, tzinfo=UTC))
     assert not is_due(monthly, "s", datetime(2026, 6, 16, 0, 0, tzinfo=UTC))
+
+
+def test_next_occurrence() -> None:
+    when = ScheduleWhen(minute=30, hour=2)
+    now = datetime(2026, 6, 5, 2, 0, tzinfo=UTC)
+    assert next_occurrence(when, "s", now) == datetime(2026, 6, 5, 2, 30, tzinfo=UTC)
+    after = datetime(2026, 6, 5, 2, 30, tzinfo=UTC)
+    assert next_occurrence(when, "s", after) == datetime(2026, 6, 6, 2, 30, tzinfo=UTC)
+    weekly = ScheduleWhen(minute=0, hour=[6, 18], dayOfWeek=["Mon"])
+    friday = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    assert next_occurrence(weekly, "s", friday) == datetime(
+        2026, 6, 8, 6, 0, tzinfo=UTC
+    )
+    monthly = ScheduleWhen(minute=0, hour=0, dayOfMonth=[15])
+    assert next_occurrence(monthly, "s", friday) == datetime(
+        2026, 6, 15, 0, 0, tzinfo=UTC
+    )
 
 
 def test_deterministic_defaults() -> None:
@@ -251,6 +269,7 @@ def test_run_recording_and_overview(postgres_dsn: str) -> None:
                     "schedule": "heartbeat",
                     "effect": "beat",
                     "when": overview[0]["when"],
+                    "next": overview[0]["next"],
                     "run": None,
                 }
             ]

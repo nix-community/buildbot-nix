@@ -76,6 +76,7 @@
               <th scope="col">status</th>
               <th scope="col">schedule</th>
               <th scope="col">when</th>
+              <th scope="col">next run</th>
               <th scope="col">last run</th>
             </tr>
           </thead>
@@ -91,6 +92,13 @@
                 {% endif %}
               </td>
               <td class="muted attr-status">{{ s.when }}</td>
+              <td class="muted attr-status">
+                {% if s.next %}
+                  <time datetime="{{ s.next.isoformat() }}" title="{{ s.next }}">{{ s.next | timeuntil }}</time>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
               <td class="muted attr-status">
                 {% if s.run %}
                   <time datetime="{{ s.run.started_at.isoformat() }}"

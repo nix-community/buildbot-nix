@@ -133,12 +133,30 @@ def describe_when(when: ScheduleWhen, schedule_name: str) -> str:
     return text
 
 
+def next_occurrence(
+    when: ScheduleWhen, schedule_name: str, now: datetime
+) -> datetime | None:
+    """The next fire after `now`, or None for impossible day filters."""
+    fields = when.resolved(schedule_name)
+    hour = fields["hour"]
+    hours = sorted(hour) if isinstance(hour, list) else [hour]
+    start = now.replace(second=0, microsecond=0)
+    for day_offset in range(366):
+        day = start + timedelta(days=day_offset)
+        for h in hours:
+            candidate = day.replace(hour=h, minute=fields["minute"])
+            if candidate > now and is_due(when, schedule_name, candidate):
+                return candidate
+    return None
+
+
 def schedule_overview(schedules: list[dict], runs: list[dict]) -> list[dict[str, Any]]:
     """Schedules joined with their latest recorded run for the UI."""
     latest: dict[tuple[str, str], dict] = {}
     for entry in runs:  # newest first
         latest.setdefault((entry["schedule_name"], entry["effect"]), entry)
     overview = []
+    now = datetime.now(tz=UTC)
     for schedule in schedules:
         when = ScheduleWhen.model_validate_json(schedule["when_spec"])
         overview.append(
@@ -146,6 +164,7 @@ def schedule_overview(schedules: list[dict], runs: list[dict]) -> list[dict[str,
                 "schedule": schedule["schedule_name"],
                 "effect": schedule["effect"],
                 "when": describe_when(when, schedule["schedule_name"]),
+                "next": next_occurrence(when, schedule["schedule_name"], now),
                 "run": latest.get((schedule["schedule_name"], schedule["effect"])),
             }
         )
