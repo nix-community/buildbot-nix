@@ -17,8 +17,8 @@ import logging
 import shutil
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import quote
 
 from . import gcroots, outputs
@@ -291,6 +291,20 @@ class Orchestrator:
         transactional DB write, then the result is re-aggregated."""
         try:
             await self._run_build_inner(event, build, worktree_path, credentials)
+        except Exception as e:
+            # Catch-all: a DB outage or GitError mid-eval would
+            # otherwise wedge the build in 'evaluating' with no
+            # terminal forge status.
+            if isinstance(e, EvalError):
+                logger.warning(
+                    "evaluation failed",
+                    extra={"build_id": build.id, "error": str(e)},
+                )
+            else:
+                logger.exception(
+                    "build failed with unexpected error", extra={"build_id": build.id}
+                )
+            await self._settle_aborted(event, build, BuildStatus.FAILED, error=str(e))
         finally:
             # Eval gc-roots only need to outlive the build; without
             # cleanup the nix store grows unboundedly.
@@ -325,6 +339,42 @@ class Orchestrator:
             # sandboxed evaluator needs to read it.
             extra_ro_paths=[self.repos.clone_path(event.repo.key)],
         )
+
+    async def _settle_aborted(
+        self,
+        event: ChangeEvent,
+        build: BuildRecord,
+        status: str,
+        *,
+        error: str | None = None,
+    ) -> None:
+        """Terminal bookkeeping and status fan-out for a build that
+        ended without a normal aggregation (failure or cancellation)."""
+        await self.db.settle_unfinished_attributes(build.id)
+        await self.db.set_build_status(build.id, status, error=error)
+        if status == BuildStatus.CANCELLED:
+            await self.reporter.eval_cancelled(event, build)
+        else:
+            await self.reporter.eval_finished(event, build, success=False, warnings=[])
+        await self.reporter.build_finished(
+            event, build, status, build.status_generation, []
+        )
+        await self._finish_linked(
+            build,
+            status,
+            build.status_generation,
+            [],
+            eval_success=None if status == BuildStatus.CANCELLED else False,
+        )
+
+    @staticmethod
+    async def _reap(*tasks: asyncio.Future[Any]) -> None:
+        """Cancel and await tasks, swallowing their errors."""
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await task
 
     async def _run_build_inner(
         self,
@@ -368,83 +418,56 @@ class Orchestrator:
         )
         cancel_wait = asyncio.ensure_future(cancel_event.wait())
         try:
-            await asyncio.wait(
-                {eval_task, cancel_wait}, return_when=asyncio.FIRST_COMPLETED
-            )
-        finally:
-            cancel_wait.cancel()
-        if cancel_event.is_set() and not eval_task.done():
-            eval_task.cancel()
-            build_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, EvalError):
-                await eval_task
-            with contextlib.suppress(asyncio.CancelledError):
-                await build_task
-            await self.db.settle_unfinished_attributes(build.id)
-            await self.db.set_build_status(build.id, BuildStatus.CANCELLED)
-            await self.reporter.eval_cancelled(event, build)
-            await self.reporter.build_finished(
-                event, build, BuildStatus.CANCELLED, build.status_generation, []
-            )
-            await self._finish_linked(
-                build, BuildStatus.CANCELLED, build.status_generation, []
-            )
-            return
-        try:
+            try:
+                await asyncio.wait(
+                    {eval_task, cancel_wait}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                cancel_wait.cancel()
+            if cancel_event.is_set() and not eval_task.done():
+                await self._reap(eval_task, build_task)
+                await self._settle_aborted(event, build, BuildStatus.CANCELLED)
+                return
+            # EvalError and anything else propagate to run_build,
+            # which settles the build as failed.
             eval_result = await eval_task
-        except EvalError as e:
-            logger.warning(
-                "evaluation failed",
-                extra={"build_id": build.id, "error": str(e)},
+            await self.db.set_build_status(
+                build.id,
+                BuildStatus.BUILDING,
+                eval_warnings=(
+                    json.dumps(eval_result.warnings) if eval_result.warnings else None
+                ),
             )
-            build_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await build_task
-            await self.db.settle_unfinished_attributes(build.id)
-            await self.db.set_build_status(build.id, BuildStatus.FAILED, error=str(e))
-            await self.reporter.eval_finished(event, build, success=False, warnings=[])
-            await self.reporter.build_finished(
-                event, build, BuildStatus.FAILED, build.status_generation, []
+            # Idempotent backstop for the streaming inserts above;
+            # pending rows are what crash recovery resumes from. The
+            # scheduler drops unsupported systems; their pending rows
+            # would never turn terminal, so don't record them.
+            await self.db.record_attributes(
+                build.id,
+                [
+                    job
+                    for job in eval_result.jobs
+                    if isinstance(job, NixEvalJobSuccess)
+                    and job.system in self.config.build_systems
+                ],
             )
-            await self._finish_linked(
-                build,
-                BuildStatus.FAILED,
-                build.status_generation,
-                [],
-                eval_success=False,
+            await self.reporter.eval_finished(
+                event, build, success=True, warnings=eval_result.warnings
             )
-            return
 
-        await self.db.set_build_status(
-            build.id,
-            BuildStatus.BUILDING,
-            eval_warnings=(
-                json.dumps(eval_result.warnings) if eval_result.warnings else None
-            ),
-        )
-        # Idempotent backstop for the streaming inserts above; pending
-        # rows are what crash recovery resumes from. The scheduler drops
-        # unsupported systems; their pending rows would never turn
-        # terminal, so don't record them.
-        await self.db.record_attributes(
-            build.id,
-            [
-                job
-                for job in eval_result.jobs
-                if isinstance(job, NixEvalJobSuccess)
-                and job.system in self.config.build_systems
-            ],
-        )
-        await self.reporter.eval_finished(
-            event, build, success=True, warnings=eval_result.warnings
-        )
+            # Re-send the complete eval result: the scheduler dedupes
+            # by attr, so this only schedules jobs a streamed batch
+            # missed (e.g. eval runners without on_jobs support).
+            await jobs_queue.put(list(eval_result.jobs))
+            await jobs_queue.put(None)
+            status = await build_task
+        except BaseException:
+            # Reap both tasks or the build task leaks forever blocked
+            # on the jobs queue and the evaluator process outlives the
+            # build (nix_eval kills the evaluator on cancellation).
+            await self._reap(eval_task, build_task)
+            raise
 
-        # Re-send the complete eval result: the scheduler dedupes by
-        # attr, so this only schedules jobs a streamed batch missed
-        # (e.g. eval runners without on_jobs support).
-        await jobs_queue.put(list(eval_result.jobs))
-        await jobs_queue.put(None)
-        status = await build_task
         if status == BuildStatus.SUCCEEDED:
             await self._maybe_run_effects(event, build, worktree_path, credentials)
 

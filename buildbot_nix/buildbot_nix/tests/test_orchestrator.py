@@ -1525,9 +1525,7 @@ def test_post_process_error_does_not_wedge_build(
             postgres_dsn, tmp_path, upstream, eval_runner, executor, name="pp-err"
         )
 
-        async def boom(
-            gcroots_dir: Path, proj: str, attr: str, out: str
-        ) -> None:
+        async def boom(gcroots_dir: Path, proj: str, attr: str, out: str) -> None:
             msg = "disk full"
             raise OSError(msg)
 
@@ -1551,6 +1549,64 @@ def test_post_process_error_does_not_wedge_build(
             assert finished[-1][2] == BuildStatus.FAILED
             # The eval succeeded; only the build may turn red.
             assert ("eval", build.id, False, ()) not in reporter.events
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_unexpected_eval_path_error_settles_build(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """Any exception on the eval path (not just EvalError) must settle
+    the build as failed instead of wedging it in 'evaluating' and
+    leaking the build task blocked on the jobs queue."""
+
+    @dataclass
+    class BoomEvalRunner:
+        async def run(
+            self,
+            worktree_path: Path,
+            branch_config: object,
+            settings: EvalSettings,
+            on_jobs: object = None,
+        ) -> EvalResult:
+            msg = "db outage"
+            raise RuntimeError(msg)
+
+    async def run() -> None:
+        add_commit(upstream, "eval-boom")
+        pool, orchestrator, reporter, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            BoomEvalRunner(),
+            FakeExecutor(),
+            name="eval-boom",
+        )
+        try:
+            build = await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project,
+                    branch="main",
+                    commit_sha=git(upstream, "rev-parse", "HEAD"),
+                )
+            )
+            assert build is not None
+            row = await pool.fetchrow(
+                "SELECT status, error FROM builds WHERE id = $1", build.id
+            )
+            assert row["status"] == BuildStatus.FAILED
+            assert "db outage" in row["error"]
+            assert ("eval", build.id, False, ()) in reporter.events
+            assert reporter.events[-1][2] == BuildStatus.FAILED
+            # No leaked consumer task blocked on the jobs queue.
+            leaked = [
+                t
+                for t in asyncio.all_tasks()
+                if t is not asyncio.current_task() and not t.done()
+            ]
+            assert leaked == []
         finally:
             await pool.close()
 
