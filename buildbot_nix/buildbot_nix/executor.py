@@ -41,6 +41,7 @@ from .gcroots import safe_attr_filename
 from .scheduler import BuildOutcome
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
     from pathlib import Path
 
     from .models import NixEvalJobSuccess
@@ -59,6 +60,33 @@ RECENT_BUFFER_SIZE = 4096
 # Batch log output into zstd frames of at least this size; one frame
 # per output line would make "compressed" logs larger than plaintext.
 FRAME_FLUSH_THRESHOLD = 64 * 1024
+
+
+async def iter_lines(
+    stream: asyncio.StreamReader, max_line: int = STREAM_LIMIT
+) -> AsyncIterator[bytes]:
+    """Line-split a stream via read() chunks.
+
+    readline() raises LimitOverrunError on lines over the StreamReader
+    limit, killing the pump while nix blocks on the full pipe. Reading
+    chunks never raises; lines beyond max_line are flushed in pieces so
+    one pathological line cannot buffer unboundedly.
+    """
+    buffer = bytearray()
+    while True:
+        chunk = await stream.read(64 * 1024)
+        if not chunk:
+            break
+        buffer += chunk
+        while (newline := buffer.find(b"\n")) != -1:
+            yield bytes(buffer[: newline + 1])
+            del buffer[: newline + 1]
+        if len(buffer) > max_line:
+            yield bytes(buffer)
+            buffer.clear()
+    if buffer:
+        yield bytes(buffer)
+
 
 TRANSIENT_ERROR_MARKERS = (
     "unexpected end-of-file",
@@ -473,7 +501,7 @@ class NixBuildExecutor:
         async def pump() -> None:
             assert proc.stdout is not None  # noqa: S101
             activities: dict[int, str] = {}
-            async for raw in proc.stdout:
+            async for raw in iter_lines(proc.stdout):
                 line = render_log_event(raw, activities)
                 if line is None:
                     continue

@@ -22,6 +22,7 @@ from buildbot_nix.executor import (
     build_nix_command,
     failure_excerpt,
     is_transient_error,
+    iter_lines,
     read_log,
     render_log_event,
 )
@@ -544,3 +545,34 @@ def test_failure_excerpt_without_log_lines_keeps_filtered_tail() -> None:
     excerpt = failure_excerpt(tail)
     assert "required to build" in excerpt
     assert "3 available machines" in excerpt
+
+
+def test_iter_lines_survives_line_over_stream_limit() -> None:
+    # A single output line larger than the StreamReader limit used to
+    # raise LimitOverrunError in the pump, leaving nix blocked on the
+    # full pipe until the build timeout.
+    async def run() -> list[bytes]:
+        reader = asyncio.StreamReader(limit=64)
+        reader.feed_data(b"A" * 1000 + b"\nnext\n")
+        reader.feed_eof()
+        return [chunk async for chunk in iter_lines(reader)]
+
+    chunks = asyncio.run(run())
+    assert b"".join(chunks) == b"A" * 1000 + b"\nnext\n"
+    # Line-oriented behavior preserved for lines within bounds.
+    assert chunks[-1] == b"next\n"
+
+
+def test_iter_lines_caps_buffered_line_length() -> None:
+    # An endless line must not buffer unboundedly: the buffer is
+    # flushed whenever it exceeds max_line, so memory stays bounded by
+    # max_line plus one read chunk.
+    async def run() -> list[bytes]:
+        reader = asyncio.StreamReader(limit=64)
+        reader.feed_data(b"B" * 300)
+        reader.feed_eof()
+        return [chunk async for chunk in iter_lines(reader, max_line=100)]
+
+    chunks = asyncio.run(run())
+    assert b"".join(chunks) == b"B" * 300
+    assert all(len(c) <= 100 + 64 * 1024 for c in chunks)
