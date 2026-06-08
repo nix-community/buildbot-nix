@@ -494,10 +494,25 @@ class Orchestrator:
             if recorded.get(result.attr) in (None, "pending", "building"):
                 await self.db.complete_attribute(build.id, result)
 
-        # Skipped-as-local attributes still get gcroots/outputs updates.
-        await self.post_process_skipped(event, schedule_result.skipped_out_paths)
+        # Skipped-as-local attributes still get gcroots/outputs
+        # updates. A filesystem error here must not skip the final
+        # aggregation and status fan-out below.
+        post_process_error: str | None = None
+        try:
+            await self.post_process_skipped(event, schedule_result.skipped_out_paths)
+        except Exception as e:
+            logger.exception(
+                "post-processing skipped attributes failed",
+                extra={"build_id": build.id},
+            )
+            post_process_error = str(e)
 
         status, generation = await self.db.aggregate_build(build.id)
+        if post_process_error is not None:
+            status = BuildStatus.FAILED
+            await self.db.set_build_status(
+                build.id, BuildStatus.FAILED, error=post_process_error
+            )
         await self.reporter.build_finished(
             event,
             build,

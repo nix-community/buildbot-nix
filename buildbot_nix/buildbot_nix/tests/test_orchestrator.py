@@ -19,7 +19,8 @@ from buildbot_nix.config import Config
 from buildbot_nix.db import BuildDB, BuildStatus
 from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
-from buildbot_nix.memory import EvalWorkerConfig
+from buildbot_nix.memory import EvalWorkerConfig, calculate_eval_workers
+from buildbot_nix.models import CacheStatus
 from buildbot_nix.nix_eval import EvalError, EvalResult, EvalSettings
 from buildbot_nix.orchestrator import AttributeExecutor, EvalRunnerLike, Orchestrator
 from buildbot_nix.recovery import fail_interrupted_effects
@@ -1502,6 +1503,54 @@ def test_effect_crash_settles_the_row(
             assert row is not None
             assert row["status"] == "failed"
             assert row["finished_at"] is not None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_post_process_error_does_not_wedge_build(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """A gcroot/outputs failure after the attributes settled must not
+    leave the build stuck in 'building' without a final status."""
+
+    async def run() -> None:
+        add_commit(upstream, "pp-err")
+        eval_runner = FakeEvalRunner(
+            [mk_job("a", cache_status=CacheStatus.local, out="/nix/store/a-out")]
+        )
+        executor = FakeExecutor()
+        pool, orchestrator, reporter, project = await make_env(
+            postgres_dsn, tmp_path, upstream, eval_runner, executor, name="pp-err"
+        )
+
+        async def boom(
+            gcroots_dir: Path, proj: str, attr: str, out: str
+        ) -> None:
+            msg = "disk full"
+            raise OSError(msg)
+
+        orchestrator.register_gcroot = boom
+        try:
+            build = await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project,
+                    branch="main",
+                    commit_sha=git(upstream, "rev-parse", "HEAD"),
+                )
+            )
+            assert build is not None
+            row = await pool.fetchrow(
+                "SELECT status, error FROM builds WHERE id = $1", build.id
+            )
+            assert row["status"] == BuildStatus.FAILED
+            assert "disk full" in row["error"]
+            finished = [e for e in reporter.events if e[0] == "finished"]
+            assert finished
+            assert finished[-1][2] == BuildStatus.FAILED
+            # The eval succeeded; only the build may turn red.
+            assert ("eval", build.id, False, ()) not in reporter.events
         finally:
             await pool.close()
 
