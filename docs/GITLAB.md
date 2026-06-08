@@ -60,7 +60,7 @@ maintainer permission to manage webhooks" warning):
 
 ## Notes
 
-- Commit statuses are posted per attribute plus `buildbot/nix-eval`; use them in
+- Commit statuses are posted per attribute plus `nixbot/nix-eval`; use them in
   merge request approval rules / merged results pipelines.
 - GitLab does not sign webhook payloads; the secret is compared against the
   `X-Gitlab-Token` header. Use HTTPS for the webhook URL.

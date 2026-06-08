@@ -134,11 +134,42 @@ def test_posted_generations_bounded() -> None:
     asyncio.run(run())
 
 
-def test_context_names_unchanged() -> None:
+def test_context_names_default() -> None:
     assert (
         attr_status_context("github", "acme/widget", "x86_64-linux.foo")
+        == "nixbot/nix-build github:acme/widget#checks.x86_64-linux.foo"
+    )
+
+
+def test_context_prefix_configurable() -> None:
+    """buildbot-nix migrations keep their branch protection rules by
+    setting the buildbot-era prefix."""
+    assert (
+        attr_status_context(
+            "github", "acme/widget", "x86_64-linux.foo", context_prefix="buildbot"
+        )
         == "buildbot/nix-build github:acme/widget#checks.x86_64-linux.foo"
     )
+    poster = FakePoster()
+    reporter = ForgeStatusReporter(
+        {"github": poster},
+        MemoryFailedStatuses(),
+        "https://ci.test",
+        context_prefix="buildbot",
+    )
+
+    async def run() -> None:
+        await reporter.build_started(EVENT, BUILD)
+        await reporter.eval_finished(EVENT, BUILD, success=True, warnings=[])
+        await reporter.build_finished(EVENT, BUILD, "succeeded", 1, [])
+
+    asyncio.run(run())
+    assert [p.context for p in poster.posts] == [
+        "buildbot/nix-eval",
+        "buildbot/nix-eval",
+        "buildbot/nix-build",
+        "buildbot/nix-build",
+    ]
 
 
 def test_eval_description_warning_count() -> None:
@@ -158,10 +189,10 @@ def test_phase_statuses_and_target_url() -> None:
     asyncio.run(run())
     contexts = [(p.context, p.state) for p in poster.posts]
     assert contexts == [
-        ("buildbot/nix-eval", StatusState.pending),
-        ("buildbot/nix-eval", StatusState.success),
-        ("buildbot/nix-build", StatusState.pending),
-        ("buildbot/nix-build", StatusState.success),
+        ("nixbot/nix-eval", StatusState.pending),
+        ("nixbot/nix-eval", StatusState.success),
+        ("nixbot/nix-build", StatusState.pending),
+        ("nixbot/nix-build", StatusState.success),
     ]
     assert all(
         p.target_url == "https://ci.test/repos/github/acme/widget/builds/42"
@@ -179,11 +210,11 @@ def test_per_attribute_failure_statuses_capped() -> None:
 
     asyncio.run(reporter.build_finished(EVENT, BUILD, "failed", 1, results))
     failure_posts = [
-        p for p in poster.posts if p.context.startswith("buildbot/nix-build ")
+        p for p in poster.posts if p.context.startswith("nixbot/nix-build ")
     ]
     assert len(failure_posts) == 2  # capped at the limit
     # Combined nix-build context still reports the full picture.
-    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
+    combined = next(p for p in poster.posts if p.context == "nixbot/nix-build")
     assert combined.state == StatusState.failure
     assert "4 of 4" in combined.description
 
@@ -239,7 +270,7 @@ def test_cancelled_attributes_recorded_as_failed_statuses() -> None:
     )
     context = attr_status_context("github", "acme/widget", "a")
     assert context in asyncio.run(store.get_failed("sha1"))
-    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
+    combined = next(p for p in poster.posts if p.context == "nixbot/nix-build")
     assert combined.state == StatusState.error
 
 
@@ -260,7 +291,7 @@ def test_attribute_cancel_summary_is_not_superseded() -> None:
             ],
         )
     )
-    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
+    combined = next(p for p in poster.posts if p.context == "nixbot/nix-build")
     assert combined.state == StatusState.error
     assert combined.description == "1 cancelled, 2 succeeded"
     assert "superseded" not in combined.description
@@ -269,7 +300,7 @@ def test_attribute_cancel_summary_is_not_superseded() -> None:
 def test_build_level_cancel_keeps_supersede_wording() -> None:
     reporter, poster, _ = make_reporter()
     asyncio.run(reporter.build_finished(EVENT, BUILD, "cancelled", 1, []))
-    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
+    combined = next(p for p in poster.posts if p.context == "nixbot/nix-build")
     assert combined.description == "build cancelled (superseded)"
 
 
@@ -291,7 +322,7 @@ def test_attribute_descriptions_are_ansi_stripped() -> None:
         )
     )
     attr_post = next(
-        p for p in poster.posts if p.context.startswith("buildbot/nix-build ")
+        p for p in poster.posts if p.context.startswith("nixbot/nix-build ")
     )
     assert attr_post.description == "error: boom"
 
@@ -322,7 +353,7 @@ def test_previously_failed_reposts_do_not_consume_budget() -> None:
 
     asyncio.run(run())
     failure_posts = {
-        p.context for p in poster.posts if p.context.startswith("buildbot/nix-build ")
+        p.context for p in poster.posts if p.context.startswith("nixbot/nix-build ")
     }
     # a2 is reported: the re-posts did not exhaust the budget of 2.
     assert attr_status_context("github", "acme/widget", "a2") in failure_posts
@@ -343,7 +374,7 @@ def test_summary_counts_use_all_attribute_statuses() -> None:
             attr_statuses=all_statuses,
         )
     )
-    combined = next(p for p in poster.posts if p.context == "buildbot/nix-build")
+    combined = next(p for p in poster.posts if p.context == "nixbot/nix-build")
     assert combined.description == "100 attributes built"
 
 
@@ -363,7 +394,7 @@ def test_attr_prefix_follows_repo_configuration() -> None:
 
     asyncio.run(run())
     assert any(
-        p.context == "buildbot/nix-build github:acme/widget#hydraJobs.foo"
+        p.context == "nixbot/nix-build github:acme/widget#hydraJobs.foo"
         for p in poster.posts
     )
 

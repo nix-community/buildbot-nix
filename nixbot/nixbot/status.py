@@ -1,9 +1,10 @@
 """Commit status reporting.
 
-Combined per-phase contexts keep their buildbot-era names —
-`buildbot/nix-eval` (warning count appended to the description) and
-`buildbot/nix-build` — so existing branch protection rules keep
-working. Per-attribute failure statuses (`buildbot/nix-build
+Combined per-phase contexts are `nixbot/nix-eval` (warning count
+appended to the description) and `nixbot/nix-build`; the prefix is
+configurable via status_context_prefix, e.g. "buildbot" to keep
+branch protection rules from a buildbot-nix deployment working.
+Per-attribute failure statuses (`nixbot/nix-build
 <forge>:<owner>/<repo>#checks.<attr>`) cover failing/cancelled
 attributes, capped by failedBuildReportLimit (default 47).
 
@@ -254,9 +255,13 @@ def _count_key(status: str) -> str:
 
 
 def attr_status_context(
-    forge: str, project_name: str, attr: str, prefix: str = "checks"
+    forge: str,
+    project_name: str,
+    attr: str,
+    prefix: str = "checks",
+    context_prefix: str = "nixbot",
 ) -> str:
-    return f"buildbot/nix-build {forge}:{project_name}#{prefix}.{attr}"
+    return f"{context_prefix}/nix-build {forge}:{project_name}#{prefix}.{attr}"
 
 
 def eval_description(success: bool, warnings: list[str]) -> str:
@@ -276,6 +281,7 @@ class ForgeStatusReporter:
         failed_statuses: FailedStatusStorage,
         base_url: str,
         failed_build_report_limit: int = 47,
+        context_prefix: str = "nixbot",
     ) -> None:
         # Keyed by forge so mixed GitHub+Gitea deployments post to the
         # right API.
@@ -283,6 +289,7 @@ class ForgeStatusReporter:
         self.failed_statuses = failed_statuses
         self.base_url = base_url.rstrip("/")
         self.failed_build_report_limit = failed_build_report_limit
+        self.context_prefix = context_prefix
         # build id -> highest generation posted (drop stale posts).
         # Bounded LRU: stale-post races only matter around a build's
         # final re-aggregation, so old entries are safe to evict.
@@ -329,7 +336,11 @@ class ForgeStatusReporter:
 
     async def build_started(self, event: ChangeEvent, build: BuildRecord) -> None:
         await self._post(
-            event, build, "buildbot/nix-eval", StatusState.pending, "evaluating flake"
+            event,
+            build,
+            f"{self.context_prefix}/nix-eval",
+            StatusState.pending,
+            "evaluating flake",
         )
 
     async def eval_finished(
@@ -343,7 +354,7 @@ class ForgeStatusReporter:
         await self._post(
             event,
             build,
-            "buildbot/nix-eval",
+            f"{self.context_prefix}/nix-eval",
             StatusState.success if success else StatusState.failure,
             eval_description(success, warnings),
         )
@@ -351,7 +362,7 @@ class ForgeStatusReporter:
             await self._post(
                 event,
                 build,
-                "buildbot/nix-build",
+                f"{self.context_prefix}/nix-build",
                 StatusState.pending,
                 "building attributes",
             )
@@ -362,7 +373,7 @@ class ForgeStatusReporter:
         await self._post(
             event,
             build,
-            "buildbot/nix-eval",
+            f"{self.context_prefix}/nix-eval",
             StatusState.error,
             "build cancelled",
         )
@@ -415,7 +426,11 @@ class ForgeStatusReporter:
         reported = 0
         for result in results:
             context = attr_status_context(
-                event.repo.forge, event.repo.name, result.attr, attr_prefix
+                event.repo.forge,
+                event.repo.name,
+                result.attr,
+                attr_prefix,
+                context_prefix=self.context_prefix,
             )
             if result.status.value in FAILED_STATUS_STATES:
                 counts[_count_key(result.status.value)] += 1
@@ -472,7 +487,7 @@ class ForgeStatusReporter:
         await self._post(
             event,
             build,
-            "buildbot/nix-build",
+            f"{self.context_prefix}/nix-build",
             state,
             description or "failed",
             propagate=True,

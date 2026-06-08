@@ -133,6 +133,7 @@ let
         warn_only = step.warnOnly;
       }) cfg.postBuildSteps;
       failed_build_report_limit = cfg.failedBuildReportLimit;
+      status_context_prefix = cfg.statusContextPrefix;
       branches = cfg.branches;
       gcroots_dir = "/nix/var/nix/gcroots/per-user/nixbot";
       effects_per_repo_secrets = lib.mapAttrs' (name: _path: {
@@ -494,6 +495,19 @@ in
       unauthenticated control actions (cancel, restart). Useful behind a VPN
       where network access implies trust
     '';
+
+    statusContextPrefix = lib.mkOption {
+      type = lib.types.str;
+      default = "nixbot";
+      example = "buildbot";
+      description = ''
+        Prefix of commit status contexts ("<prefix>/nix-eval",
+        "<prefix>/nix-build"). Set to "buildbot" when migrating from
+        buildbot-nix to keep existing branch protection rules working;
+        changing the prefix requires updating required status checks on
+        every repository.
+      '';
+    };
 
     failedBuildReportLimit = lib.mkOption {
       type = lib.types.ints.unsigned;

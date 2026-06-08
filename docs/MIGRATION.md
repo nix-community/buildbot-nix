@@ -44,9 +44,11 @@ OAuth callback URLs change: update your GitHub App / Gitea application to
 `https://<domain>/auth/<provider>/callback` (buildbot used `/auth/login`), e.g.
 `https://buildbot.example.com/auth/github/callback`.
 
-**Commit statuses.** Nothing to do: context names keep the `buildbot/` prefix
-(`buildbot/nix-eval`, `buildbot/nix-build ...`), so branch protection rules keep
-working. Statuses link to the new web UI.
+**Commit statuses.** Context names default to the `nixbot/` prefix
+(`nixbot/nix-eval`, `nixbot/nix-build ...`). Set
+`services.nixbot.statusContextPrefix = "buildbot"` to keep the buildbot-era
+names so existing branch protection rules keep working; otherwise update the
+required status checks on every repository. Statuses link to the new web UI.
 
 **Webhooks.** The old GitHub endpoint (`/change_hook/github`) still works as an
 alias. `/change_hook/gitea` is gone: legacy Gitea hooks carry old buildbot

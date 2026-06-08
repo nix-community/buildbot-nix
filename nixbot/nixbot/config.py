@@ -343,6 +343,9 @@ class Config(BaseModel):
     failed_build_report_limit: int = (
         47  # Default: 50 total - 3 reserved for eval/build/effects
     )
+    # Commit status context prefix; buildbot-nix migrations can set
+    # "buildbot" to keep existing branch protection rules working.
+    status_context_prefix: str = "nixbot"
     branches: BranchConfigDict = BranchConfigDict({})
     # Outside /nix/var/nix/gcroots (e.g. dev setups) nix-store
     # --add-root registers indirect roots, so any writable dir works.

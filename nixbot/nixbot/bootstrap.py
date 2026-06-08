@@ -248,6 +248,7 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
             FailedStatusStore(pool),
             config.url,
             config.failed_build_report_limit,
+            context_prefix=config.status_context_prefix,
         )
 
     executor = NixBuildExecutor(

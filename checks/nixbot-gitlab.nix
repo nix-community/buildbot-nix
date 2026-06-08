@@ -240,8 +240,8 @@
                 if s["status"] in ("success", "failed")
             }
             return (
-                done.get("buildbot/nix-eval") == "success"
-                and done.get("buildbot/nix-build") == "success"
+                done.get("nixbot/nix-eval") == "success"
+                and done.get("nixbot/nix-build") == "success"
             )
 
         retry(statuses_posted, timeout_seconds=600)

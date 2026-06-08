@@ -873,7 +873,7 @@ def test_github_status_post(github_client: GitHubAppClient) -> None:
             "acme",
             "repo11",
             "sha1",
-            "buildbot/nix-eval",
+            "nixbot/nix-eval",
             StatusState.success,
             "evaluation succeeded",
             "https://ci.test/repos/acme/repo11/builds/1",
@@ -883,7 +883,7 @@ def test_github_status_post(github_client: GitHubAppClient) -> None:
     assert posted == [
         {
             "state": "success",
-            "context": "buildbot/nix-eval",
+            "context": "nixbot/nix-eval",
             "description": "evaluation succeeded",
             "target_url": "https://ci.test/repos/acme/repo11/builds/1",
         }
@@ -910,14 +910,14 @@ def test_gitea_status_post() -> None:
             "acme",
             "widget",
             "sha9",
-            "buildbot/nix-build",
+            "nixbot/nix-build",
             StatusState.failure,
             "2 of 3 attributes failed",
             "https://ci.test/repos/acme/widget/builds/7",
         )
     )
     assert posted[0]["state"] == "failure"
-    assert posted[0]["context"] == "buildbot/nix-build"
+    assert posted[0]["context"] == "nixbot/nix-build"
 
 
 def test_register_repo_hook_without_admin_warns(

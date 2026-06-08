@@ -321,8 +321,8 @@ in
                 if s["state"] in ("success", "failure", "error")
             }
             return (
-                done.get("buildbot/nix-eval") == "success"
-                and done.get("buildbot/nix-build") == "success"
+                done.get("nixbot/nix-eval") == "success"
+                and done.get("nixbot/nix-build") == "success"
             )
 
         retry(github_statuses_posted, timeout_seconds=300)
@@ -374,8 +374,8 @@ in
                 if s["status"] in ("success", "failure", "error")
             }
             return (
-                done.get("buildbot/nix-eval") == "success"
-                and done.get("buildbot/nix-build") == "success"
+                done.get("nixbot/nix-eval") == "success"
+                and done.get("nixbot/nix-build") == "success"
             )
 
         retry(gitea_statuses_posted, timeout_seconds=300)
