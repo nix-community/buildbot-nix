@@ -46,11 +46,6 @@ from .migrations import apply_migrations
 from .nix_eval import CgroupLimiter, EvalRunner
 from .orchestrator import Orchestrator
 from .polling import PolledRepository, PollingService
-from .recovery import (
-    fail_interrupted_effects,
-    find_unfinished_builds,
-    settle_already_built,
-)
 from .repos import RepoStore
 from .status import (
     CommitStatusPoster,
@@ -315,28 +310,8 @@ async def _startup(service: CIService) -> None:
     except Exception:
         logger.exception("initial project discovery failed")
 
-    # Crash recovery before serving: settle already-built attributes,
-    # then resume the rest. Builds interrupted mid-eval (no attribute
-    # rows) re-evaluate via the rerun path.
-    await fail_interrupted_effects(service.pool)
-    for resumable in await find_unfinished_builds(service.pool):
-        remaining, settled = await settle_already_built(
-            service.orchestrator.db, resumable
-        )
-        if settled:
-            # Recovered results still need gcroots/outputs updates.
-            event = await service._change_event_for(resumable)  # noqa: SLF001
-            if event is not None:
-                await service.orchestrator._post_process_skipped(  # noqa: SLF001
-                    event, settled
-                )
-        logger.info(
-            "recovering build",
-            extra={"build_id": resumable.build_id, "remaining": len(remaining)},
-        )
-        await service.enqueue_work(
-            "rerun", f"build-{resumable.build_id}", {"build_id": resumable.build_id}
-        )
+    # Crash recovery before serving.
+    await service.recover_unfinished_builds()
 
 
 async def _run_startup(service: CIService) -> None:
@@ -372,7 +347,7 @@ async def run_service(config: Config) -> None:
             async def head_changed(
                 self, repo: PolledRepository, branch: str, commit_sha: str
             ) -> None:
-                await service._submit_change(  # noqa: SLF001
+                await service.submit(
                     ChangeRequest(
                         forge="pull_based",
                         forge_repo_id=repo.name,

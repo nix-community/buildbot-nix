@@ -39,7 +39,9 @@ from .reconcile import gitea_heads, github_heads, gitlab_heads, reconcile_repo
 from .recovery import (
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
+    fail_interrupted_effects,
     find_unfinished_builds,
+    settle_already_built,
 )
 from .scheduled import (
     DueEffect,
@@ -614,6 +616,30 @@ class CIService:
         finally:
             await self.orchestrator.repos.remove_worktree(worktree)
             self.orchestrator.cancel_events.pop(build.id, None)
+
+    async def recover_unfinished_builds(self) -> None:
+        """Crash recovery: settle already-built attributes, then queue
+        reruns for the rest. Builds interrupted mid-eval (no attribute
+        rows) re-evaluate via the rerun path."""
+        await fail_interrupted_effects(self.pool)
+        for resumable in await find_unfinished_builds(self.pool):
+            remaining, settled = await settle_already_built(
+                self.orchestrator.db, resumable
+            )
+            if settled:
+                # Recovered results still need gcroots/outputs updates.
+                event = await self._change_event_for(resumable)
+                if event is not None:
+                    await self.orchestrator.post_process_skipped(event, settled)
+            logger.info(
+                "recovering build",
+                extra={"build_id": resumable.build_id, "remaining": len(remaining)},
+            )
+            await self.enqueue_work(
+                "rerun",
+                f"build-{resumable.build_id}",
+                {"build_id": resumable.build_id},
+            )
 
     async def _change_event_for(self, resumable: ResumableBuild) -> ChangeEvent | None:
         project = await self.repo_store.by_id(resumable.project_id)

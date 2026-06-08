@@ -135,7 +135,7 @@ def test_pr_close_discards_queued_changes(postgres_dsn: str, tmp_path: Path) -> 
             forge_repo_id = await pool.fetchval(
                 "SELECT forge_repo_id FROM projects WHERE id = $1", project_id
             )
-            await service._submit_change(  # noqa: SLF001
+            await service.submit(
                 ChangeRequest(
                     forge="github",
                     forge_repo_id=forge_repo_id,
@@ -380,7 +380,7 @@ def test_pull_based_projects_synced_and_buildable(
                 events.append((event, credentials))
 
             service.orchestrator.handle_change_event = fake_handle  # type: ignore[method-assign]
-            await service._submit_change(  # noqa: SLF001
+            await service.submit(
                 ChangeRequest(
                     forge="pull_based",
                     forge_repo_id="myrepo",

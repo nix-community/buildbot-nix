@@ -470,7 +470,7 @@ class Orchestrator:
                 await self.db.complete_attribute(build.id, result)
 
         # Skipped-as-local attributes still get gcroots/outputs updates.
-        await self._post_process_skipped(event, schedule_result.skipped_out_paths)
+        await self.post_process_skipped(event, schedule_result.skipped_out_paths)
 
         status, generation = await self.db.aggregate_build(build.id)
         await self.reporter.build_finished(
@@ -860,9 +860,9 @@ class Orchestrator:
             out = (json.loads(row["outputs"]) if row["outputs"] else {}).get("out")
             if out:
                 pairs.append((row["attr"], out))
-        await self._post_process_skipped(event, pairs)
+        await self.post_process_skipped(event, pairs)
 
-    async def _post_process_skipped(
+    async def post_process_skipped(
         self, event: ChangeEvent, skipped: list[tuple[str, str]]
     ) -> None:
         branches = self.config.branches
@@ -1005,7 +1005,7 @@ class _OrchestratorExecutor:
         )
         if outcome == BuildOutcome.success:
             try:
-                await self.o._post_process_skipped(  # noqa: SLF001
+                await self.o.post_process_skipped(
                     self.event, [(job.attr, job.outputs.get("out") or "")]
                 )
             except Exception:
