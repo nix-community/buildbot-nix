@@ -139,10 +139,8 @@ def test_admin_api_token_sees_private(harness: WebHarness) -> None:
     ctx = harness.ctx
     ctx.token_store = ApiTokenStore(ctx.pool)
     token = harness.run(ctx.token_store.create(ROOT, "admin-script"))
-    response = harness.run(
-        harness.http.get(
-            "/repos/github/acme/secret", headers={"Authorization": f"Bearer {token}"}
-        )
+    response = harness.get(
+        "/repos/github/acme/secret", headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 200
 
@@ -291,11 +289,9 @@ def test_api_token_inherits_login_groups(harness: WebHarness) -> None:
         assert restored is not None
         assert restored.groups == ("auditors",)
 
-        response = harness.run(
-            harness.http.get(
-                "/api/repos/github/acme/secret/builds",
-                headers={"Authorization": f"Bearer {token}"},
-            )
+        response = harness.get(
+            "/api/repos/github/acme/secret/builds",
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
     finally:

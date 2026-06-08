@@ -239,11 +239,14 @@ class WebHarness:
         return {SESSION_COOKIE: self.signer.session_for(user, session_id)}
 
     def get(
-        self, url: str, user: User | None = None, token: str = ""
+        self,
+        url: str,
+        user: User | None = None,
+        token: str = "",
+        headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        return self.run(
-            self.http.get(url, headers=cookie_header(self._cookies(user, token)))
-        )
+        request_headers = cookie_header(self._cookies(user, token)) | (headers or {})
+        return self.run(self.http.get(url, headers=request_headers))
 
     def post(
         self,
@@ -251,13 +254,14 @@ class WebHarness:
         user: User | None = None,
         origin: str = "http://test",
         data: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        headers = {"Origin": origin} if origin else {}
-        return self.run(
-            self.http.post(
-                url, headers=headers | cookie_header(self._cookies(user, "")), data=data
-            )
+        request_headers = (
+            ({"Origin": origin} if origin else {})
+            | cookie_header(self._cookies(user, ""))
+            | (headers or {})
         )
+        return self.run(self.http.post(url, headers=request_headers, data=data))
 
 
 @contextlib.contextmanager

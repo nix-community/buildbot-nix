@@ -374,20 +374,18 @@ def test_api_token_controls_build(harness: WebHarness) -> None:
 
     token = harness.run(store.create(ALICE, "api"))
     BACKEND.restarted.clear()
-    response = harness.run(
-        harness.http.post(
-            "/repos/github/acme/widget/builds/1/restart",
-            headers={"Authorization": f"Bearer {token}"},
-        )
+    response = harness.post(
+        "/repos/github/acme/widget/builds/1/restart",
+        origin="",
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 303  # PR author via token
     assert len(BACKEND.restarted) == 1
 
-    bad = harness.run(
-        harness.http.post(
-            "/repos/github/acme/widget/builds/1/restart",
-            headers={"Authorization": "Bearer bnix_invalid"},
-        )
+    bad = harness.post(
+        "/repos/github/acme/widget/builds/1/restart",
+        origin="",
+        headers={"Authorization": "Bearer bnix_invalid"},
     )
     assert bad.status_code == 403
 
