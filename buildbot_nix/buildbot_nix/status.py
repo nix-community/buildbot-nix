@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import httpx
 
+from .ansi import strip_ansi
 from .forge import ForgeError
 
 if TYPE_CHECKING:
@@ -306,7 +307,9 @@ class ForgeStatusReporter:
                 event.commit_sha,
                 context,
                 state,
-                description,
+                # Descriptions may carry failure excerpts with raw ANSI
+                # colors (kept for the web UI); forges show them verbatim.
+                strip_ansi(description),
                 self.build_url(event, build),
             )
         except (httpx.HTTPError, ForgeError, StatusPostError):

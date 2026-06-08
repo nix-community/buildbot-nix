@@ -245,6 +245,29 @@ def test_cancelled_attributes_recorded_as_failed_statuses() -> None:
     assert combined.state == StatusState.error
 
 
+def test_attribute_descriptions_are_ansi_stripped() -> None:
+    """failure_excerpt keeps ANSI colors for the web UI; forge statuses
+    must not carry raw escape codes."""
+    reporter, poster, _ = make_reporter()
+    asyncio.run(
+        reporter.build_finished(
+            EVENT,
+            BUILD,
+            "failed",
+            1,
+            [
+                attr_result(
+                    "a", AttributeStatus.failed, error="\x1b[31merror: boom\x1b[0m"
+                )
+            ],
+        )
+    )
+    attr_post = next(
+        p for p in poster.posts if p.context.startswith("buildbot/nix-build ")
+    )
+    assert attr_post.description == "error: boom"
+
+
 def test_previously_failed_reposts_do_not_consume_budget() -> None:
     """Re-posts of previously-failed contexts must not eat the report
     limit for new failures on a rebuild."""
