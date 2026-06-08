@@ -552,6 +552,29 @@ def test_streaming_pending_dependent_fails_when_late_dep_arrives_failed() -> Non
     asyncio.run(main())
 
 
+def test_missing_cache_status_means_build() -> None:
+    # nix-eval-jobs output without cacheStatus must not be treated as
+    # "already in the local store": a whole eval would report success
+    # without building anything.
+    job = NixEvalJobSuccess.model_validate(
+        {
+            "attr": "foo",
+            "attrPath": ["foo"],
+            "neededBuilds": ["/nix/store/foo.drv"],
+            "neededSubstitutes": [],
+            "drvPath": "/nix/store/foo.drv",
+            "name": "foo",
+            "outputs": {"out": "/nix/store/foo-out"},
+            "system": SYSTEM,
+        }
+    )
+    assert job.cache_status is None
+    executor = FakeExecutor()
+    result = run_scheduler(JobScheduler(executor, [SYSTEM]), [job])
+    assert executor.built == ["foo"]
+    assert by_attr(result)["foo"] == AttributeStatus.succeeded
+
+
 def test_resent_jobs_are_not_rebuilt() -> None:
     """At-least-once delivery: a re-sent batch must not rebuild."""
 

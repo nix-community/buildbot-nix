@@ -556,8 +556,10 @@ class JobScheduler:
                 )
                 return "skip-failed"
 
-        if job.cache_status in {CacheStatus.not_built, CacheStatus.cached}:
-            # cached: schedule so nix substitutes it.
+        if job.cache_status != CacheStatus.local:
+            # not_built: build it; cached: schedule so nix substitutes
+            # it; missing/unknown cacheStatus must mean "build it", not
+            # "already built".
             return "run"
 
         # Already in the local store.
