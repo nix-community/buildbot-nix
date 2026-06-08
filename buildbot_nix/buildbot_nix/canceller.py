@@ -90,6 +90,12 @@ class CancellationManager:
         `git merge-base --is-ancestor <incoming> <running>` check by the
         caller; when true the event is out-of-order and ignored.
         """
+        build = self._builds.get(build_id)
+        if build is not None:
+            # Re-registration (e.g. crash recovery) comes with a fresh
+            # cancel event; keeping the old one would make the build
+            # uncancellable via supersede.
+            build.cancel_event = cancel_event
         context = (project_id, context_key)
         old_build_id = self._by_context.get(context)
         if old_build_id is not None:
@@ -114,7 +120,6 @@ class CancellationManager:
                     return RegisterOutcome.STALE
                 self._release_context(old, context_key, reason="superseded")
 
-        build = self._builds.get(build_id)
         if build is None:
             build = InFlightBuild(
                 build_id=build_id,

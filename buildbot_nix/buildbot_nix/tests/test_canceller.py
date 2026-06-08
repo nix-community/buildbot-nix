@@ -129,3 +129,13 @@ def test_contexts_isolated_per_project() -> None:
     _, event2 = reg(mgr, 2, "tree2", "sha2", project=2)
     assert not event1.is_set()
     assert not event2.is_set()
+
+
+def test_reregister_updates_cancel_event() -> None:
+    """Crash recovery re-registers a build with a fresh cancel event;
+    the manager must cancel via the new event, not the pre-crash one."""
+    mgr = CancellationManager()
+    reg(mgr, 1, "tree1", "sha1")  # pre-crash registration
+    _, fresh_event = reg(mgr, 1, "tree1", "sha1")  # recovered, new event
+    reg(mgr, 2, "tree2", "sha2")  # supersedes build 1
+    assert fresh_event.is_set()
