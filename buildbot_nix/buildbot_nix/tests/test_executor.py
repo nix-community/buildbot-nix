@@ -283,6 +283,7 @@ case "$(cat "$control" 2>/dev/null)" in
     exit 1 ;;
   transient) echo ok; exit 0 ;;
   hang) sleep 60 ;;
+  hangpid) echo $$ > {tmp_path}/pid; sleep 60 ;;
   longline) head -c 200000 /dev/zero | tr '\\0' 'A'; echo ;;
   racepid) echo $$ > {tmp_path}/pid; echo ok ;;
   *) echo ok; exit 0 ;;
@@ -357,6 +358,42 @@ def test_executor_cancel(tmp_path: Path, fake_nix: Path) -> None:
         return outcome
 
     assert asyncio.run(run()) == BuildOutcome.cancelled
+
+
+def test_executor_hard_cancel_kills_process_group(
+    tmp_path: Path, fake_nix: Path
+) -> None:
+    """Cancelling the build task itself (not via the cancel event) must
+    not leak the running nix process group."""
+    fake_nix.write_text("hangpid")
+    pidfile = tmp_path / "pid"
+
+    async def run() -> int:
+        executor = NixBuildExecutor(FairScheduler(2), BuildSettings(log_dir=tmp_path))
+        writer = LogWriter(path=tmp_path / "log.zst")
+        task = asyncio.create_task(
+            executor.build_attribute("b", mk_job(), writer, tmp_path)
+        )
+        while (  # noqa: ASYNC110 — polling an external file is the point
+            not pidfile.exists() or not pidfile.read_text().strip()
+        ):
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+        await writer.close()
+        return int(pidfile.read_text())
+
+    pid = asyncio.run(run())
+    for _ in range(100):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(pid, 9)  # do not leak it past the test
+        pytest.fail("nix process leaked after hard cancel")
 
 
 def test_executor_cancel_suppresses_retry(tmp_path: Path, fake_nix: Path) -> None:

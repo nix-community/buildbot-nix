@@ -437,6 +437,23 @@ def is_transient_error(output_tail: str) -> bool:
     return any(marker in output_tail for marker in TRANSIENT_ERROR_MARKERS)
 
 
+def _kill_pg(pid: int) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(pid, signal.SIGKILL)
+
+
+async def _pump_output(
+    stream: asyncio.StreamReader, output_tail: deque[bytes], log_writer: LogWriter
+) -> None:
+    activities: dict[int, str] = {}
+    async for raw in iter_lines(stream):
+        line = render_log_event(raw, activities)
+        if line is None:
+            continue
+        output_tail.append(line)
+        await log_writer.write(line)
+
+
 class NixBuildExecutor:
     """Builds attributes through the fair global queue."""
 
@@ -524,22 +541,9 @@ class NixBuildExecutor:
         assert proc.stdout is not None  # noqa: S101
 
         output_tail: deque[bytes] = deque(maxlen=100)
-
-        async def pump() -> None:
-            assert proc.stdout is not None  # noqa: S101
-            activities: dict[int, str] = {}
-            async for raw in iter_lines(proc.stdout):
-                line = render_log_event(raw, activities)
-                if line is None:
-                    continue
-                output_tail.append(line)
-                await log_writer.write(line)
-
-        def kill() -> None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(proc.pid, signal.SIGKILL)
-
-        pump_task = asyncio.create_task(pump())
+        pump_task = asyncio.create_task(
+            _pump_output(proc.stdout, output_tail, log_writer)
+        )
         cancel_task = asyncio.create_task(cancel_event.wait())
         try:
             wait_task = asyncio.ensure_future(proc.wait())
@@ -550,7 +554,7 @@ class NixBuildExecutor:
             )
             timed_out = not done
             if wait_task not in done:  # cancel requested or timeout
-                kill()
+                _kill_pg(proc.pid)
                 await proc.wait()
             await pump_task
             if timed_out:
@@ -572,6 +576,15 @@ class NixBuildExecutor:
             cancel_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await cancel_task
+            if proc.returncode is None:
+                # Hard cancel of the surrounding task: the nix process
+                # group must not outlive the build (cancel_event covers
+                # only the cooperative path).
+                _kill_pg(proc.pid)
+                pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump_task
+                await proc.wait()
 
 
 def read_log(path: Path) -> bytes:
