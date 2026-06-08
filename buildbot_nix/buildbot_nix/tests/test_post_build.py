@@ -50,6 +50,12 @@ def test_build_props_exposes_change_context() -> None:
     assert props["revision"] == "deadbeef"
     assert props["pr_number"] == "42"
     assert props["default_branch"] == "main"
+    assert props["out_link"] == "result-foo"
+    # The executor percent-encodes the attr in the out-link name;
+    # out_link must match it or upload steps reference a missing path.
+    assert (
+        build_props(event, mk_job('with"quotes'))["out_link"] == "result-with%22quotes"
+    )
     assert (
         build_props(ChangeEvent(repo=event.repo, branch="main", commit_sha="x"), job)[
             "pr_number"

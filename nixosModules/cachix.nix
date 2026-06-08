@@ -133,7 +133,9 @@ in
           "cachix"
           "push"
           cfg.cachix.name
-          (interpolate "result-%(prop:attr)s")
+          # out_link matches the executor's percent-encoded out-link
+          # name; "result-%(prop:attr)s" misses quoted attributes.
+          (interpolate "%(prop:out_link)s")
         ];
         warnOnly = true; # Don't fail the build if cachix upload fails
       }

@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .gcroots import safe_attr_filename
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -45,6 +47,9 @@ def build_props(event: ChangeEvent, job: NixEvalJobSuccess) -> dict[str, str]:
     """Properties available to %(prop:...)s in post-build steps."""
     return {
         "attr": job.attr,
+        # Matches the executor's out-link name (percent-encoded attr);
+        # upload steps must reference this, not "result-%(prop:attr)s".
+        "out_link": f"result-{safe_attr_filename(job.attr)}",
         "out_path": job.outputs.get("out") or "",
         "drv_path": job.drv_path,
         "system": job.system,
