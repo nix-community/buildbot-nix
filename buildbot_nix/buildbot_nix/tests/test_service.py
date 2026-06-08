@@ -719,11 +719,19 @@ def test_rerun_of_interrupted_eval_reevaluates(
 
 
 def test_rerun_resumes_building_rows_and_keeps_finished(
-    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+    postgres_dsn: str,
+    tmp_path: Path,
+    git_repo: tuple[Path, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A build that crashed with an attribute in 'building' resumes that
     attribute; already-finished rows are kept, not re-evaluated away."""
     repo, sha = git_repo
+
+    async def all_valid(paths: list[str]) -> set[str]:
+        return set(paths)
+
+    monkeypatch.setattr("buildbot_nix.service.check_store_paths", all_valid)
 
     async def run() -> None:
         service, _app = await build_service(
@@ -771,6 +779,60 @@ def test_rerun_resumes_building_rows_and_keeps_finished(
                 build_id,
             )
             assert kept == "succeeded"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_rerun_reevaluates_when_drv_paths_were_garbage_collected(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """Stored drv paths can be GC'd between the build and its restart;
+    blindly rerunning them fails with "path does not exist". Missing
+    drvs must fall back to a re-evaluation."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="building"
+            )
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, system, status, "
+                "drv_path) VALUES ($1, 'gone', 'x86_64-linux', 'pending', "
+                "'/nix/store/gcd.drv')",
+                build_id,
+            )
+
+            reevals: list[int] = []
+            resumes: list[int] = []
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                reevals.append(build.id)
+
+            async def fake_resume(
+                info: Any, build: Any, jobs: Any, credentials: Any = None
+            ) -> None:
+                resumes.append(build.id)
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            service.orchestrator.rerun_pending_attributes = fake_resume  # type: ignore[method-assign, assignment]
+            # The real path checker: /nix/store/gcd.drv does not exist.
+            await service._rerun(build_id)  # noqa: SLF001
+
+            assert resumes == []
+            assert reevals == [build_id]
         finally:
             await pool.close()
 

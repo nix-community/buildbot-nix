@@ -37,6 +37,7 @@ from .hook_secrets import WebhookSecrets
 from .orchestrator import pr_refspec
 from .reconcile import gitea_heads, github_heads, gitlab_heads, reconcile_repo
 from .recovery import (
+    check_store_paths,
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
     fail_interrupted_effects,
@@ -581,10 +582,20 @@ class CIService:
             and resumable.has_attributes
             and len(resumable.pending_jobs) == unfinished_count
         ):
-            await self.orchestrator.rerun_pending_attributes(
-                info, build, resumable.pending_jobs, credentials
+            # Stored drv paths may have been garbage-collected since
+            # the eval; rerunning them would fail with "path does not
+            # exist" instead of rebuilding.
+            drvs = [job.drv_path for job in resumable.pending_jobs]
+            valid = await check_store_paths(drvs)
+            if all(drv in valid for drv in drvs):
+                await self.orchestrator.rerun_pending_attributes(
+                    info, build, resumable.pending_jobs, credentials
+                )
+                return
+            logger.info(
+                "stored derivations missing from the store; re-evaluating",
+                extra={"build_id": build_id},
             )
-            return
         # No resumable eval results (no attribute rows, or unfinished
         # rows without drv_path): an empty rerun would aggregate to
         # "succeeded" without building anything; re-evaluate instead.
