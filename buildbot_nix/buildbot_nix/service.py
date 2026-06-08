@@ -500,6 +500,20 @@ class CIService:
             return  # still running; a restart would double-build
         if await self.orchestrator.db.get_build(build_id) is None:
             return
+        if attr is not None:
+            # A stale attr (e.g. after a re-eval renamed it) must not
+            # reset the build row and spawn an empty rerun.
+            known = await self.pool.fetchval(
+                "SELECT 1 FROM build_attributes WHERE build_id = $1 AND attr = $2",
+                build_id,
+                attr,
+            )
+            if known is None:
+                logger.warning(
+                    "restart of unknown attribute ignored",
+                    extra={"build_id": build_id, "attr": attr},
+                )
+                return
         # An explicit rebuild clears cached failures so the attributes
         # actually build again instead of re-skipping.
         await self.pool.execute(

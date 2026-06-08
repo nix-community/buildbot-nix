@@ -200,6 +200,15 @@ def test_restart_single_attribute(harness: WebHarness) -> None:
     assert [a for _, a in BACKEND.attr_restarts] == ["bad1"]
 
 
+def test_restart_unknown_attribute_is_404(harness: WebHarness) -> None:
+    BACKEND.attr_restarts.clear()
+    response = harness.post(
+        "/repos/github/acme/widget/builds/1/attrs/ghost/restart", ROOT
+    )
+    assert response.status_code == 404
+    assert BACKEND.attr_restarts == []
+
+
 def test_rebuild_all_failed(harness: WebHarness) -> None:
     BACKEND.attr_restarts.clear()
     assert (

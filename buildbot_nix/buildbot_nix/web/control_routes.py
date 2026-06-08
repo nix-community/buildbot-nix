@@ -117,6 +117,13 @@ class _ControlRoutes:
         attr: str,
     ) -> RedirectResponse:
         build = await self._authorize(request, forge, owner, name, number)
+        known = await self.ctx.pool.fetchval(
+            "SELECT 1 FROM build_attributes WHERE build_id = $1 AND attr = $2",
+            build["id"],
+            attr,
+        )
+        if known is None:
+            raise HTTPException(status_code=404, detail="unknown attribute")
         # Reuses the stored eval results (drv_path); no re-eval.
         await self.backend.restart_attribute(build["id"], attr)
         return _back_to_attr(forge, owner, name, number, attr)

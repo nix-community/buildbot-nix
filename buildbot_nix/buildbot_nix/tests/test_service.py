@@ -329,6 +329,59 @@ def test_restart_clears_stale_error_and_warnings(
     asyncio.run(run())
 
 
+def test_restart_unknown_attribute_is_a_noop(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """Restarting a nonexistent attribute must not reset the build row,
+    settle attributes, or spawn a rerun."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="failed", error="boom"
+            )
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, system, status, "
+                "drv_path) VALUES ($1, 'real', 'x86_64-linux', 'succeeded', '/d')",
+                build_id,
+            )
+
+            reruns: list[int] = []
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                reruns.append(build.id)
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            await service.restart_attribute(build_id, "ghost")
+            await service.drain_work()
+            await asyncio.gather(*service._tasks)  # noqa: SLF001
+
+            assert reruns == []
+            row = await pool.fetchrow(
+                "SELECT status, error FROM builds WHERE id = $1", build_id
+            )
+            assert (row["status"], row["error"]) == ("failed", "boom")
+            attr_status = await pool.fetchval(
+                "SELECT status FROM build_attributes WHERE build_id = $1", build_id
+            )
+            assert attr_status == "succeeded"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_restart_failed_eval_attribute_reevaluates(
     postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
 ) -> None:
