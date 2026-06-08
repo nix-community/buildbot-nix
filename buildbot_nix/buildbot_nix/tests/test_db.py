@@ -295,6 +295,114 @@ def test_reuse_backfills_pr_fields(postgres_dsn: str) -> None:
     asyncio.run(run())
 
 
+def test_reuse_by_other_pr_clears_both_identity_fields(postgres_dsn: str) -> None:
+    # Two PRs producing the same tree share a build; the second PR's
+    # event must not leave a row mixing PR A's number with no author,
+    # nor attach PR B's author to PR A's number.
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "pr-cross")
+            db = BuildDB(pool)
+            first, _ = await db.get_or_create_build(
+                project_id,
+                "tree-x",
+                "sha",
+                "feature-a",
+                pr_number=1,
+                pr_author="github:alice",
+            )
+            second, created = await db.get_or_create_build(
+                project_id,
+                "tree-x",
+                "sha2",
+                "feature-b",
+                pr_number=2,
+                pr_author="github:bob",
+            )
+            assert not created
+            assert second.id == first.id
+            row = await pool.fetchrow(
+                "SELECT pr_number, pr_author, branch FROM builds WHERE id = $1",
+                first.id,
+            )
+            # Never mix two PRs' identities: clear both together. The
+            # branch stays: only a plain branch push takes it over.
+            assert row["pr_number"] is None
+            assert row["pr_author"] is None
+            assert row["branch"] == "feature-a"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_branch_push_takes_over_reused_pr_build(postgres_dsn: str) -> None:
+    # A default-branch push reusing a PR build (identical tree after
+    # the merge) sheds the PR identity and takes over the branch field,
+    # else the UI and the pr_number guards keep pointing at the PR.
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "pr-shed")
+            db = BuildDB(pool)
+            first, _ = await db.get_or_create_build(
+                project_id,
+                "tree-d",
+                "sha",
+                "feature",
+                pr_number=4,
+                pr_author="github:alice",
+            )
+            second, created = await db.get_or_create_build(
+                project_id, "tree-d", "sha", "main"
+            )
+            assert not created
+            assert second.id == first.id
+            assert second.pr_number is None
+            assert second.branch == "main"
+            row = await pool.fetchrow(
+                "SELECT pr_number, pr_author, branch FROM builds WHERE id = $1",
+                first.id,
+            )
+            assert dict(row) == {"pr_number": None, "pr_author": None, "branch": "main"}
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_pr_does_not_capture_branch_push_build(postgres_dsn: str) -> None:
+    # A default-branch push created the build; a PR for a different
+    # branch sharing the tree hash must not gain pr_author authz
+    # (restart/cancel control) over it.
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "pr-capture")
+            db = BuildDB(pool)
+            first, _ = await db.get_or_create_build(project_id, "tree-m", "sha", "main")
+            second, created = await db.get_or_create_build(
+                project_id,
+                "tree-m",
+                "sha",
+                "feature",
+                pr_number=9,
+                pr_author="github:mallory",
+            )
+            assert not created
+            assert second.id == first.id
+            row = await pool.fetchrow(
+                "SELECT pr_number, pr_author FROM builds WHERE id = $1", first.id
+            )
+            assert row["pr_number"] is None
+            assert row["pr_author"] is None
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_complete_attribute_replaces_log_row(postgres_dsn: str) -> None:
     # Attribute restarts rewrite the same log file; the metadata row
     # must be replaced, not duplicated with stale sizes.

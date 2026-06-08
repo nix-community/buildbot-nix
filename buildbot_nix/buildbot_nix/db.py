@@ -109,26 +109,41 @@ class BuildDB:
                 tree_hash,
             )
             if row is not None:
-                if row["pr_author"] is not None and pr_number != row["pr_number"]:
-                    # Reused in another context (e.g. the default branch
-                    # after the PR merged); PR-author control is scoped
-                    # to the author's own PR.
+                if pr_number != row["pr_number"]:
+                    if row["pr_number"] is not None or row["pr_author"] is not None:
+                        # Reused in another context (another PR, or the
+                        # default branch after the PR merged): drop
+                        # number and author together so the stale PR
+                        # keeps no authz, and let a plain branch push
+                        # take over the branch field.
+                        row = await conn.fetchrow(
+                            "UPDATE builds SET pr_number = NULL, pr_author = NULL, "
+                            "branch = CASE WHEN $2::int IS NULL THEN $3 "
+                            "ELSE branch END "
+                            "WHERE id = $1 RETURNING *",
+                            row["id"],
+                            pr_number,
+                            branch,
+                        )
+                    elif pr_number is not None and branch == row["branch"]:
+                        # Backfill PR identity for the pr_author authz
+                        # rule when a push to the PR's own head branch
+                        # created the build first. A PR must not capture
+                        # authz over a build for another branch (e.g. a
+                        # default-branch push sharing the tree hash).
+                        row = await conn.fetchrow(
+                            "UPDATE builds SET pr_number = $2, pr_author = $3 "
+                            "WHERE id = $1 RETURNING *",
+                            row["id"],
+                            pr_number,
+                            pr_author,
+                        )
+                elif pr_author is not None and row["pr_author"] is None:
+                    # Same PR: fill in the author when a previous event
+                    # for this PR lacked it.
                     row = await conn.fetchrow(
-                        "UPDATE builds SET pr_author = NULL WHERE id = $1 RETURNING *",
+                        "UPDATE builds SET pr_author = $2 WHERE id = $1 RETURNING *",
                         row["id"],
-                    )
-                elif (pr_number is not None and row["pr_number"] is None) or (
-                    pr_author is not None and row["pr_author"] is None
-                ):
-                    # Backfill PR identity for the pr_author authz rule
-                    # when the branch push created the build first.
-                    row = await conn.fetchrow(
-                        "UPDATE builds SET "
-                        "pr_number = COALESCE(pr_number, $2), "
-                        "pr_author = COALESCE(pr_author, $3) "
-                        "WHERE id = $1 RETURNING *",
-                        row["id"],
-                        pr_number,
                         pr_author,
                     )
                 return _build_record(row), False

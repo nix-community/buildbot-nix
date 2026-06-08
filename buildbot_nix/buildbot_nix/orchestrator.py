@@ -17,7 +17,7 @@ import logging
 import shutil
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import quote
 
@@ -223,15 +223,8 @@ class Orchestrator:
         in-flight build, or run it."""
         repo = event.repo
         key = branch_key(event.branch, event.pr_number)
-        if not created and event.pr_number is None and build.pr_number is not None:
-            # A default-branch push reusing a PR build sheds the PR
-            # identity, or the pr_number guards skip it forever.
-            await self.db.pool.execute(
-                "UPDATE builds SET pr_number = NULL, branch = $2 WHERE id = $1",
-                build.id,
-                event.branch,
-            )
-            build = replace(build, pr_number=None, branch=event.branch)
+        # A branch push reusing a PR build already shed the PR identity
+        # (and took over the branch field) in get_or_create_build.
         if not created and build.status in (
             BuildStatus.SUCCEEDED,
             BuildStatus.FAILED,
