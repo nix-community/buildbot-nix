@@ -139,37 +139,62 @@ class SessionSigner:
         return payload.get("sid") if payload else None
 
 
+MIN_SIGNING_KEY_LEN = 32
+
+
+def _read_key(path: Path) -> bytes | None:
+    """None for missing, empty or too-short files: a truncated key
+    (e.g. from a crash mid-write) would be trivially forgeable."""
+    if not path.exists():
+        return None
+    key = path.read_bytes()
+    if len(key) < MIN_SIGNING_KEY_LEN:
+        logger.warning("signing key %s is too short; regenerating", path)
+        return None
+    return key
+
+
+def _write_key(path: Path, key: bytes) -> None:
+    """Atomic (temp file + rename): a crash mid-write must never leave
+    a partial key behind."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.touch(mode=0o600)
+    tmp.write_bytes(key)
+    tmp.replace(path)
+
+
 def load_signing_keys(state_dir: Path, override: Path | None = None) -> list[bytes]:
     """Current + previous key. Auto-generated in StateDirectory unless
     overridden via LoadCredential."""
     if override is not None:
-        return [override.read_bytes().strip()]
+        override_key = override.read_bytes().strip()
+        if not override_key:
+            msg = f"session signing key override {override} is empty"
+            raise ValueError(msg)
+        return [override_key]
     key_file = state_dir / "session-key"
     previous_file = state_dir / "session-key.previous"
     keys = []
-    if key_file.exists():
-        keys.append(key_file.read_bytes())
-    else:
+    key = _read_key(key_file)
+    if key is None:
         state_dir.mkdir(parents=True, exist_ok=True)
-        key = secrets.token_bytes(32)
-        key_file.touch(mode=0o600)
-        key_file.write_bytes(key)
-        keys.append(key)
-    if previous_file.exists():
-        keys.append(previous_file.read_bytes())
+        key = secrets.token_bytes(MIN_SIGNING_KEY_LEN)
+        _write_key(key_file, key)
+    keys.append(key)
+    previous = _read_key(previous_file)
+    if previous is not None:
+        keys.append(previous)
     return keys
 
 
 def rotate_signing_key(state_dir: Path) -> None:
     key_file = state_dir / "session-key"
     previous_file = state_dir / "session-key.previous"
-    if key_file.exists():
+    current = _read_key(key_file)
+    if current is not None:
         # Still a valid verification key during the rotation window.
-        previous_file.touch(mode=0o600)
-        previous_file.write_bytes(key_file.read_bytes())
-    new_key = secrets.token_bytes(32)
-    key_file.touch(mode=0o600)
-    key_file.write_bytes(new_key)
+        _write_key(previous_file, current)
+    _write_key(key_file, secrets.token_bytes(MIN_SIGNING_KEY_LEN))
 
 
 # --- CSRF -----------------------------------------------------------------------

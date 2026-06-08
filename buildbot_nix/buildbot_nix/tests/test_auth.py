@@ -111,6 +111,30 @@ def test_signing_key_files(tmp_path: Path) -> None:
     assert load_signing_keys(tmp_path, override) == [b"operator-key"]
 
 
+def test_empty_or_short_signing_key_regenerated(tmp_path: Path) -> None:
+    """A crash between touch() and write_bytes() used to leave a
+    zero-byte (trivially forgeable) HMAC key that was loaded forever."""
+    (tmp_path / "session-key").touch(mode=0o600)
+    keys = load_signing_keys(tmp_path)
+    assert len(keys) == 1
+    assert len(keys[0]) >= 32
+    assert load_signing_keys(tmp_path) == keys  # persisted, stable
+
+    # Too-short keys are also replaced.
+    (tmp_path / "session-key").write_bytes(b"short")
+    assert len(load_signing_keys(tmp_path)[0]) >= 32
+
+    # An empty previous key must not become a valid verification key.
+    (tmp_path / "session-key.previous").touch(mode=0o600)
+    assert len(load_signing_keys(tmp_path)) == 1
+
+    # An empty operator-provided override is a hard error, not silence.
+    override = tmp_path / "override"
+    override.write_bytes(b"\n")
+    with pytest.raises(ValueError, match="empty"):
+        load_signing_keys(tmp_path, override)
+
+
 def test_signing_key_file_permissions(tmp_path: Path) -> None:
     load_signing_keys(tmp_path)
     assert (tmp_path / "session-key").stat().st_mode & 0o777 == 0o600
