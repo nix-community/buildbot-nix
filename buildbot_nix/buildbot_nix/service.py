@@ -628,8 +628,13 @@ class CIService:
         await self.orchestrator.repos.fetch(
             info.key, info.clone_url, refspecs, credentials
         )
+        # Credentials matter here too: submodule init in the checkout
+        # fails for private submodules without them.
         worktree = await self.orchestrator.repos.checkout_for_build(
-            info.key, f"rerun-{build.id}", base_commit=build.commit_sha
+            info.key,
+            f"rerun-{build.id}",
+            base_commit=build.commit_sha,
+            credentials=credentials,
         )
         try:
             # Stale rows (e.g. failed_eval with NULL drv_path) would

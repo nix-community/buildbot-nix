@@ -24,6 +24,7 @@ from buildbot_nix.config import (
 )
 from buildbot_nix.events import NullStatusReporter
 from buildbot_nix.forge import DiscoveredRepo, GitlabClient
+from buildbot_nix.gitrepo import FetchCredentials
 from buildbot_nix.scheduled import DueEffect, ScheduleWhen
 from buildbot_nix.service import scheduled_worktree_id
 from buildbot_nix.webhooks import ChangeRequest, PrClosed
@@ -833,6 +834,60 @@ def test_rerun_reevaluates_when_drv_paths_were_garbage_collected(
 
             assert resumes == []
             assert reevals == [build_id]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_reeval_checkout_passes_credentials(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """Restart re-evaluation must check out with the repo credentials;
+    private submodules fail to init without them."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="failed", error="boom"
+            )
+
+            sentinel = FetchCredentials(token="s3cret")  # noqa: S106
+
+            class Creds:
+                async def get(self, repo_url: str) -> FetchCredentials:
+                    return sentinel
+
+            service.credentials_providers["github"] = Creds()
+            seen: list[Any] = []
+            original = service.orchestrator.repos.checkout_for_build
+
+            async def spy(*args: Any, **kwargs: Any) -> Any:
+                seen.append(kwargs.get("credentials"))
+                return await original(*args, **kwargs)
+
+            service.orchestrator.repos.checkout_for_build = spy  # type: ignore[method-assign]
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                pass
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            await service.restart_build(build_id)
+            await service.drain_work()
+            await asyncio.gather(*service._tasks)  # noqa: SLF001
+
+            assert seen == [sentinel]
         finally:
             await pool.close()
 
