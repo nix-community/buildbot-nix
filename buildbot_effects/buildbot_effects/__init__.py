@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from .options import EffectsOptions
 
 
@@ -283,18 +280,6 @@ def env_args(env: dict[str, str], clear_env: set[str]) -> list[str]:
     return result
 
 
-@contextmanager
-def pipe() -> Iterator[tuple[IO[str], IO[str]]]:
-    r, w = os.pipe()
-    r_file = os.fdopen(r, "r")
-    w_file = os.fdopen(w, "w")
-    try:
-        yield r_file, w_file
-    finally:
-        r_file.close()
-        w_file.close()
-
-
 def secret_context(opts: EffectsOptions) -> SecretContext:
     branch = opts.branch or ""
     return SecretContext(
@@ -551,18 +536,17 @@ def run_effects(  # noqa: PLR0913
         bubblewrap_cmd.extend(env_args(env, clear_env))
         bubblewrap_cmd.append("--")
         bubblewrap_cmd.extend(sandboxed_cmd)
-        with pipe() as (_r_file, _w_file):
-            if debug:
-                print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
-            try:
-                with proxy:
-                    proc = subprocess.run(
-                        bubblewrap_cmd,
-                        check=False,
-                        stdin=subprocess.DEVNULL,
-                    )
-            finally:
-                shutil.rmtree(work_dir, ignore_errors=True)
-            if proc.returncode != 0:
-                msg = f"command failed with exit code {proc.returncode}"
-                raise BuildbotEffectsError(msg)
+        if debug:
+            print("$", shlex.join(bubblewrap_cmd), file=sys.stderr)
+        try:
+            with proxy:
+                proc = subprocess.run(
+                    bubblewrap_cmd,
+                    check=False,
+                    stdin=subprocess.DEVNULL,
+                )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        if proc.returncode != 0:
+            msg = f"command failed with exit code {proc.returncode}"
+            raise BuildbotEffectsError(msg)
