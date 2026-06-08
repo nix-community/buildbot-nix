@@ -18,7 +18,7 @@ from buildbot_nix.migrations import apply_migrations, load_migrations
 from buildbot_nix.models import CacheStatus
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 
-from .support import insert_project, mk_job
+from .support import insert_build, insert_project, mk_job
 
 
 async def _connect(dsn: str) -> asyncpg.Connection:
@@ -64,6 +64,30 @@ def test_failed_migration_error_not_masked(
     # rollback/unlock raise on the now-dead connection.
     with pytest.raises(asyncpg.PostgresConnectionError):
         asyncio.run(migrations_mod.apply_migrations(postgres_dsn))
+
+
+def test_huge_attr_name_does_not_break_notify_trigger(postgres_dsn: str) -> None:
+    """pg_notify payloads cap at ~8000 bytes; the notify trigger must
+    truncate the repo-controlled attr name or every insert/update of
+    such a row fails."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "hugename")
+            build_id = await insert_build(pool, project_id, commit_sha="huge-sha")
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, status) "
+                "VALUES ($1, $2, 'pending')",
+                build_id,
+                "x" * 9000,
+            )
+            # Other tests assert over the shared builds table.
+            await pool.execute("DELETE FROM projects WHERE id = $1", project_id)
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
 
 
 def test_project_build_attribute_crud(postgres_dsn: str) -> None:
