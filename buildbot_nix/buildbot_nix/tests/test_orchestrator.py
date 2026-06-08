@@ -603,7 +603,7 @@ def test_internal_error_not_recorded_in_failed_build_cache(
             "crash",
         )
         cache = RecordingCache()
-        orchestrator.failed_build_cache = cache  # type: ignore[assignment]
+        orchestrator.failed_build_cache = lambda _project_id: cache  # type: ignore[assignment]
         orchestrator.config = orchestrator.config.model_copy(
             update={"cache_failed_builds": True}
         )
@@ -815,7 +815,7 @@ def test_recovery_rerun_failures_not_cached(
             "recov",
         )
         cache = RecordingCache()
-        orchestrator.failed_build_cache = cache  # type: ignore[assignment]
+        orchestrator.failed_build_cache = lambda _project_id: cache  # type: ignore[assignment]
         orchestrator.config = orchestrator.config.model_copy(
             update={"cache_failed_builds": True}
         )

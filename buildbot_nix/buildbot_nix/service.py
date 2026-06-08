@@ -517,7 +517,9 @@ class CIService:
         # An explicit rebuild clears cached failures so the attributes
         # actually build again instead of re-skipping.
         await self.pool.execute(
-            "DELETE FROM failed_builds WHERE derivation IN "
+            "DELETE FROM failed_builds WHERE project_id = "
+            "(SELECT project_id FROM builds WHERE id = $1) "
+            "AND derivation IN "
             "(SELECT drv_path FROM build_attributes "
             "WHERE build_id = $1 AND ($2::text IS NULL OR attr = $2))",
             build_id,

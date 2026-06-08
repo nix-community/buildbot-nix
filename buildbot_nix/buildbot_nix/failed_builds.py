@@ -18,15 +18,19 @@ if TYPE_CHECKING:
 
 
 class PostgresFailedBuildCache:
-    """Implements the scheduler's FailedBuildCache protocol."""
+    """Implements the scheduler's FailedBuildCache protocol, scoped
+    per project: a global key would leak one project's build URL into
+    another's status descriptions."""
 
-    def __init__(self, pool: asyncpg.Pool) -> None:
+    def __init__(self, pool: asyncpg.Pool, project_id: int) -> None:
         self.pool = pool
+        self.project_id = project_id
 
     async def check(self, drv_path: str) -> CachedFailure | None:
         row = await self.pool.fetchrow(
             "SELECT derivation, timestamp, url FROM failed_builds "
-            "WHERE derivation = $1",
+            "WHERE project_id = $1 AND derivation = $2",
+            self.project_id,
             drv_path,
         )
         if row is None:
@@ -40,11 +44,12 @@ class PostgresFailedBuildCache:
     async def add(self, drv_path: str, url: str) -> None:
         await self.pool.execute(
             """
-            INSERT INTO failed_builds (derivation, timestamp, url)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (derivation)
+            INSERT INTO failed_builds (project_id, derivation, timestamp, url)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (project_id, derivation)
             DO UPDATE SET timestamp = EXCLUDED.timestamp, url = EXCLUDED.url
             """,
+            self.project_id,
             drv_path,
             datetime.now(tz=UTC).timestamp(),
             url,
@@ -52,5 +57,7 @@ class PostgresFailedBuildCache:
 
     async def remove(self, drv_path: str) -> None:
         await self.pool.execute(
-            "DELETE FROM failed_builds WHERE derivation = $1", drv_path
+            "DELETE FROM failed_builds WHERE project_id = $1 AND derivation = $2",
+            self.project_id,
+            drv_path,
         )

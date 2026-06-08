@@ -495,8 +495,9 @@ def test_restart_clears_failed_cache_and_guards_running(
                 build_id,
             )
             await pool.execute(
-                "INSERT INTO failed_builds (derivation, timestamp, url) "
-                "VALUES ('/nix/store/a.drv', 1, 'http://old')"
+                "INSERT INTO failed_builds (project_id, derivation, timestamp, url) "
+                "VALUES ($1, '/nix/store/a.drv', 1, 'http://old')",
+                project_id,
             )
 
             # Running build: restart refuses, cache row stays.

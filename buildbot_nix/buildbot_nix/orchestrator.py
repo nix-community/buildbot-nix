@@ -116,7 +116,9 @@ class Orchestrator:
     eval_runner: EvalRunnerLike
     executor: AttributeExecutor
     reporter: StatusReporter = field(default_factory=NullStatusReporter)
-    failed_build_cache: FailedBuildCache | None = None
+    # Project id -> cache; scoped so one project's failures cannot
+    # affect another's builds.
+    failed_build_cache: Callable[[int], FailedBuildCache] | None = None
     # build id -> cancel event, set by the cancellation manager.
     cancel_events: dict[int, asyncio.Event] = field(default_factory=dict)
     # (build id, attr) -> cancel event for a single queued/running
@@ -505,7 +507,9 @@ class Orchestrator:
             await self.db.complete_attribute(build.id, result, if_unfinished=True)
 
         failed_build_cache: FailedBuildCache | None = (
-            self.failed_build_cache if self.config.cache_failed_builds else None
+            self.failed_build_cache(build.project_id)
+            if self.failed_build_cache is not None and self.config.cache_failed_builds
+            else None
         )
         if failed_build_cache is not None and not cache_failures:
             failed_build_cache = _ReadOnlyFailedBuildCache(failed_build_cache)

@@ -246,12 +246,16 @@ def test_retention_ages_out_failed_caches(postgres_dsn: str, tmp_path: Path) -> 
                 old_ts,
                 time.time(),
             )
+            cache_project = await insert_project(
+                pool, "cache-age", forge_repo_id="cache-age"
+            )
             await pool.execute(
-                "INSERT INTO failed_builds (derivation, timestamp, url) "
-                "VALUES ('/nix/store/old.drv', $1, 'u'), "
-                "('/nix/store/new.drv', $2, 'u')",
+                "INSERT INTO failed_builds (project_id, derivation, timestamp, url) "
+                "VALUES ($3, '/nix/store/old.drv', $1, 'u'), "
+                "($3, '/nix/store/new.drv', $2, 'u')",
                 old_ts,
                 time.time(),
+                cache_project,
             )
             await cleanup_old_builds(pool, tmp_path, 90)
             revisions = {

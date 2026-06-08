@@ -234,7 +234,9 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
         repos=RepoManager(config.state_dir),
         eval_runner=EvalRunner(config.eval_concurrency, limiter=CgroupLimiter.create()),
         executor=executor,
-        failed_build_cache=PostgresFailedBuildCache(pool),
+        failed_build_cache=lambda project_id: PostgresFailedBuildCache(
+            pool, project_id
+        ),
     )
     service = CIService(
         config=config,

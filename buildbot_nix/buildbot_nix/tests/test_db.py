@@ -189,15 +189,26 @@ def test_failed_builds_and_statuses_upsert(postgres_dsn: str) -> None:
     async def run() -> None:
         conn = await _connect(postgres_dsn)
         try:
+            project_id = await conn.fetchval(
+                """
+                INSERT INTO projects (forge, forge_repo_id, owner, name,
+                                      default_branch, url, private, enabled)
+                VALUES ('github', 'upsert-1', 'acme', 'upsert', 'main', 'u',
+                        FALSE, TRUE)
+                RETURNING id
+                """
+            )
             for ts in (1.0, 2.0):
                 await conn.execute(
                     """
-                    INSERT INTO failed_builds (derivation, timestamp, url)
-                    VALUES ('/nix/store/x.drv', $1, 'http://ci/1')
-                    ON CONFLICT (derivation)
+                    INSERT INTO failed_builds
+                        (project_id, derivation, timestamp, url)
+                    VALUES ($2, '/nix/store/x.drv', $1, 'http://ci/1')
+                    ON CONFLICT (project_id, derivation)
                     DO UPDATE SET timestamp = EXCLUDED.timestamp
                     """,
                     ts,
+                    project_id,
                 )
             assert (
                 await conn.fetchval(
@@ -227,7 +238,8 @@ def test_failed_build_cache_component(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            cache = PostgresFailedBuildCache(pool)
+            project_id = await insert_project(pool, "cache", forge_repo_id="fb-0")
+            cache = PostgresFailedBuildCache(pool, project_id)
             drv = "/nix/store/cache-test.drv"
             assert await cache.check(drv) is None
             await cache.add(drv, "http://ci/b/1")
@@ -779,6 +791,28 @@ def test_complete_attribute_if_unfinished_skips_terminal_rows(
             )
             statuses = await db.get_attribute_statuses(build.id)
             assert statuses["bar"] == "skipped_local"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_failed_build_cache_scoped_per_project(postgres_dsn: str) -> None:
+    """A cached failure must not leak another project's build URL into
+    status descriptions or block an unrelated project's identical
+    derivation."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            p1 = await insert_project(pool, "one", forge_repo_id="fb-1")
+            p2 = await insert_project(pool, "two", forge_repo_id="fb-2")
+            drv = "/nix/store/shared.drv"
+            await PostgresFailedBuildCache(pool, p1).add(drv, "http://ci/one/1")
+            assert await PostgresFailedBuildCache(pool, p2).check(drv) is None
+            entry = await PostgresFailedBuildCache(pool, p1).check(drv)
+            assert entry is not None
+            assert entry.url == "http://ci/one/1"
         finally:
             await pool.close()
 
