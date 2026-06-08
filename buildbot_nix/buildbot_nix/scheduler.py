@@ -320,11 +320,8 @@ class JobScheduler:
         # Called for each result as soon as it is known.
         self.on_result = on_result
 
-    @staticmethod
     def _partition_jobs(
-        jobs: list[NixEvalJob],
-        supported_systems: list[str],
-        result: ScheduleResult,
+        self, jobs: list[NixEvalJob], result: ScheduleResult
     ) -> list[NixEvalJobSuccess]:
         """Split eval output: per-attribute failed-eval records, plus the
         buildable jobs filtered by supported systems."""
@@ -339,8 +336,11 @@ class JobScheduler:
                         error=job.error,
                     )
                 )
-            elif isinstance(job, NixEvalJobSuccess) and job.system in supported_systems:
+            elif job.system in self.supported_systems:
                 successful_jobs.append(job)
+            # Unsupported systems are dropped: the orchestrator never
+            # records attribute rows for them, so they neither fail the
+            # build nor block aggregation.
         return successful_jobs
 
     async def _dispatch_ready(
@@ -455,7 +455,7 @@ class JobScheduler:
         dependencies on failed drvs settle the new job immediately."""
         fresh = [job for job in batch if job.attr not in state.seen_attrs]
         state.seen_attrs.update(job.attr for job in fresh)
-        new_jobs = self._partition_jobs(fresh, self.supported_systems, state.result)
+        new_jobs = self._partition_jobs(fresh, state.result)
         # Settle jobs depending on failed drvs. Iterate new and already
         # pending jobs to a fixpoint: neither batches nor batch arrival
         # order is topological, so a dependent may precede the job that

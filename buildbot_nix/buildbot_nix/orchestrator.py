@@ -557,6 +557,26 @@ class Orchestrator:
             if current is not None and current.status == "cancelled":
                 # Cancelled between scheduling the rerun and getting here.
                 return
+            # Pending rows for systems no longer in build_systems would
+            # stay non-terminal forever: the scheduler drops their jobs.
+            # Drop the rows too (same as never recording them).
+            unsupported = [
+                job
+                for job in pending_jobs
+                if job.system not in self.config.build_systems
+            ]
+            if unsupported:
+                await self.db.pool.execute(
+                    "DELETE FROM build_attributes WHERE build_id = $1 "
+                    "AND attr = ANY($2::text[])",
+                    build.id,
+                    [job.attr for job in unsupported],
+                )
+                pending_jobs = [
+                    job
+                    for job in pending_jobs
+                    if job.system in self.config.build_systems
+                ]
             # No re-eval happens on this path; go straight to building.
             await self.db.set_build_status(build.id, BuildStatus.BUILDING)
             # Register so supersede/PR-close cancellation also covers
