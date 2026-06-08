@@ -132,7 +132,22 @@ def test_check_mounts() -> None:
     mounts = check_mounts(mountables, CTX, {"/var/run/docker.sock": "docker"})
     assert mounts == [("/var/run/docker.sock", "/var/run/docker.sock", False)]
 
-    for bad in ("relative", "/nix/store", "/build/x", "/a/../b", "/a//b"):
+    # dot-prefixed components are legitimate, only . and .. traversal is not
+    mounts = check_mounts(mountables, CTX, {"/srv/.config": "docker"})
+    assert mounts == [("/srv/.config", "/var/run/docker.sock", False)]
+
+    for bad in (
+        "relative",
+        "/",
+        "/nix/store",
+        "/build/x",
+        "/run",
+        "/run/secrets.json",
+        "/a/../b",
+        "/a/./b",
+        "/a//b",
+        "/a/b/",
+    ):
         with pytest.raises(SecretsError):
             check_mounts(mountables, CTX, {bad: "docker"})
     with pytest.raises(SecretsError):

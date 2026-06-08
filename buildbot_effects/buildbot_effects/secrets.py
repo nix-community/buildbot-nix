@@ -158,10 +158,16 @@ def check_mounts(
         )
         if mountable is None:
             raise denied
-        if not path.startswith("/") or "/." in path or "//" in path:
+        # Component-wise so dot-prefixed names like /srv/.config stay allowed.
+        components = path.split("/")
+        if (
+            path == "/"
+            or components[0] != ""
+            or any(c in ("", ".", "..") for c in components[1:])
+        ):
             msg = f"invalid mount path: {path!r}"
             raise SecretsError(msg)
-        for protected in ("/nix", "/secrets", "/build"):
+        for protected in ("/nix", "/secrets", "/build", "/run"):
             if path == protected or path.startswith(protected + "/"):
                 msg = f"mount over {protected} is not allowed: {path!r}"
                 raise SecretsError(msg)
