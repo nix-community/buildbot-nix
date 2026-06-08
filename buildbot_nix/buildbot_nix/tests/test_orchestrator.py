@@ -1826,3 +1826,55 @@ def test_cancel_during_eval_resolves_linked_eval_contexts(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_effect_log_does_not_collide_with_attribute_log(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An attribute named "effect-deploy" and an effect named "deploy"
+    must not share one log file."""
+
+    async def fake_list(ctx: object) -> list[str]:
+        return ["deploy"]
+
+    async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
+        return True
+
+    async def run() -> None:
+        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
+        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
+        add_commit(upstream, "log-collide")
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([mk_job("effect-deploy")]),
+            FakeExecutor(),
+            name="log-collide",
+        )
+        try:
+            build = await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project,
+                    branch="main",
+                    commit_sha=git(upstream, "rev-parse", "HEAD"),
+                )
+            )
+            assert build is not None
+            await drain_effect_items(orchestrator, project, pool)
+            attr_log = await pool.fetchval(
+                "SELECT l.path FROM logs l JOIN build_attributes a "
+                "ON l.attribute_id = a.id WHERE a.build_id = $1",
+                build.id,
+            )
+            effect_log = await pool.fetchval(
+                "SELECT log_path FROM build_effects WHERE build_id = $1",
+                build.id,
+            )
+            assert attr_log is not None
+            assert effect_log is not None
+            assert attr_log != effect_log
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

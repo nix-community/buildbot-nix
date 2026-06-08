@@ -834,10 +834,11 @@ class Orchestrator:
         """One effect with its own row and log."""
         await self.db.start_effect(build.id, name)
         # Effect names come from untrusted flakes; percent-encode so
-        # the log file cannot escape the log directory. The "effect-"
-        # prefix keeps them apart from attribute logs.
+        # the log file cannot escape the log directory. The "effects/"
+        # subdirectory keeps them apart from attribute logs (a flat
+        # prefix would collide with an attribute named "effect-X").
         async with self.open_log(
-            build.id, f"effect:{name}", f"effect-{quote(name, safe='')}.zst"
+            build.id, f"effect:{name}", f"effects/{quote(name, safe='')}.zst"
         ) as writer:
             try:
                 success = await run_effect(ctx, name, writer.write)
