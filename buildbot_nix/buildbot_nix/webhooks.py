@@ -162,14 +162,19 @@ def _parse_pr_event(
         return None
     # No commit_message: the [skip ci] check must not run on the PR
     # title, and the payload lacks the head commit message.
+    base = pr.get("base") or {}
+    base_ref = base.get("ref", "")
     return ChangeRequest(
         forge=forge,
         forge_repo_id=repo_id,
-        branch=(pr.get("base") or {}).get("ref", ""),
+        branch=base_ref,
         commit_sha=(pr.get("head") or {}).get("sha", ""),
         pr_number=number,
         pr_author=f"{forge}:{(pr.get('user') or {}).get('login', '')}",
-        base_sha=(pr.get("base") or {}).get("sha"),
+        # base.sha is frozen at PR creation while the base branch moves
+        # on; merge into the branch tip (fetched alongside) so the PR is
+        # tested against the current base.
+        base_sha=f"refs/heads/{base_ref}" if base_ref else base.get("sha"),
     )
 
 

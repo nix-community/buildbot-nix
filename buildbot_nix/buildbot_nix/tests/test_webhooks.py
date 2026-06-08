@@ -10,7 +10,7 @@ import hmac
 import json
 import urllib.parse
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from buildbot_nix import webhooks
 from buildbot_nix.config import BranchConfig, BranchConfigDict
+from buildbot_nix.gitrepo import RepoManager
 from buildbot_nix.webhooks import (
     ChangeRequest,
     DeliveryDeduper,
@@ -32,6 +33,11 @@ from buildbot_nix.webhooks import (
     verify_gitea_signature,
     verify_github_signature,
 )
+
+from .support import git, init_upstream
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 SECRET = "hook-secret"  # noqa: S105
 
@@ -155,7 +161,7 @@ def test_parse_github_pr() -> None:
     assert isinstance(event, ChangeRequest)
     assert event.pr_number == 12
     assert event.pr_author == "github:alice"
-    assert event.base_sha == "basesha"
+    assert event.base_sha == "refs/heads/main"
     assert event.commit_sha == "headsha"
     # PR title must not feed the [skip ci] check.
     assert event.commit_message == ""
@@ -190,7 +196,7 @@ def test_parse_github_pr_retarget() -> None:
     event = parse_github_event("pull_request", payload)
     assert isinstance(event, ChangeRequest)
     assert event.branch == "release"
-    assert event.base_sha == "newbase"
+    assert event.base_sha == "refs/heads/release"
 
     # Title/body edits carry no changes.base and must stay ignored.
     payload["changes"] = {"title": {"from": "old title"}}
@@ -746,5 +752,57 @@ def test_gitlab_endpoint_token_validation() -> None:
             assert dup.text == "duplicate delivery"
         assert len(sink.events) == 1
         assert sink.events[0].forge == "gitlab"
+
+    asyncio.run(run())
+
+
+def test_pr_merges_into_current_base_tip(tmp_path: Path) -> None:
+    """A PR opened before the base branch advanced must still be tested
+    against the current base tip, not the payload's frozen base.sha
+    (GitHub never updates base.sha as the base branch moves)."""
+    upstream = init_upstream(tmp_path / "upstream", {"file.txt": "v1\n"})
+    git(upstream, "checkout", "-b", "feature")
+    (upstream / "feature.txt").write_text("feature\n")
+    git(upstream, "add", "feature.txt")
+    git(upstream, "commit", "-m", "feature")
+    head_sha = git(upstream, "rev-parse", "HEAD")
+    git(upstream, "checkout", "main")
+    base_sha_at_pr_creation = git(upstream, "rev-parse", "HEAD")
+    # Base branch advances after the PR was opened.
+    (upstream / "after.txt").write_text("after\n")
+    git(upstream, "add", "after.txt")
+    git(upstream, "commit", "-m", "post-PR base commit")
+
+    event = parse_github_event(
+        "pull_request",
+        {
+            "action": "opened",
+            "repository": {"id": 1},
+            "pull_request": {
+                "number": 5,
+                "user": {"login": "alice"},
+                "head": {"sha": head_sha},
+                "base": {"ref": "main", "sha": base_sha_at_pr_creation},
+            },
+        },
+    )
+    assert isinstance(event, ChangeRequest)
+
+    async def run() -> None:
+        manager = RepoManager(tmp_path / "state")
+        await manager.fetch(
+            "github/acme/widget", str(upstream), ["+refs/heads/*:refs/heads/*"]
+        )
+        wt = await manager.checkout_for_build(
+            "github/acme/widget",
+            "build-1",
+            base_commit=event.base_sha or event.commit_sha,
+            head_commit=event.commit_sha,
+        )
+        try:
+            assert (wt.path / "feature.txt").exists()
+            assert (wt.path / "after.txt").exists()
+        finally:
+            await manager.remove_worktree(wt)
 
     asyncio.run(run())

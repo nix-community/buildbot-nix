@@ -64,7 +64,9 @@ async def github_heads(
             commit_sha=pull["head"]["sha"],
             pr_number=pull["number"],
             pr_author=f"github:{pull['user']['login']}",
-            base_sha=pull["base"]["sha"],
+            # base.sha is frozen at PR creation; merge into the current
+            # base branch tip instead (see webhooks._parse_pr_event).
+            base_sha=f"refs/heads/{pull['base']['ref']}",
         )
         for pull in pulls
     )
@@ -92,7 +94,7 @@ async def gitea_heads(client: GiteaClient, project: RepoRecord) -> list[RemoteHe
             commit_sha=pull["head"]["sha"],
             pr_number=pull["number"],
             pr_author=f"gitea:{pull['user']['login']}",
-            base_sha=pull["base"]["sha"],
+            base_sha=f"refs/heads/{pull['base']['ref']}",
         )
         for pull in pulls
     )
