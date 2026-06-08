@@ -46,6 +46,7 @@ from .events import EventBroker, create_events_router
 from .logs import LogRegistry, create_log_api_router, create_log_router
 from .metrics import create_metrics_router
 from .queries import PAGE_SIZE, BuildFilters, WebQueries
+from .routing import register_owner_convertor
 from .state_routes import create_state_router
 from .templating import STATIC_DIR, CachedStaticFiles, make_env
 
@@ -57,6 +58,9 @@ if TYPE_CHECKING:
 
 if TYPE_CHECKING:
     import asyncpg
+
+# Routes below use {owner:owner} to match nested GitLab group owners.
+register_owner_convertor()
 
 # Upper bound for live row refreshes of deep-scrolled tables.
 MAX_ROWS = 500
@@ -215,9 +219,11 @@ def create_legacy_router(ctx: WebContext) -> APIRouter:
     has been out for a while."""
     router = APIRouter()
 
-    @router.api_route("/projects/{owner}/{name}{rest:path}", methods=["GET", "POST"])
     @router.api_route(
-        "/api/projects/{owner}/{name}{rest:path}", methods=["GET", "POST"]
+        "/projects/{owner:owner}/{name:segment}{rest:path}", methods=["GET", "POST"]
+    )
+    @router.api_route(
+        "/api/projects/{owner:owner}/{name:segment}{rest:path}", methods=["GET", "POST"]
     )
     async def legacy_repo_urls(
         request: Request, owner: str, name: str, rest: str
@@ -527,15 +533,21 @@ def create_router(ctx: WebContext) -> APIRouter:
         ("/builds", pages.activity),
         ("/builds/rows", pages.activity_rows),
         ("/builds/queue", pages.queue_fragment),
-        ("/repos/{forge}/{owner}/{name}", pages.repo_page),
-        ("/repos/{forge}/{owner}/{name}/rows", pages.repo_rows),
-        ("/repos/{forge}/{owner}/{name}/builds/{number}", pages.build_page),
+        ("/repos/{forge}/{owner:owner}/{name:segment}", pages.repo_page),
+        ("/repos/{forge}/{owner:owner}/{name:segment}/rows", pages.repo_rows),
         (
-            "/repos/{forge}/{owner}/{name}/builds/{number}/attrs",
+            "/repos/{forge}/{owner:owner}/{name:segment}/builds/{number}",
+            pages.build_page,
+        ),
+        (
+            "/repos/{forge}/{owner:owner}/{name:segment}/builds/{number}/attrs",
             pages.attribute_rows,
         ),
         # :path — attribute names may contain slashes.
-        ("/repos/{forge}/{owner}/{name}/attrs/{attr:path}", pages.attribute_history),
+        (
+            "/repos/{forge}/{owner:owner}/{name:segment}/attrs/{attr:path}",
+            pages.attribute_history,
+        ),
     ]
     for path, handler in html_pages:
         router.get(path, response_class=HTMLResponse)(handler)

@@ -257,7 +257,7 @@ def create_control_router(
 ) -> APIRouter:
     router = APIRouter()
     routes = _ControlRoutes(ctx, backend, authz, own_url)
-    base = "/repos/{forge}/{owner}/{name}/builds/{number}"
+    base = "/repos/{forge}/{owner:owner}/{name:segment}/builds/{number}"
     router.post(f"{base}/restart")(routes.restart)
     # :path — attribute names may contain slashes.
     router.post(f"{base}/attrs/{{attr:path}}/restart")(routes.restart_attribute)
@@ -283,7 +283,7 @@ def create_control_api_router(
     API tokens authenticate via Authorization: Bearer."""
     router = APIRouter(prefix="/api", tags=["api"])
     routes = _ControlRoutes(ctx, backend, authz, own_url)
-    base = "/repos/{forge}/{owner}/{name}"
+    base = "/repos/{forge}/{owner:owner}/{name:segment}"
     router.post(f"{base}/builds/{{number}}/restart", response_model=ControlAction)(
         routes.api_restart
     )

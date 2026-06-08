@@ -157,14 +157,16 @@ def create_api_router(ctx: WebContext) -> APIRouter:
             projects = [p for p in projects if p["id"] in visible]
         return [clean_row(p) for p in projects]
 
-    @router.get("/repos/{forge}/{owner}/{name}", response_model=Repo)
+    @router.get("/repos/{forge}/{owner:owner}/{name:segment}", response_model=Repo)
     async def get_repo(
         request: Request, forge: str, owner: str, name: str
     ) -> dict[str, Any]:
         """Single project; 404 when unknown or not visible."""
         return clean_row(await ctx.repo_or_404(forge, owner, name, request))
 
-    @router.get("/repos/{forge}/{owner}/{name}/builds", response_model=BuildPage)
+    @router.get(
+        "/repos/{forge}/{owner:owner}/{name:segment}/builds", response_model=BuildPage
+    )
     async def list_builds(  # noqa: PLR0913
         request: Request,
         forge: str,
@@ -192,7 +194,8 @@ def create_api_router(ctx: WebContext) -> APIRouter:
         }
 
     @router.get(
-        "/repos/{forge}/{owner}/{name}/builds/{number}", response_model=BuildDetail
+        "/repos/{forge}/{owner:owner}/{name:segment}/builds/{number}",
+        response_model=BuildDetail,
     )
     async def get_build(
         request: Request, forge: str, owner: str, name: str, number: int
@@ -210,7 +213,7 @@ def create_api_router(ctx: WebContext) -> APIRouter:
 
     @router.get(
         # :path — attribute names may contain slashes.
-        "/repos/{forge}/{owner}/{name}/attrs/{attr:path}",
+        "/repos/{forge}/{owner:owner}/{name:segment}/attrs/{attr:path}",
         response_model=list[AttributeHistoryEntry],
     )
     async def get_attribute_history(

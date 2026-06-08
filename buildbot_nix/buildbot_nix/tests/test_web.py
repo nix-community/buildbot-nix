@@ -39,7 +39,13 @@ from buildbot_nix.web.state_routes import create_state_router
 from buildbot_nix.web.templating import branch_url, commit_url, pr_url, timeago
 
 from .e2e.support import seed
-from .support import WebHarness, cookie_header, insert_project, web_harness
+from .support import (
+    WebHarness,
+    cookie_header,
+    insert_build,
+    insert_project,
+    web_harness,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -1398,3 +1404,31 @@ def test_logout_revokes_session_cookie(postgres_dsn: str) -> None:
 
         after = harness.run(harness.http.get("/whoami", headers=headers))
         assert after.json() == {"user": None}
+
+
+def test_gitlab_nested_group_routes(client: WebHarness) -> None:
+    """GitLab nested-group projects have "/" in the owner; the web and
+    API routes must still resolve them."""
+
+    async def setup() -> None:
+        pool = client.ctx.pool
+        project_id = await insert_project(
+            pool,
+            "proj",
+            forge="gitlab",
+            forge_repo_id="nested-1",
+            owner="group/sub",
+            url="https://gitlab.example.com/group/sub/proj.git",
+        )
+        await insert_build(pool, project_id, number=1, status="succeeded")
+
+    client.run(setup())
+    page = client.get("/repos/gitlab/group/sub/proj")
+    assert page.status_code == 200
+    api = client.get("/api/repos/gitlab/group/sub/proj")
+    assert api.status_code == 200
+    assert api.json()["owner"] == "group/sub"
+    build_page = client.get("/repos/gitlab/group/sub/proj/builds/1")
+    assert build_page.status_code == 200
+    build_api = client.get("/api/repos/gitlab/group/sub/proj/builds/1")
+    assert build_api.status_code == 200

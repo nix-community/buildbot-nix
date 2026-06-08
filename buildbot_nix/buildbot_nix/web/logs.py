@@ -464,7 +464,7 @@ class _LogRoutes:
         )
 
 
-_BASE = "/repos/{forge}/{owner}/{name}/builds/{number}"
+_BASE = "/repos/{forge}/{owner:owner}/{name:segment}/builds/{number}"
 
 
 def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
@@ -480,9 +480,10 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
     router.get(f"{_BASE}/logs/{{attr:path}}", response_class=HTMLResponse)(
         routes.log_viewer
     )
-    router.get("/repos/{forge}/{owner}/{name}/schedules/runs/{run_id}.txt")(
-        routes.scheduled_run_log
-    )
+    router.get(
+        "/repos/{forge}/{owner:owner}/{name:segment}/schedules/runs/{run_id}.txt"
+    )(routes.scheduled_run_log)
+>>>>>>> 07107401e (web: route GitLab nested-group projects (owner containing "/"))
     return router
 
 
