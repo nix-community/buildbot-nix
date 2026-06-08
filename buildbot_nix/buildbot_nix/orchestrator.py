@@ -311,7 +311,14 @@ class Orchestrator:
                 logger.exception(
                     "build failed with unexpected error", extra={"build_id": build.id}
                 )
-            await self._settle_aborted(event, build, BuildStatus.FAILED, error=str(e))
+            # Skip settling when the final fan-out already happened
+            # (e.g. the effects phase failed): the build's aggregated
+            # result must not be overwritten with a failure.
+            current = await self.db.get_build(build.id)
+            if current is None or current.status not in BuildStatus.TERMINAL:
+                await self._settle_aborted(
+                    event, build, BuildStatus.FAILED, error=str(e)
+                )
         finally:
             # Eval gc-roots only need to outlive the build; without
             # cleanup the nix store grows unboundedly.

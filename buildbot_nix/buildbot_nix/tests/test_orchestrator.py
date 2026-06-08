@@ -1929,3 +1929,42 @@ def test_post_process_paths_are_forge_scoped(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_effects_phase_error_keeps_succeeded_build(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception after the final fan-out (effects discovery here)
+    must not flip an already-succeeded build to failed."""
+
+    async def boom_list(ctx: object) -> list[str]:
+        msg = "state api down"
+        raise RuntimeError(msg)
+
+    async def run() -> None:
+        monkeypatch.setattr(orch_mod, "list_effects", boom_list)
+        add_commit(upstream, "late-boom")
+        pool, orchestrator, reporter, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([mk_job("a")]),
+            FakeExecutor(),
+            name="late-boom",
+        )
+        try:
+            build = await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project,
+                    branch="main",
+                    commit_sha=git(upstream, "rev-parse", "HEAD"),
+                )
+            )
+            assert build is not None
+            assert await build_status(pool, build.id) == BuildStatus.SUCCEEDED
+            finished = [e for e in reporter.events if e[0] == "finished"]
+            assert finished[-1][2] == BuildStatus.SUCCEEDED
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
