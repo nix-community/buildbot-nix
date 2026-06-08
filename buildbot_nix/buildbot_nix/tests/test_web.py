@@ -264,6 +264,18 @@ def test_activity_page(client: WebHarness) -> None:
     assert ">#1<" in response.text
 
 
+def test_activity_no_sentinel_on_exact_page(
+    client: WebHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exactly PAGE_SIZE builds must not render a load-more sentinel:
+    the follow-up fetch would come back empty."""
+    monkeypatch.setattr("buildbot_nix.web.app.PAGE_SIZE", 3)  # 3 seeded builds
+    response = client.get("/builds")
+    assert response.status_code == 200
+    assert response.text.count("data-id=") == 3
+    assert "scroll-sentinel" not in response.text
+
+
 def test_activity_rows_fragment_pagination(client: WebHarness) -> None:
     rows = client.get("/builds/rows?before=1")
     assert rows.status_code == 200

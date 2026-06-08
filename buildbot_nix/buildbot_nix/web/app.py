@@ -277,12 +277,17 @@ class _PageRoutes:
     async def activity(self, request: Request) -> HTMLResponse:
         ctx = self.ctx
         visible = await ctx.visible_repo_ids(request)
+        # limit+1 probe (like activity_rows): a full page is not proof
+        # of more rows when the total is an exact multiple of PAGE_SIZE.
+        builds = await ctx.queries.recent_builds(
+            limit=PAGE_SIZE + 1, project_ids=visible
+        )
         return await ctx.render(
             "activity.html",
             request=request,
             queue=await ctx.queries.queue(visible),
-            builds=(builds := await ctx.queries.recent_builds(project_ids=visible)),
-            has_more=len(builds) == PAGE_SIZE,
+            builds=builds[:PAGE_SIZE],
+            has_more=len(builds) > PAGE_SIZE,
             more_url="/builds/rows",
         )
 
