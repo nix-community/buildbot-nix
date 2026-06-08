@@ -94,6 +94,24 @@ def list_command(args: argparse.Namespace) -> None:
     json.dump(list_effects(options), fp=sys.stdout, indent=2)
 
 
+def _run_effect_derivation(drv_path: str, options: EffectsOptions) -> None:
+    drvs = parse_derivation(drv_path, debug=options.debug)
+    if "derivations" in drvs:
+        drvs = drvs["derivations"]
+    drv = next(iter(drvs.values()))
+
+    secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
+    run_effects(
+        drv_path,
+        drv,
+        secrets=select_secrets(drv, secrets, options),
+        bind_mounts=select_mounts(drv, options),
+        opts=options,
+        debug=options.debug,
+        extra_sandbox_paths=options.extra_sandbox_paths,
+    )
+
+
 def run_command(args: argparse.Namespace) -> None:
     options = _options_from_args(args)
     effect = args.effect
@@ -114,23 +132,12 @@ def run_command(args: argparse.Namespace) -> None:
         gcroot = Path(tmpdir) / "result"
         drv_path = instantiate_effects(effect, options, gcroot)
         if drv_path == "":
-            print(f"Effect {effect} not found or not runnable for {options}")
-            return
-        drvs = parse_derivation(drv_path)
-        if "derivations" in drvs:
-            drvs = drvs["derivations"]
-        drv = next(iter(drvs.values()))
-
-        secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-        run_effects(
-            drv_path,
-            drv,
-            secrets=select_secrets(drv, secrets, options),
-            bind_mounts=select_mounts(drv, options),
-            opts=options,
-            debug=options.debug,
-            extra_sandbox_paths=options.extra_sandbox_paths,
-        )
+            print(
+                f"Effect {effect} not found or not runnable for {options}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _run_effect_derivation(drv_path, options)
 
 
 def list_schedules_command(args: argparse.Namespace) -> None:
@@ -165,24 +172,11 @@ def run_scheduled_command(args: argparse.Namespace) -> None:
         if drv_path == "":
             print(
                 f"Scheduled effect {schedule_name}/{effect} not found or not runnable"
-                f" for {options}"
+                f" for {options}",
+                file=sys.stderr,
             )
-            return
-        drvs = parse_derivation(drv_path)
-        if "derivations" in drvs:
-            drvs = drvs["derivations"]
-        drv = next(iter(drvs.values()))
-
-        secrets = json.loads(options.secrets.read_text()) if options.secrets else {}
-        run_effects(
-            drv_path,
-            drv,
-            secrets=select_secrets(drv, secrets, options),
-            bind_mounts=select_mounts(drv, options),
-            opts=options,
-            debug=options.debug,
-            extra_sandbox_paths=options.extra_sandbox_paths,
-        )
+            sys.exit(1)
+        _run_effect_derivation(drv_path, options)
 
 
 def _key_value(option: str) -> tuple[str, str]:

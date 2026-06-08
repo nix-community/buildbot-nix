@@ -48,6 +48,8 @@ class TestRunCommandFlakeRef:
             patch(
                 "buildbot_effects.cli.instantiate_effects", return_value=""
             ) as mock_inst,
+            # missing effect exits non-zero so CI callers see the failure
+            pytest.raises(SystemExit, match="1"),
         ):
             run_command(args)
 
@@ -62,6 +64,7 @@ class TestRunCommandFlakeRef:
             patch(
                 "buildbot_effects.cli.instantiate_effects", return_value=""
             ) as mock_inst,
+            pytest.raises(SystemExit, match="1"),
         ):
             run_command(args)
 
