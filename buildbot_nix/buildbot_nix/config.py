@@ -226,10 +226,8 @@ class BranchConfig(BaseModel):
         self.match_regex = glob_to_regex(self.match_glob or "")
 
     def __or__(self, other: BranchConfig) -> BranchConfig:
-        if self.match_glob != other.match_glob:
-            msg = "Cannot merge BranchConfig with different match_glob values"
-            raise ValueError(msg)
-
+        # A branch may match several globs; OR the boolean settings.
+        # The first config's match_glob is kept (lookups already happened).
         return BranchConfig(
             match_glob=self.match_glob,
             register_gcroots=self.register_gcroots or other.register_gcroots,
