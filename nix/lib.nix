@@ -1,11 +1,10 @@
 {
   /**
-    Marks a string as a value that will be interpolated on the buildbot master or worker.
-
-    See https://docs.buildbot.net/latest/manual/configuration/properties.html#interpolate
-    for details on the semantics of the interpolation format string.
-
-    Note that the `kw` selector (and passing keyword arguments) is not supported.
+    Marks a string whose placeholders the service substitutes when
+    running post-build steps. Supported placeholders are
+    `%(prop:NAME)s` (build properties such as attr, out_path,
+    project; see post_build.build_props) and `%(secret:NAME)s`
+    (files in the systemd credentials directory).
 
     # Type
     ```

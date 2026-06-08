@@ -58,7 +58,6 @@ file passed to `buildbot-nix --config`:
     "oidc:keycloak.example.com:f3b0a6f0-1c2d-4e5f-9a8b-7c6d5e4f3a2b",
     "oidc:keycloak.example.com:0f9e8d7c-6b5a-4f3e-2d1c-0b9a8f7e6d5c"
   ],
-  "auth_backend": "oidc",
   "oidc": {
     "name": "My Identity Provider",
     "discovery_url": "https://keycloak.example.com/realms/myrealm/.well-known/openid-configuration",
