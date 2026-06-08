@@ -322,7 +322,7 @@ class _PageRoutes:
         )
 
     async def _can_cancel_queue(self, request: Request) -> bool:
-        """UX only; the cancel-pending route re-checks server-side."""
+        """UX only; the cancel-all route re-checks server-side."""
         ctx = self.ctx
         return ctx.authz is not None and is_admin(
             await ctx.request_user(request), ctx.authz

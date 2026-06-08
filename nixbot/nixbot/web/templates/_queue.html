@@ -3,9 +3,9 @@
   <div class="section-row">
     <h2 class="section">Queue</h2>
     {# UX only; the route enforces admin server-side. #}
-    {% if can_cancel_queue and queue | selectattr("status", "equalto", "pending") | list %}
-      <form method="post" action="/builds/queue/cancel-pending">
-        <button>cancel queued</button>
+    {% if can_cancel_queue %}
+      <form method="post" action="/builds/cancel-all">
+        <button>cancel all</button>
       </form>
     {% endif %}
   </div>

@@ -190,29 +190,32 @@ def test_pr_author_can_control_own_pr(harness: WebHarness) -> None:
     )
 
 
-def test_cancel_pending_requires_admin(harness: WebHarness) -> None:
+def test_cancel_all_requires_admin(harness: WebHarness) -> None:
     BACKEND.cancelled.clear()
-    assert harness.post("/builds/queue/cancel-pending").status_code == 403
-    assert harness.post("/builds/queue/cancel-pending", ALICE).status_code == 403
+    assert harness.post("/builds/cancel-all").status_code == 403
+    assert harness.post("/builds/cancel-all", ALICE).status_code == 403
     assert BACKEND.cancelled == []
 
 
-def test_cancel_pending_cancels_only_queued_builds(harness: WebHarness) -> None:
+def test_cancel_all_cancels_pending_and_running_builds(harness: WebHarness) -> None:
     BACKEND.cancelled.clear()
-    response = harness.post("/builds/queue/cancel-pending", ROOT)
+    response = harness.post("/builds/cancel-all", ROOT)
     assert response.status_code == 303
     assert response.headers["location"] == "/builds"
-    pending = harness.run(
-        harness.ctx.pool.fetch("SELECT id FROM builds WHERE status = 'pending'")
+    queued = harness.run(
+        harness.ctx.pool.fetch(
+            "SELECT id FROM builds"
+            " WHERE status IN ('pending', 'evaluating', 'building')"
+        )
     )
-    assert sorted(BACKEND.cancelled) == sorted(r["id"] for r in pending)
-    assert len(BACKEND.cancelled) == 2
+    assert sorted(BACKEND.cancelled) == sorted(r["id"] for r in queued)
+    assert len(BACKEND.cancelled) == 3
 
 
-def test_cancel_pending_button_admin_only(harness: WebHarness) -> None:
-    assert "cancel queued" in harness.get("/builds", ROOT).text
-    assert "cancel queued" not in harness.get("/builds", ALICE).text
-    assert "cancel queued" not in harness.get("/builds").text
+def test_cancel_all_button_admin_only(harness: WebHarness) -> None:
+    assert "cancel all" in harness.get("/builds", ROOT).text
+    assert "cancel all" not in harness.get("/builds", ALICE).text
+    assert "cancel all" not in harness.get("/builds").text
 
 
 def test_csrf_cross_origin_rejected(harness: WebHarness) -> None:
