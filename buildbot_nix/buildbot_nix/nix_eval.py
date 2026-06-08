@@ -368,6 +368,11 @@ def extract_eval_warnings(stderr_output: str) -> list[str]:
     return eval_warnings
 
 
+async def _drain(stream: asyncio.StreamReader) -> None:
+    while await stream.read(64 * 1024):
+        pass
+
+
 async def _read_job_stream(
     stdout: asyncio.StreamReader,
     jobs: list[NixEvalJob],
@@ -390,6 +395,13 @@ async def _read_job_stream(
         except TimeoutError:
             await flush()
             continue
+        except ValueError:
+            # One JSON line over the StreamReader limit. Drain stdout
+            # so nix-eval-jobs doesn't block on the full pipe, and fail
+            # the eval via parse_errors instead of crashing the reader.
+            parse_errors.append(f"output line exceeds {STREAM_LIMIT} bytes")
+            await _drain(stdout)
+            break
         if not raw:
             break
         line = raw.decode(errors="replace").strip()
@@ -534,9 +546,9 @@ class EvalRunner:
                 read_stderr(),
             )
             returncode = await proc.wait()
-        except asyncio.CancelledError:
-            # Build superseded/cancelled: kill the evaluator instead
-            # of letting it run to completion.
+        except BaseException:
+            # Cancellation or a reader bug: kill the evaluator instead
+            # of leaking it (possibly blocked on a full pipe) forever.
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
             await proc.wait()

@@ -456,3 +456,24 @@ def test_eval_runner_proxy_env_reaches_evaluator(
     with pytest.raises(EvalError) as excinfo:
         asyncio.run(EvalRunner().run(tmp_path, BranchConfig(), settings))
     assert "proxy=http://proxy:3128 ca=/etc/ssl/ca.pem" in str(excinfo.value)
+
+
+def test_eval_fails_cleanly_on_line_over_stream_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A JSON line over the StreamReader limit used to raise ValueError
+    # out of the reader, leaking a running nix-eval-jobs blocked on the
+    # full pipe; it must surface as a clean EvalError instead.
+    monkeypatch.setattr(nix_eval, "STREAM_LIMIT", 64 * 1024)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "nix-eval-jobs"
+    fake.write_text("#!/bin/sh\nhead -c 200000 /dev/zero | tr '\\0' 'x'\necho\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", sandbox=False, systemd_scope=False
+    )
+    with pytest.raises(EvalError):
+        asyncio.run(EvalRunner().run(tmp_path, BranchConfig(), settings))
