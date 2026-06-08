@@ -6,7 +6,6 @@ real git repos, fake eval and executor."""
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -20,8 +19,8 @@ from buildbot_nix.db import BuildDB, BuildStatus
 from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
 from buildbot_nix.memory import calculate_eval_workers
-from buildbot_nix.nix_eval import EvalError, EvalResult
-from buildbot_nix.orchestrator import Orchestrator
+from buildbot_nix.nix_eval import EvalError, EvalResult, EvalSettings
+from buildbot_nix.orchestrator import AttributeExecutor, EvalRunnerLike, Orchestrator
 from buildbot_nix.recovery import fail_interrupted_effects
 from buildbot_nix.scheduler import (
     AttributeResult,
@@ -36,6 +35,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from buildbot_nix.db import BuildRecord
+    from buildbot_nix.executor import LogWriter
     from buildbot_nix.models import NixEvalJobSuccess
 
 pytestmark = [
@@ -52,16 +52,21 @@ class FakeEvalRunner:
     jobs: list[NixEvalJobSuccess]
     warnings: list[str] = field(default_factory=list)
     calls: int = 0
-    last_settings: object = None
+    last_settings: EvalSettings | None = None
     block: asyncio.Event | None = None
     started: asyncio.Event = field(default_factory=asyncio.Event)
 
-    async def run(self, *args: object, **kwargs: object) -> EvalResult:
+    async def run(
+        self,
+        worktree_path: Path,
+        branch_config: object,
+        settings: EvalSettings,
+        on_jobs: object = None,
+    ) -> EvalResult:
         self.calls += 1
         self.started.set()
-        if len(args) > 2:
-            self.last_settings = args[2]
-            os.makedirs(args[2].gc_roots_dir, exist_ok=True)  # type: ignore[attr-defined]  # noqa: PTH103
+        self.last_settings = settings
+        settings.gc_roots_dir.mkdir(parents=True, exist_ok=True)
         if self.block is not None:
             await self.block.wait()
         return EvalResult(jobs=list(self.jobs), warnings=list(self.warnings))
@@ -79,15 +84,15 @@ class FakeExecutor:
         self,
         build_key: object,
         job: NixEvalJobSuccess,
-        log_writer: object,
-        cwd: object,
-        cancel_event: object = None,
+        log_writer: LogWriter,
+        cwd: Path,
+        cancel_event: asyncio.Event | None = None,
     ) -> BuildOutcome:
         self.built.append(job.attr)
         self.started.set()
         if self.gate is not None:
             await self.gate.wait()
-        await log_writer.write(b"fake build output\n")  # type: ignore[attr-defined]
+        await log_writer.write(b"fake build output\n")
         return self.outcomes.get(job.attr, BuildOutcome.success)
 
 
@@ -147,8 +152,8 @@ async def make_project(pool: asyncpg.Pool, name: str = "widget") -> RepoInfo:
 def make_orchestrator(
     dsn_pool: asyncpg.Pool,
     tmp_path: Path,
-    eval_runner: FakeEvalRunner,
-    executor: FakeExecutor,
+    eval_runner: EvalRunnerLike,
+    executor: AttributeExecutor,
 ) -> tuple[Orchestrator, RecordingReporter]:
     config = Config(
         db_url="unused",
@@ -169,8 +174,8 @@ def make_orchestrator(
         config=config,
         db=BuildDB(dsn_pool),
         repos=RepoManager(config.state_dir),
-        eval_runner=eval_runner,  # type: ignore[arg-type]
-        executor=executor,  # type: ignore[arg-type]
+        eval_runner=eval_runner,
+        executor=executor,
         reporter=reporter,
         register_gcroot=fake_register,
     )
@@ -181,8 +186,8 @@ async def run_event(
     dsn: str,
     tmp_path: Path,
     upstream: Path,
-    eval_runner: FakeEvalRunner,
-    executor: FakeExecutor,
+    eval_runner: EvalRunnerLike,
+    executor: AttributeExecutor,
     **event_kwargs: object,
 ) -> tuple[BuildRecord | None, RecordingReporter, asyncpg.Pool]:
     pool = await asyncpg.create_pool(dsn)
@@ -259,16 +264,16 @@ async def make_env(  # noqa: PLR0913
     dsn: str,
     tmp_path: Path,
     upstream: Path,
-    eval_runner: object,
-    executor: object,
+    eval_runner: EvalRunnerLike,
+    executor: AttributeExecutor,
     name: str,
 ) -> tuple[asyncpg.Pool, Orchestrator, RecordingReporter, RepoInfo]:
     pool = await asyncpg.create_pool(dsn)
     orchestrator, reporter = make_orchestrator(
         pool,
         tmp_path,
-        eval_runner,  # type: ignore[arg-type]
-        executor,  # type: ignore[arg-type]
+        eval_runner,
+        executor,
     )
     project = await make_project(pool, name=name)
     project = RepoInfo(**{**project.__dict__, "clone_url": str(upstream)})
@@ -928,8 +933,8 @@ def test_eval_settings_wired(postgres_dsn: str, tmp_path: Path, upstream: Path) 
             )
             settings = eval_runner.last_settings
             assert settings is not None
-            assert settings.worker_count == calculate_eval_workers().count  # type: ignore[attr-defined]
-            assert settings.netrc_file == netrc  # type: ignore[attr-defined]
+            assert settings.worker_count == calculate_eval_workers().count
+            assert settings.netrc_file == netrc
         finally:
             await pool.close()
 

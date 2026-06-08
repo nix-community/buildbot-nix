@@ -18,7 +18,7 @@ import shutil
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 from urllib.parse import quote
 
 from . import gcroots, outputs
@@ -61,10 +61,9 @@ if TYPE_CHECKING:
 
     from .config import Config
     from .db import BuildDB, BuildRecord
-    from .executor import NixBuildExecutor
     from .gitrepo import FetchCredentials, RepoManager
     from .models import NixEvalJob
-    from .nix_eval import EvalRunner
+    from .nix_eval import EvalResult, JobBatchCallback
     from .scheduler import FailedBuildCache
 
     GcrootRegistrar = Callable[[Path, str, str, str], Awaitable[None]]
@@ -73,13 +72,38 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class EvalRunnerLike(Protocol):
+    """What the orchestrator needs from nix_eval.EvalRunner."""
+
+    async def run(
+        self,
+        worktree_path: Path,
+        branch_config: BranchConfig,
+        settings: EvalSettings,
+        on_jobs: JobBatchCallback | None = None,
+    ) -> EvalResult: ...
+
+
+class AttributeExecutor(Protocol):
+    """What the orchestrator needs from executor.NixBuildExecutor."""
+
+    async def build_attribute(
+        self,
+        build_key: object,
+        job: NixEvalJobSuccess,
+        log_writer: LogWriter,
+        cwd: Path,
+        cancel_event: asyncio.Event | None = None,
+    ) -> BuildOutcome: ...
+
+
 @dataclass
 class Orchestrator:
     config: Config
     db: BuildDB
     repos: RepoManager
-    eval_runner: EvalRunner
-    executor: NixBuildExecutor
+    eval_runner: EvalRunnerLike
+    executor: AttributeExecutor
     reporter: StatusReporter = field(default_factory=NullStatusReporter)
     failed_build_cache: FailedBuildCache | None = None
     # build id -> cancel event, set by the cancellation manager.
