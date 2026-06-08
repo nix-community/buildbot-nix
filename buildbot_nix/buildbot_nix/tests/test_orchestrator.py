@@ -1086,6 +1086,51 @@ def test_eval_settings_wired(
     asyncio.run(run())
 
 
+def test_eval_netrc_withheld_from_pr_with_instance_wide_creds(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """PR-controlled eval fetches arbitrary flake inputs with the
+    netrc; an instance-wide Gitea/GitLab token must not reach it.
+    Repo-scoped GitHub tokens may."""
+
+    async def run() -> None:
+        git(upstream, "checkout", "-b", "prsrc")
+        pr_sha = add_commit(upstream, "prnetrc")
+        git(upstream, "update-ref", "refs/pull/9/head", pr_sha)
+        pr_sha2 = add_commit(upstream, "prnetrc2")
+        git(upstream, "update-ref", "refs/pull/9/head", pr_sha2)
+        git(upstream, "checkout", "main")
+        git(upstream, "branch", "-D", "prsrc")
+
+        eval_runner = FakeEvalRunner([mk_job("a")])
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn, tmp_path, upstream, eval_runner, FakeExecutor(), "prnetrc"
+        )
+        netrc = tmp_path / "netrc"
+        netrc.write_text("")
+        try:
+            await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project, branch="main", commit_sha=pr_sha, pr_number=9
+                ),
+                FetchCredentials(netrc_file=netrc),
+            )
+            assert eval_runner.last_settings is not None
+            assert eval_runner.last_settings.netrc_file is None
+
+            await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project, branch="main", commit_sha=pr_sha2, pr_number=9
+                ),
+                FetchCredentials(netrc_file=netrc, repo_scoped=True),
+            )
+            assert eval_runner.last_settings.netrc_file == netrc
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_eval_gcroots_dir_removed_after_build(
     postgres_dsn: str, tmp_path: Path, upstream: Path
 ) -> None:

@@ -66,6 +66,10 @@ class FetchCredentials:
     """
 
     netrc_file: Path | None = None
+    # True when the netrc covers only the repository being fetched
+    # (GitHub per-repo installation tokens). Instance-wide tokens
+    # (Gitea/GitLab) must not reach PR-controlled paths such as eval.
+    repo_scoped: bool = False
     # Raw forge token for hercules GitToken secret references.
     token: str | None = None
     ssh_private_key_file: Path | None = None

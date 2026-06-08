@@ -343,13 +343,22 @@ class Orchestrator:
             eval_max_memory = min(
                 self.config.eval_max_memory_size, worker_config.max_memory_mib
             )
+        # PR-controlled eval can fetch arbitrary flake inputs with the
+        # netrc; an instance-wide token (Gitea/GitLab) would let a
+        # malicious PR read any private repo on the forge. Only
+        # repo-scoped tokens (GitHub) reach PR evals.
+        netrc_file = None
+        if credentials is not None and (
+            event.pr_number is None or credentials.repo_scoped
+        ):
+            netrc_file = credentials.netrc_file
         return EvalSettings(
             gc_roots_dir=self._gcroots_dir(build),
             timeout=self.config.eval_timeout,
             worker_count=worker_count,
             max_memory_size_mib=eval_max_memory,
             show_trace=self.config.show_trace_on_failure,
-            netrc_file=credentials.netrc_file if credentials is not None else None,
+            netrc_file=netrc_file,
             # The worktree's .git points into the central clone; the
             # sandboxed evaluator needs to read it.
             extra_ro_paths=[self.repos.clone_path(event.repo.key)],
