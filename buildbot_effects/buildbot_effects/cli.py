@@ -69,19 +69,19 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
 
 def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
     return EffectsOptions(
-        secrets=getattr(args, "secrets", None),
+        secrets=args.secrets,
         branch=args.branch,
         rev=args.rev,
         repo=args.repo,
         path=args.path.resolve(),
-        default_branch=getattr(args, "default_branch", None),
-        git_token_file=getattr(args, "git_token_file", None),
-        mountables_file=getattr(args, "mountables_file", None),
-        api_base_url=getattr(args, "api_base_url", None),
-        task_token_file=getattr(args, "task_token_file", None),
-        project_id=getattr(args, "project_id", None),
-        project_path=getattr(args, "project_path", None),
-        extra_nix_options=getattr(args, "extra_nix_option", []),
+        default_branch=args.default_branch,
+        git_token_file=args.git_token_file,
+        mountables_file=args.mountables_file,
+        api_base_url=args.api_base_url,
+        task_token_file=args.task_token_file,
+        project_id=args.project_id,
+        project_path=args.project_path,
+        extra_nix_options=args.extra_nix_option,
         debug=args.debug,
         extra_sandbox_paths=args.extra_sandbox_path,
     )
@@ -266,10 +266,6 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         default=[],
         help="Path that should be included in the sandbox from the host.",
     )
-
-
-def _add_secrets_flag(parser: argparse.ArgumentParser) -> None:
-    """Add --secrets flag for commands that execute effects."""
     parser.add_argument(
         "--secrets",
         type=Path,
@@ -313,7 +309,6 @@ def parse_args() -> argparse.Namespace:
         help="Run an effect (supports flakeref#effect syntax)",
     )
     _add_common_flags(run_parser)
-    _add_secrets_flag(run_parser)
     run_parser.set_defaults(func=run_command)
     run_parser.add_argument(
         "effect",
@@ -337,7 +332,6 @@ def parse_args() -> argparse.Namespace:
         help="Run a specific effect from a schedule",
     )
     _add_common_flags(run_scheduled_parser)
-    _add_secrets_flag(run_scheduled_parser)
     run_scheduled_parser.set_defaults(func=run_scheduled_command)
     run_scheduled_parser.add_argument(
         "schedule_name",
