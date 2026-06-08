@@ -1096,6 +1096,11 @@ in
           echo "buildbot-nix did not become healthy" >&2
           exit 1
         '';
+        # The health loop above can take up to ~360s (60 iterations of
+        # 5s curl timeout + 1s sleep), e.g. during long migrations;
+        # systemd's default TimeoutStartSec=90s would kill the startup
+        # mid-migration.
+        TimeoutStartSec = 600;
         User = "buildbot-nix";
         Group = "buildbot-nix";
         StateDirectory = "buildbot-nix";
