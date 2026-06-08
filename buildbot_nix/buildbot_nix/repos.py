@@ -53,26 +53,31 @@ class RepoStore:
         self.pool = pool
 
     async def is_empty(self) -> bool:
-        return await self.pool.fetchval("SELECT count(*) FROM projects") == 0
+        """No forge-discovered projects yet. Pull-based rows are ignored:
+        they come from static config and may be synced before discovery
+        runs, which must not suppress the one-shot legacy import."""
+        return (
+            await self.pool.fetchval(
+                "SELECT count(*) FROM projects WHERE forge <> 'pull_based'"
+            )
+            == 0
+        )
 
     async def sync_discovered(
         self,
         repos: list[DiscoveredRepo],
         *,
-        legacy_import_topic: str | None = None,
+        legacy_import_topics: dict[str, str] | None = None,
     ) -> None:
-        """Upsert discovered repos. When `legacy_import_topic` is given
-        (only on first startup with an empty table), repos carrying that
-        topic are enabled — a one-shot import of the old topic-based
-        project selection."""
-        do_import = legacy_import_topic is not None and await self.is_empty()
+        """Upsert discovered repos. When `legacy_import_topics` (one
+        topic per forge) is given (only on first startup with an empty
+        table), repos carrying their forge's topic are enabled — a
+        one-shot import of the old topic-based project selection."""
+        topics = legacy_import_topics or {}
+        do_import = bool(topics) and await self.is_empty()
         async with self.pool.acquire() as conn, conn.transaction():
             for repo in repos:
-                enabled = bool(
-                    do_import
-                    and legacy_import_topic is not None
-                    and legacy_import_topic in repo.topics
-                )
+                enabled = bool(do_import and topics.get(repo.forge) in repo.topics)
                 await conn.execute(
                     """
                     INSERT INTO projects
@@ -111,7 +116,7 @@ class RepoStore:
             )
             logger.info(
                 "legacy topic import complete",
-                extra={"topic": legacy_import_topic, "enabled": count},
+                extra={"topics": topics, "enabled": count},
             )
 
     async def sync_pull_based(self, repos: list[tuple[str, str, str]]) -> None:

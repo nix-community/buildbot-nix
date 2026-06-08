@@ -840,11 +840,16 @@ class CIService:
                 replace(self.config.gitlab.filters, topic=None),
                 await self.gitlab.discover_repos(),
             )
-        topic = None
-        for forge_config in (self.config.github, self.config.gitea, self.config.gitlab):
-            if topic is None and forge_config is not None:
-                topic = forge_config.filters.topic
-        await self.repo_store.sync_discovered(repos, legacy_import_topic=topic)
+        topics = {
+            forge: forge_config.filters.topic
+            for forge, forge_config in (
+                ("github", self.config.github),
+                ("gitea", self.config.gitea),
+                ("gitlab", self.config.gitlab),
+            )
+            if forge_config is not None and forge_config.filters.topic is not None
+        }
+        await self.repo_store.sync_discovered(repos, legacy_import_topics=topics)
         # Auto-register Gitea/GitLab webhooks for enabled projects.
         await self._register_hooks()
 

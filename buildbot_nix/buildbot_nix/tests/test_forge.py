@@ -299,7 +299,7 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
             ]
             # First startup with empty table: topic import enables.
             await store.sync_discovered(
-                repos, legacy_import_topic="build-with-buildbot"
+                repos, legacy_import_topics={"github": "build-with-buildbot"}
             )
             enabled = await store.enabled_repos()
             assert [p.name for p in enabled] == ["tagged"]
@@ -309,7 +309,7 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
                 **{**repos[0].__dict__, "repo": "renamed", "topics": ()}
             )
             await store.sync_discovered(
-                [renamed], legacy_import_topic="build-with-buildbot"
+                [renamed], legacy_import_topics={"github": "build-with-buildbot"}
             )
             enabled = await store.enabled_repos()
             assert [p.name for p in enabled] == ["renamed"]
@@ -317,7 +317,7 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
             # Non-empty table: topic import never runs again.
             newly_tagged = repo("acme", "later", topics=("build-with-buildbot",))
             await store.sync_discovered(
-                [newly_tagged], legacy_import_topic="build-with-buildbot"
+                [newly_tagged], legacy_import_topics={"github": "build-with-buildbot"}
             )
             assert {p.name for p in await store.enabled_repos()} == {"renamed"}
 
@@ -329,6 +329,59 @@ def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
                 "renamed",
                 "later",
             }
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_legacy_import_runs_despite_pull_based_rows(postgres_dsn: str) -> None:
+    """sync_pull_based fills the projects table before discovery; that
+    must not suppress the one-shot legacy topic import."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            await pool.execute("TRUNCATE projects CASCADE")
+            store = RepoStore(pool)
+            await store.sync_pull_based([("pull/one", "https://x/one.git", "main")])
+            await store.sync_discovered(
+                [repo("acme", "tagged", topics=("ci-topic",))],
+                legacy_import_topics={"github": "ci-topic"},
+            )
+            enabled = {p.name for p in await store.enabled_repos()}
+            assert "tagged" in enabled
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_legacy_import_scopes_topics_per_forge(postgres_dsn: str) -> None:
+    """Each forge's configured topic only enables that forge's repos."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            await pool.execute("TRUNCATE projects CASCADE")
+            store = RepoStore(pool)
+            gitea_repo = DiscoveredRepo(
+                **{
+                    **repo("acme", "gt", topics=("gitea-topic",)).__dict__,
+                    "forge": "gitea",
+                }
+            )
+            cross = repo("acme", "cross", topics=("gitea-topic",))
+            await store.sync_discovered(
+                [gitea_repo, cross],
+                legacy_import_topics={
+                    "github": "github-topic",
+                    "gitea": "gitea-topic",
+                },
+            )
+            enabled = {p.name for p in await store.enabled_repos()}
+            assert "gt" in enabled
+            assert "cross" not in enabled
         finally:
             await pool.close()
 
