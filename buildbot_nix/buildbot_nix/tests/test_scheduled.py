@@ -97,6 +97,76 @@ def test_deterministic_defaults() -> None:
 # --- persistence -------------------------------------------------------------
 
 
+def test_replace_schedules_preserves_last_run_for_unchanged_spec(
+    postgres_dsn: str,
+) -> None:
+    """A default-branch push within the due window must not re-fire the
+    same occurrence: re-discovery of an unchanged schedule keeps
+    last_run."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, forge_repo_id="sched-keep")
+            store = ScheduledEffectsStore(pool)
+            schedules = parse_schedules_from_json(
+                {"nightly": {"when": {"minute": 7, "hour": 3}, "effects": ["d"]}}
+            )
+            await store.replace_schedules(project_id, schedules)
+            due_time = datetime(2026, 6, 5, 3, 7, tzinfo=UTC)
+
+            def mine(due_list: list) -> list:
+                # The module-shared database holds other tests' rows.
+                return [d for d in due_list if d.project_id == project_id]
+
+            (due,) = mine(await store.due_effects(due_time))
+            await store.mark_run(due, due_time)
+
+            await store.replace_schedules(project_id, schedules)
+            assert mine(await store.due_effects(due_time)) == []
+
+            changed = parse_schedules_from_json(
+                {"nightly": {"when": {"minute": 8, "hour": 3}, "effects": ["d"]}}
+            )
+            await store.replace_schedules(project_id, changed)
+            assert len(mine(await store.due_effects(due_time.replace(minute=8)))) == 1
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_replace_schedules_tolerates_duplicate_effect_names(
+    postgres_dsn: str,
+) -> None:
+    """Effect lists are repo-controlled; a duplicate name must not crash
+    the update and permanently block schedule refreshes."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, forge_repo_id="sched-dupe")
+            store = ScheduledEffectsStore(pool)
+            schedules = parse_schedules_from_json(
+                {
+                    "nightly": {
+                        "when": {"minute": 9, "hour": 4},
+                        "effects": ["deploy", "deploy"],
+                    }
+                }
+            )
+            await store.replace_schedules(project_id, schedules)
+            rows = await pool.fetch(
+                "SELECT effect FROM scheduled_effects WHERE project_id = $1",
+                project_id,
+            )
+            assert [row["effect"] for row in rows] == ["deploy"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_store_roundtrip_and_due(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)

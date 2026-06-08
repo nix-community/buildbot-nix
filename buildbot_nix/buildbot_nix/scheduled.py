@@ -186,23 +186,55 @@ class ScheduledEffectsStore:
     async def replace_schedules(
         self, project_id: int, schedules: dict[str, ScheduledEffectConfig]
     ) -> None:
-        """Replace a project's schedules with the freshly discovered set."""
+        """Replace a project's schedules with the freshly discovered set.
+
+        last_run is preserved when the when-spec is unchanged: every
+        default-branch push re-discovers schedules, and resetting
+        last_run would re-fire an occurrence that already ran.
+        Duplicate effect names (repo-controlled) are dropped instead of
+        crashing the update on the primary key."""
         async with self.pool.acquire() as conn, conn.transaction():
+            previous = {
+                (row["schedule_name"], row["effect"]): row
+                for row in await conn.fetch(
+                    "SELECT schedule_name, effect, when_spec, last_run "
+                    "FROM scheduled_effects WHERE project_id = $1",
+                    project_id,
+                )
+            }
             await conn.execute(
                 "DELETE FROM scheduled_effects WHERE project_id = $1", project_id
             )
+            seen: set[tuple[str, str]] = set()
             for config in schedules.values():
                 for effect in config.effects:
+                    key = (config.name, effect)
+                    if key in seen:
+                        logger.warning(
+                            "duplicate scheduled effect ignored",
+                            extra={"schedule": config.name, "effect": effect},
+                        )
+                        continue
+                    seen.add(key)
+                    when_spec = config.when.model_dump_json(exclude_none=True)
+                    old = previous.get(key)
+                    last_run = (
+                        old["last_run"]
+                        if old is not None
+                        and json.loads(old["when_spec"]) == json.loads(when_spec)
+                        else None
+                    )
                     await conn.execute(
                         """
                         INSERT INTO scheduled_effects
-                            (project_id, schedule_name, effect, when_spec)
-                        VALUES ($1, $2, $3, $4::jsonb)
+                            (project_id, schedule_name, effect, when_spec, last_run)
+                        VALUES ($1, $2, $3, $4::jsonb, $5)
                         """,
                         project_id,
                         config.name,
                         effect,
-                        config.when.model_dump_json(exclude_none=True),
+                        when_spec,
+                        last_run,
                     )
 
     async def due_effects(self, now: datetime | None = None) -> list[DueEffect]:
