@@ -24,7 +24,7 @@ class RepoInfo:
     name: str  # "owner/repo"
     owner: str
     repo: str
-    forge: str  # "github" | "gitea"
+    forge: str  # "github" | "gitea" | "gitlab" | "pull_based"
     clone_url: str
     default_branch: str
 
