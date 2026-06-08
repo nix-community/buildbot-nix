@@ -254,6 +254,10 @@ def test_build_nix_command(tmp_path: Path) -> None:
     assert cmd[cmd.index("--max-silent-time") + 1] == "77"
     assert cmd[-1] == "/nix/store/foo.drv^*"
     assert cmd[cmd.index("--out-link") + 1] == str(tmp_path / "result-foo")
+    # Hosts without flakes in nix.conf must still build.
+    idx = cmd.index("extra-experimental-features")
+    assert cmd[idx - 1] == "--option"
+    assert cmd[idx + 1] == "nix-command flakes"
 
 
 def test_is_transient_error() -> None:

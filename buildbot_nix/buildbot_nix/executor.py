@@ -353,6 +353,12 @@ def build_nix_command(
         "true",
         "--max-silent-time",
         str(settings.max_silent_time),
+        # Hosts without flakes enabled in nix.conf (single-user
+        # installs, containers) must still build; the eval command
+        # carries the same override.
+        "--option",
+        "extra-experimental-features",
+        "nix-command flakes",
         "--accept-flake-config",
         *settings.extra_args,
         "--out-link",
