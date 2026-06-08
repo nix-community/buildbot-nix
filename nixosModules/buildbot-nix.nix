@@ -1092,10 +1092,17 @@ in
       serviceConfig = {
         ExecStart = "${lib.getExe' packages.buildbot-nix "buildbot-nix"} --config ${serviceConfig}";
         # Fail activation if the service never becomes healthy.
+        # With nginx the engine only listens on the unix socket; probe
+        # whatever listener is actually configured.
         ExecStartPost = pkgs.writeShellScript "buildbot-nix-health" ''
           for _ in $(seq 60); do
             if ${pkgs.curl}/bin/curl -fsS --max-time 5 \
-              "http://127.0.0.1:${toString cfg.port}/health" >/dev/null; then
+              ${
+                if cfg.nginx.enable then
+                  ''--unix-socket ${webUnixSocket} "http://localhost/health"''
+                else
+                  ''"http://127.0.0.1:${toString cfg.port}/health"''
+              } >/dev/null; then
               exit 0
             fi
             sleep 1
