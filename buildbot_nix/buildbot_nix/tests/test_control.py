@@ -111,6 +111,15 @@ async def seed(dsn: str) -> None:
             """,
             build_id,
         )
+        # Queue for the mass-cancel tests: two pending, one running.
+        queued_project = await insert_project(
+            pool, name="qwidget", forge_repo_id="ctl-q"
+        )
+        await insert_build(pool, queued_project, number=1, status="pending")
+        await insert_build(pool, queued_project, number=2, status="pending")
+        await insert_build(
+            pool, queued_project, number=3, status="building", started=True
+        )
     finally:
         await pool.close()
 
@@ -179,6 +188,31 @@ def test_pr_author_can_control_own_pr(harness: WebHarness) -> None:
         harness.post("/repos/github/acme/widget/builds/1/restart", MALLORY).status_code
         == 403
     )
+
+
+def test_cancel_pending_requires_admin(harness: WebHarness) -> None:
+    BACKEND.cancelled.clear()
+    assert harness.post("/builds/queue/cancel-pending").status_code == 403
+    assert harness.post("/builds/queue/cancel-pending", ALICE).status_code == 403
+    assert BACKEND.cancelled == []
+
+
+def test_cancel_pending_cancels_only_queued_builds(harness: WebHarness) -> None:
+    BACKEND.cancelled.clear()
+    response = harness.post("/builds/queue/cancel-pending", ROOT)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/builds"
+    pending = harness.run(
+        harness.ctx.pool.fetch("SELECT id FROM builds WHERE status = 'pending'")
+    )
+    assert sorted(BACKEND.cancelled) == sorted(r["id"] for r in pending)
+    assert len(BACKEND.cancelled) == 2
+
+
+def test_cancel_pending_button_admin_only(harness: WebHarness) -> None:
+    assert "cancel queued" in harness.get("/builds", ROOT).text
+    assert "cancel queued" not in harness.get("/builds", ALICE).text
+    assert "cancel queued" not in harness.get("/builds").text
 
 
 def test_csrf_cross_origin_rejected(harness: WebHarness) -> None:

@@ -556,6 +556,12 @@ h2.section {
 	letter-spacing: 0.08em;
 	margin: 1.5rem 0 0.5rem;
 }
+.section-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+}
 
 /* Log viewer */
 pre.log {

@@ -286,6 +286,7 @@ class _PageRoutes:
             "activity.html",
             request=request,
             queue=await ctx.queries.queue(visible),
+            can_cancel_queue=await self._can_cancel_queue(request),
             builds=builds[:PAGE_SIZE],
             has_more=len(builds) > PAGE_SIZE,
             more_url="/builds/rows",
@@ -314,7 +315,17 @@ class _PageRoutes:
         ctx = self.ctx
         visible = await ctx.visible_repo_ids(request)
         return await ctx.render(
-            "_queue.html", request=request, queue=await ctx.queries.queue(visible)
+            "_queue.html",
+            request=request,
+            queue=await ctx.queries.queue(visible),
+            can_cancel_queue=await self._can_cancel_queue(request),
+        )
+
+    async def _can_cancel_queue(self, request: Request) -> bool:
+        """UX only; the cancel-pending route re-checks server-side."""
+        ctx = self.ctx
+        return ctx.authz is not None and is_admin(
+            await ctx.request_user(request), ctx.authz
         )
 
     async def repo_page(  # noqa: PLR0913

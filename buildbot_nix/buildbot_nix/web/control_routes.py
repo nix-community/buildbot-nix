@@ -171,6 +171,21 @@ class _ControlRoutes:
         await self.backend.cancel_build(build["id"])
         return _back(forge, owner, name, number)
 
+    async def cancel_pending(self, request: Request) -> RedirectResponse:
+        """Mass-cancel every queued (not yet started) build. Admin
+        only: the queue is global, so this cuts across per-repo and
+        PR-author authz."""
+        if not same_origin(request, self.own_url):
+            raise HTTPException(status_code=403, detail="cross-origin request")
+        if not is_admin(await self.ctx.request_user(request), self.authz):
+            raise HTTPException(status_code=403, detail="not authorized")
+        rows = await self.ctx.pool.fetch(
+            "SELECT id FROM builds WHERE status = 'pending'"
+        )
+        for row in rows:
+            await self.backend.cancel_build(row["id"])
+        return RedirectResponse("/builds", status_code=303)
+
     async def _require_repo_admin(self, request: Request, project_id: int) -> None:
         """Instance admins, or forge-side admins of this repo."""
         if not same_origin(request, self.own_url):
@@ -265,6 +280,7 @@ def create_control_router(
     router.post(f"{base}/effects/restart")(routes.restart_effects)
     router.post(f"{base}/attrs/{{attr:path}}/cancel")(routes.cancel_attribute)
     router.post(f"{base}/cancel")(routes.cancel)
+    router.post("/builds/queue/cancel-pending")(routes.cancel_pending)
     router.post("/admin/repos/refresh")(routes.refresh_repos)
     router.post("/admin/repos/{project_id}/toggle")(routes.toggle_repo)
     router.post("/admin/repos/{project_id}/webhook-secret")(

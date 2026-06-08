@@ -1,6 +1,14 @@
 {% from "_macros.html" import status_icon, ref_link, ago %}
 {% if queue %}
-  <h2 class="section">Queue</h2>
+  <div class="section-row">
+    <h2 class="section">Queue</h2>
+    {# UX only; the route enforces admin server-side. #}
+    {% if can_cancel_queue and queue | selectattr("status", "equalto", "pending") | list %}
+      <form method="post" action="/builds/queue/cancel-pending">
+        <button>cancel queued</button>
+      </form>
+    {% endif %}
+  </div>
   <div class="table-scroll">
     <table class="builds">
       <caption class="visually-hidden">waiting and running builds</caption>
