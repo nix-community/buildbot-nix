@@ -409,6 +409,7 @@ def _uvicorn_configs(
     bypass of the proxy, so it is only kept on explicit request
     (http_listen)."""
     configs = []
+    # lifespan="off": _serve runs the app lifespan once for all listeners.
     if config.http_unix_socket is None or config.http_listen:
         configs.append(
             uvicorn.Config(
@@ -416,13 +417,42 @@ def _uvicorn_configs(
                 host="0.0.0.0",  # noqa: S104
                 port=config.http_port,
                 log_level="info",
+                lifespan="off",
             )
         )
     if config.http_unix_socket:
         configs.append(
-            uvicorn.Config(app, uds=str(config.http_unix_socket), log_level="info")
+            uvicorn.Config(
+                app,
+                uds=str(config.http_unix_socket),
+                log_level="info",
+                lifespan="off",
+            )
         )
     return configs
+
+
+async def _serve(app: FastAPI, configs: list[uvicorn.Config]) -> None:
+    """Serve all listeners over one app, running the ASGI lifespan once
+    (per-server lifespans would start the app once per listener:
+    duplicate LISTEN connection, double SSE event delivery).
+
+    Returns when the first server exits (signal); the rest are
+    cancelled. Each uvicorn server installs its own signal handlers;
+    with two servers only the last one wins, so the other would never
+    stop on its own.
+    """
+    servers = [uvicorn.Server(cfg) for cfg in configs]
+    async with app.router.lifespan_context(app):
+        tasks = [asyncio.create_task(server.serve()) for server in servers]
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def run_service(config: Config) -> None:
@@ -460,20 +490,8 @@ async def run_service(config: Config) -> None:
         poller = PollingService(polled, PollSink(), config.pull_based.poll_spread)
         poller.start()
 
-    servers = [uvicorn.Server(cfg) for cfg in _uvicorn_configs(config, app)]
-    server_tasks = [asyncio.create_task(server.serve()) for server in servers]
     try:
-        # Each uvicorn server installs its own signal handlers; with two
-        # servers only the last one wins, so the other would never stop.
-        # Treat the first exit as shutdown and cancel the rest.
-        done, pending = await asyncio.wait(
-            server_tasks, return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-        for task in done:
-            task.result()
+        await _serve(app, _uvicorn_configs(config, app))
     finally:
         if poller is not None:
             await poller.stop()

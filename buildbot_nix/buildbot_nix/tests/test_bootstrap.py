@@ -5,14 +5,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from fastapi import FastAPI
 
-from buildbot_nix.bootstrap import _uvicorn_configs, register_oidc_with_retry
+from buildbot_nix.bootstrap import _serve, _uvicorn_configs, register_oidc_with_retry
 from buildbot_nix.config import Config, OIDCConfig
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
     from pathlib import Path
 
     from buildbot_nix.auth import OAuthProvider
@@ -96,3 +99,37 @@ def test_explicit_listen_flag_keeps_both(tmp_path: Path) -> None:
     )
     configs = _uvicorn_configs(config, app=_app)
     assert len(configs) == 2
+
+
+def test_lifespan_runs_once_with_two_listeners(tmp_path: Path) -> None:
+    """Two uvicorn servers share one app; each running the ASGI
+    lifespan would start the app twice (duplicate LISTEN connection,
+    double SSE event delivery)."""
+    starts: list[str] = []
+    stops: list[str] = []
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        starts.append("x")
+        try:
+            yield
+        finally:
+            stops.append("x")
+
+    app = FastAPI(lifespan=lifespan)
+    sock = tmp_path / "web.sock"
+    config = make_config(tmp_path, http_unix_socket=sock, http_listen=True)
+    config.http_port = 0  # ephemeral TCP port
+
+    async def run() -> None:
+        task = asyncio.create_task(_serve(app, _uvicorn_configs(config, app)))
+        async with asyncio.timeout(10):
+            while not sock.exists():  # noqa: ASYNC110 (poll fs, no event)
+                await asyncio.sleep(0.05)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+    assert starts == ["x"]
+    assert stops == ["x"]
