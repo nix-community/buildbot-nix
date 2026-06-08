@@ -178,9 +178,12 @@ class GitHubConfig(BaseModel):
 class OIDCMappingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str
-    username: str
-    full_name: str
+    email: str = "email"
+    # Identity claim for admin/viewer matching. Defaults to the stable
+    # "sub": a mutable claim like preferred_username would let a user
+    # who can edit it hijack someone else's admin entry.
+    username: str = "sub"
+    full_name: str = "name"
     groups: str | None = None
 
 
@@ -194,7 +197,7 @@ class OIDCConfig(BaseModel):
     discovery_url: str
     client_id: str
     scope: list[str]
-    mapping: OIDCMappingConfig
+    mapping: OIDCMappingConfig = Field(default_factory=OIDCMappingConfig)
 
     client_secret_file: Path = Field(default=Path("oidc-client-secret"))
 

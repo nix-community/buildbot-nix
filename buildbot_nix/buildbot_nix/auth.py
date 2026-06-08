@@ -9,8 +9,9 @@ state-changing endpoints require a same-origin check
 
 Authorization (port of the authz.py semantics): admin and allowlist
 entries are provider-qualified (`github:alice`, `gitea:bob`,
-`oidc:<issuer>:<sub>`) — the same username on a different provider
-never matches. Admins control everything; a PR author (matched by
+`oidc:<issuer>:<sub>` — the OIDC identity claim defaults to the
+stable `sub` and is configurable via `mapping.username`) — the same
+username on a different provider never matches. Admins control everything; a PR author (matched by
 forge identity on the same forge) may restart/cancel builds of their
 own PR; `allowUnauthenticatedControl` opens control for VPN/local-dev
 instances.
@@ -472,11 +473,13 @@ async def oidc_provider(  # noqa: PLR0913
     client_id: str,
     client_secret: str,
     scope: list[str],
-    username_claim: str = "preferred_username",
+    username_claim: str = "sub",
     groups_claim: str | None = None,
 ) -> OAuthProvider:
     """Generic OIDC via the discovery document. Identities are
-    qualified as oidc:<issuer>:<username>."""
+    qualified as oidc:<issuer>:<claim> where the claim defaults to the
+    stable "sub": a mutable claim like preferred_username would let a
+    user who can edit it hijack someone else's admin/viewer entry."""
     response = await http.get(discovery_url)
     response.raise_for_status()
     doc = response.json()

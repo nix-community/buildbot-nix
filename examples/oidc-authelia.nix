@@ -2,7 +2,12 @@
 {
   services.buildbot-nix = {
     # Admin entries for OIDC users are qualified as
-    # "oidc:<issuer-host>:<preferred_username>".
+    # "oidc:<issuer-host>:<claim>" with the configured identity claim
+    # (default: the stable "sub"). Authelia issues opaque subject
+    # identifiers, so this example maps the identity to
+    # preferred_username instead; only do that when the provider
+    # guarantees the claim is unique and not user-editable (true for
+    # Authelia's file backend, where it is the account name).
     admins = [ "oidc:auth.thalheim.io:alice" ];
     oidc = {
       enable = true;
@@ -10,6 +15,7 @@
       discoveryUrl = "https://auth.thalheim.io/.well-known/openid-configuration";
       clientId = "buildbot";
       clientSecretFile = pkgs.writeText "oidc-secret" "00000000000000000000"; # FIXME: use a secret manager
+      mapping.username = "preferred_username";
     };
   };
 

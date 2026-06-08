@@ -764,10 +764,16 @@ in
       };
 
       mapping = lib.mkOption {
-        description = "How OIDC claims map to user info.";
+        description = ''
+          How OIDC claims map to user info. The username claim forms the
+          identity used for admin/viewer matching
+          ("oidc:<issuer-host>:<claim>"); it defaults to the stable "sub"
+          because a user-editable claim such as preferred_username would
+          allow hijacking someone else's admin entry.
+        '';
         default = {
           email = "email";
-          username = "preferred_username";
+          username = "sub";
           full_name = "name";
           groups = null;
         };
@@ -779,7 +785,7 @@ in
             };
             username = lib.mkOption {
               type = lib.types.str;
-              default = "preferred_username";
+              default = "sub";
             };
             full_name = lib.mkOption {
               type = lib.types.str;

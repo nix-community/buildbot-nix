@@ -378,6 +378,10 @@ def test_oidc_discovery() -> None:
     assert provider.provider_id == "oidc:id.example.com"
     assert provider.authorize_url == "https://id.example.com/auth"
     assert provider.scope == "openid profile"
+    # Identity defaults to the stable, provider-unique "sub" claim as
+    # documented (oidc:<issuer>:<sub>): a mutable claim like
+    # preferred_username would let users hijack admin entries.
+    assert provider.username_field == "sub"
 
 
 def test_gitea_oauth_urls() -> None:

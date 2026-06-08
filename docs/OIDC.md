@@ -11,10 +11,11 @@ etc.) for user login.
   services.buildbot-nix = {
     oidc.enable = true;
 
-    # Provider-qualified identities: "oidc:<issuer-host>:<preferred_username>"
+    # Provider-qualified identities: "oidc:<issuer-host>:<sub>" with the
+    # default mapping (see "User Identification" below).
     admins = [
-      "oidc:keycloak.example.com:alice"
-      "oidc:keycloak.example.com:bob"
+      "oidc:keycloak.example.com:f3b0a6f0-1c2d-4e5f-9a8b-7c6d5e4f3a2b"
+      "oidc:keycloak.example.com:0f9e8d7c-6b5a-4f3e-2d1c-0b9a8f7e6d5c"
     ];
 
     oidc = {
@@ -36,7 +37,7 @@ etc.) for user login.
       # Claim mapping (defaults shown)
       mapping = {
         email = "email";
-        username = "preferred_username";  # Used for admin matching
+        username = "sub";  # Identity claim used for admin matching
         full_name = "name";
         groups = null;  # Set to "groups" if using group sync
       };
@@ -56,8 +57,8 @@ file passed to `buildbot-nix --config`:
 ```json
 {
   "admins": [
-    "oidc:keycloak.example.com:alice",
-    "oidc:keycloak.example.com:bob"
+    "oidc:keycloak.example.com:f3b0a6f0-1c2d-4e5f-9a8b-7c6d5e4f3a2b",
+    "oidc:keycloak.example.com:0f9e8d7c-6b5a-4f3e-2d1c-0b9a8f7e6d5c"
   ],
   "auth_backend": "oidc",
   "oidc": {
@@ -68,7 +69,7 @@ file passed to `buildbot-nix --config`:
     "scope": ["openid", "email", "profile"],
     "mapping": {
       "email": "email",
-      "username": "preferred_username",
+      "username": "sub",
       "full_name": "name",
       "groups": null
     }
@@ -131,7 +132,7 @@ Then configure buildbot-nix to use it (in the JSON config file):
   "scope": ["openid", "email", "profile"],
   "mapping": {
     "email": "email",
-    "username": "preferred_username",
+    "username": "sub",
     "full_name": "name",
     "groups": null
   }
@@ -140,13 +141,18 @@ Then configure buildbot-nix to use it (in the JSON config file):
 
 ## User Identification
 
-Users are identified by their `preferred_username` claim. This means:
+Users are identified by the claim configured in `mapping.username`, which
+defaults to `sub`. This means:
 
 - The `admins` list entries must be provider-qualified:
-  `oidc:<issuer-host>:<username>` where `<issuer-host>` is the issuer URL
-  without the `https://` prefix and `<username>` is the value of the username
+  `oidc:<issuer-host>:<identity>` where `<issuer-host>` is the issuer URL
+  without the `https://` prefix and `<identity>` is the value of the configured
   claim
-- You can customize which claim is used via `mapping.username`
+- `sub` is the default because it is stable and unique per provider. A
+  human-readable claim such as `preferred_username` can be configured instead,
+  but only do so if your provider guarantees the claim is unique and not
+  user-editable: a user who can change their own `preferred_username` could
+  otherwise take over another user's admin or viewer entry
 
 ## Private Repositories
 
