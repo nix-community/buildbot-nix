@@ -424,9 +424,7 @@ class Orchestrator:
         await jobs_queue.put(None)
         status = await build_task
         if status == BuildStatus.SUCCEEDED:
-            await self._maybe_run_effects(
-                event, build, worktree_path, branch_config, credentials
-            )
+            await self._maybe_run_effects(event, build, worktree_path, credentials)
 
     async def _build_attributes(
         self,
@@ -583,11 +581,7 @@ class Orchestrator:
                     # started-flag keeps already-deployed builds from
                     # re-deploying.
                     await self._maybe_run_effects(
-                        event,
-                        build,
-                        worktree_path,
-                        BranchConfig.load(worktree_path),
-                        credentials,
+                        event, build, worktree_path, credentials
                     )
                     await self._refresh_schedules(event)
         finally:
@@ -622,13 +616,7 @@ class Orchestrator:
                 event,
                 worktree_path,
             ):
-                await self._maybe_run_effects(
-                    event,
-                    build,
-                    worktree_path,
-                    BranchConfig.load(worktree_path),
-                    credentials,
-                )
+                await self._maybe_run_effects(event, build, worktree_path, credentials)
                 await self._refresh_schedules(event)
             # The enqueued effect items share this build's key and only
             # become claimable once this item finishes.
@@ -640,12 +628,21 @@ class Orchestrator:
         event: ChangeEvent,
         build: BuildRecord,
         worktree_path: Path,
-        branch_config: BranchConfig,
         credentials: FetchCredentials | None = None,
     ) -> None:
         repo = event.repo
+        # Gating config comes from the default branch of the central
+        # clone: the worktree is PR-controlled, so its buildbot-nix.toml
+        # could grant the PR effects (and deploy secrets).
+        # refs/heads/ prefix: a bare branch name would resolve a tag
+        # of the same name first (tags auto-follow into the clone).
+        default_branch_config = BranchConfig.loads(
+            await self.repos.show_file(
+                repo.key, f"refs/heads/{repo.default_branch}", "buildbot-nix.toml"
+            )
+        )
         if not should_run_effects(
-            branch_config,
+            default_branch_config,
             repo.default_branch,
             event.branch,
             is_pull_request=event.pr_number is not None,

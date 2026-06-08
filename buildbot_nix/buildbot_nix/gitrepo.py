@@ -269,6 +269,16 @@ class RepoManager:
             credentials=credentials,
         )
 
+    async def show_file(self, project_key: str, ref: str, file_path: str) -> str | None:
+        """Read one file from a ref of the bare clone (no worktree).
+        Returns None when the ref or file does not exist."""
+        try:
+            return await run_git(
+                ["show", f"{ref}:{file_path}"], cwd=self.clone_path(project_key)
+            )
+        except GitError:
+            return None
+
     async def create_worktree(
         self, project_key: str, worktree_id: str, commit: str
     ) -> Worktree:

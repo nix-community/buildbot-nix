@@ -983,6 +983,63 @@ def test_effects_run_after_default_branch_success(
     asyncio.run(run())
 
 
+def test_pr_worktree_config_cannot_grant_effects(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The effects-gating config must come from the default branch, not
+    the PR's merged tree: a PR adding effects_on_pull_requests = true
+    to buildbot-nix.toml must not grant itself effects."""
+
+    async def run() -> None:
+        git(upstream, "checkout", "-b", "pr")
+        (upstream / "buildbot-nix.toml").write_text("effects_on_pull_requests = true\n")
+        git(upstream, "add", ".")
+        git(upstream, "commit", "-m", "grant myself effects")
+        head = git(upstream, "rev-parse", "HEAD")
+        git(upstream, "checkout", "main")
+        base = git(upstream, "rev-parse", "HEAD")
+
+        ran: list[str] = []
+
+        async def fake_list(ctx: object) -> list[str]:
+            return ["deploy"]
+
+        async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
+            ran.append(name)
+            return True
+
+        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
+        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([mk_job("a")]),
+            FakeExecutor(),
+            name="pr-grant",
+        )
+        try:
+            build = await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project,
+                    branch="main",  # PR base ref, as webhooks report it
+                    commit_sha=head,
+                    pr_number=9,
+                    base_sha=base,
+                )
+            )
+            assert build is not None
+            await drain_effect_items(orchestrator, project, pool)
+            assert ran == []
+            assert not await pool.fetchval(
+                "SELECT effects_started FROM builds WHERE id = $1", build.id
+            )
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_rerun_effects_runs_effects_again(
     postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

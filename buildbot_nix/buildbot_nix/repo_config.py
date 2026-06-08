@@ -32,19 +32,27 @@ class BranchConfig(BaseModel):
     effects_branches: list[str] = []
 
     @classmethod
+    def loads(cls, text: str | None) -> Self:
+        """Parse `buildbot-nix.toml` content (e.g. read from a git ref);
+        defaults on absence or invalid content."""
+        if text is None:
+            return cls()
+        try:
+            return cls.model_validate(tomllib.loads(text))
+        except (tomllib.TOMLDecodeError, ValidationError):
+            return cls()
+
+    @classmethod
     def load(cls, repo_root: Path) -> Self:
         """Read `buildbot-nix.toml` from a checkout; defaults on absence
         or invalid content (matching the buildbot-era behavior)."""
-        path = repo_root / "buildbot-nix.toml"
         try:
-            data = tomllib.loads(path.read_text())
-        except FileNotFoundError:
+            text = (repo_root / "buildbot-nix.toml").read_text()
+        except OSError:
             return cls()
-        except (OSError, tomllib.TOMLDecodeError):
-            return cls()
+        config = cls.loads(text)
         try:
-            config = cls.model_validate(data)
             _validate_flake_dir(config.flake_dir, repo_root)
-        except (ValidationError, RepoConfigError):
+        except RepoConfigError:
             return cls()
         return config
