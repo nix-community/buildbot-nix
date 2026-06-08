@@ -1,7 +1,9 @@
 """Webhook ingestion.
 
-Endpoints `/webhooks/{github,gitea,gitlab}` plus legacy buildbot
-aliases `/change_hook/{github,gitea}` (identical validation). GitHub
+Endpoints `/webhooks/{github,gitea,gitlab}` plus the legacy buildbot
+alias `/change_hook/github` (identical validation; the GitHub App
+webhook secret is deployment-wide, so legacy hooks still verify).
+GitHub
 payloads are verified against the App-level webhook secret
 (X-Hub-Signature-256); Gitea and GitLab payloads against the
 per-repository secret stored in the database (HMAC X-Gitea-Signature
@@ -454,10 +456,11 @@ def create_webhook_router(
         gitlab_secrets,
         deduper or DeliveryDeduper(),
     )
-    # New paths plus legacy buildbot aliases with identical validation.
+    # No legacy gitea alias: old buildbot hooks carry secrets that can
+    # never match the per-repo secrets this service generates, and the
+    # reconciler replaces those hooks anyway.
     for path in ("/webhooks/github", "/change_hook/github"):
         router.post(path)(handlers.handle_github)
-    for path in ("/webhooks/gitea", "/change_hook/gitea"):
-        router.post(path)(handlers.handle_gitea)
+    router.post("/webhooks/gitea")(handlers.handle_gitea)
     router.post("/webhooks/gitlab")(handlers.handle_gitlab)
     return router

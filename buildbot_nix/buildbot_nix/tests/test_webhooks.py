@@ -583,10 +583,20 @@ def test_gitea_endpoint_per_repo_secret() -> None:
                 },
             )
             bad = await client.post(
-                "/change_hook/gitea",
+                "/webhooks/gitea",
                 content=body,
                 headers={
                     "X-Gitea-Signature": "wrong",
+                    "X-Gitea-Event": "push",
+                },
+            )
+            # Legacy alias is gone: old buildbot hooks carried secrets
+            # that could never match the per-repo secrets anyway.
+            legacy = await client.post(
+                "/change_hook/gitea",
+                content=body,
+                headers={
+                    "X-Gitea-Signature": sign_gitea(body),
                     "X-Gitea-Event": "push",
                 },
             )
@@ -602,6 +612,7 @@ def test_gitea_endpoint_per_repo_secret() -> None:
             )
         assert ok.status_code == 202
         assert bad.status_code == 403
+        assert legacy.status_code == 404
         assert unknown.status_code == 403
         assert len(sink.events) == 1
 

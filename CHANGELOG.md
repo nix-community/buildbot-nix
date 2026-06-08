@@ -45,16 +45,19 @@ OAuth callback URLs change: update your GitHub App / Gitea application to
 (`buildbot/nix-eval`, `buildbot/nix-build ...`), so branch protection rules keep
 working. Statuses link to the new web UI.
 
-**Webhooks.** The old endpoints (`/change_hook/github`, `/change_hook/gitea`)
-still work as aliases. However, per-repository GitHub webhooks are no longer
-created: events arrive through the App-level webhook. Enable the webhook on your
-GitHub App (Active, URL `https://<domain>/webhooks/github`, secret matching
-`webhookSecretFile`, events `push` and `pull_request`); see
-[docs/GITHUB.md](./docs/GITHUB.md). Subscribing to the `pull_request` event
-requires the "Pull requests: Read-only" repository permission. Adding a
-permission must be accepted on every installation of the app (your user account
-and each organization) under Settings → GitHub Apps → Configure. The service
-logs a warning at startup if the app is misconfigured.
+**Webhooks.** The old GitHub endpoint (`/change_hook/github`) still works as an
+alias. `/change_hook/gitea` is gone: legacy Gitea hooks carry old buildbot
+secrets that cannot match the per-repository secrets this service generates, and
+the service re-registers Gitea hooks against `/webhooks/gitea` automatically.
+However, per-repository GitHub webhooks are no longer created: events arrive
+through the App-level webhook. Enable the webhook on your GitHub App (Active,
+URL `https://<domain>/webhooks/github`, secret matching `webhookSecretFile`,
+events `push` and `pull_request`); see [docs/GITHUB.md](./docs/GITHUB.md).
+Subscribing to the `pull_request` event requires the "Pull requests: Read-only"
+repository permission. Adding a permission must be accepted on every
+installation of the app (your user account and each organization) under Settings
+→ GitHub Apps → Configure. The service logs a warning at startup if the app is
+misconfigured.
 
 Gitea webhooks now register at `https://<domain>/webhooks/gitea` with an
 auto-generated per-repository secret stored in the database —
