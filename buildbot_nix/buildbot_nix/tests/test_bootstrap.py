@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from buildbot_nix.bootstrap import register_oidc_with_retry
+from buildbot_nix.bootstrap import _uvicorn_configs, register_oidc_with_retry
 from buildbot_nix.config import Config, OIDCConfig
 
 if TYPE_CHECKING:
@@ -27,6 +27,10 @@ def make_config(state_dir: Path, **kwargs: Any) -> Config:
         state_dir=state_dir,
         **kwargs,
     )
+
+
+async def _app(scope: Any, receive: Any, send: Any) -> None:
+    raise NotImplementedError
 
 
 DISCOVERY_DOC = {
@@ -76,3 +80,19 @@ def test_oidc_retry_registers_provider_after_transient_failure(
     assert attempts == 3
     assert providers["oidc"].authorize_url == "https://idp.example.com/auth"
     assert registered == ["oidc"]
+
+
+def test_unix_socket_skips_tcp_listener(tmp_path: Path) -> None:
+    """With an nginx front over a unix socket, a 0.0.0.0 TCP listener
+    is a plaintext bypass of the TLS proxy."""
+    config = make_config(tmp_path, http_unix_socket=tmp_path / "web.sock")
+    configs = _uvicorn_configs(config, app=_app)
+    assert [c.uds for c in configs] == [str(tmp_path / "web.sock")]
+
+
+def test_explicit_listen_flag_keeps_both(tmp_path: Path) -> None:
+    config = make_config(
+        tmp_path, http_unix_socket=tmp_path / "web.sock", http_listen=True
+    )
+    configs = _uvicorn_configs(config, app=_app)
+    assert len(configs) == 2

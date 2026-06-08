@@ -66,7 +66,7 @@ async def _invalidate_session(
     await forge_tokens.delete(session_id)
 
 
-def create_auth_router(  # noqa: PLR0913
+def create_auth_router(  # noqa: C901, PLR0913
     providers: dict[str, OAuthProvider],
     signer: SessionSigner,
     base_url: str,

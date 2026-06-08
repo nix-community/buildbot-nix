@@ -391,6 +391,9 @@ class Config(BaseModel):
 
     http_port: int = 8010
     http_unix_socket: Path | None = None
+    # Also bind the TCP port when a unix socket is configured; off by
+    # default because the TCP listener would bypass the TLS proxy.
+    http_listen: bool = False
 
     @classmethod
     def load(cls, path: Path) -> Config:

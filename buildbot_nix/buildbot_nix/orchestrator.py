@@ -17,7 +17,7 @@ import logging
 import shutil
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import quote
 

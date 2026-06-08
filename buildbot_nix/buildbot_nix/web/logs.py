@@ -483,7 +483,6 @@ def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
     router.get(
         "/repos/{forge}/{owner:owner}/{name:segment}/schedules/runs/{run_id}.txt"
     )(routes.scheduled_run_log)
->>>>>>> 07107401e (web: route GitLab nested-group projects (owner containing "/"))
     return router
 
 

@@ -19,7 +19,7 @@ from buildbot_nix.config import Config
 from buildbot_nix.db import BuildDB, BuildStatus
 from buildbot_nix.events import ChangeEvent, RepoInfo
 from buildbot_nix.gitrepo import FetchCredentials, RepoManager
-from buildbot_nix.memory import EvalWorkerConfig, calculate_eval_workers
+from buildbot_nix.memory import EvalWorkerConfig
 from buildbot_nix.models import CacheStatus
 from buildbot_nix.nix_eval import EvalError, EvalResult, EvalSettings
 from buildbot_nix.orchestrator import AttributeExecutor, EvalRunnerLike, Orchestrator

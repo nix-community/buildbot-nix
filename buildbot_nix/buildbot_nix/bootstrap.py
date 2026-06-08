@@ -400,6 +400,31 @@ async def _run_startup(service: CIService) -> None:
     await service.discovery_loop()
 
 
+def _uvicorn_configs(
+    config: Config, app: ASGIApplication | Callable[..., object]
+) -> list[uvicorn.Config]:
+    """uvicorn binds only one of host/port and uds per server, so each
+    listener gets its own server over the same app. With a unix socket
+    (TLS proxy deployment), the TCP listener would be a plaintext
+    bypass of the proxy, so it is only kept on explicit request
+    (http_listen)."""
+    configs = []
+    if config.http_unix_socket is None or config.http_listen:
+        configs.append(
+            uvicorn.Config(
+                app,
+                host="0.0.0.0",  # noqa: S104
+                port=config.http_port,
+                log_level="info",
+            )
+        )
+    if config.http_unix_socket:
+        configs.append(
+            uvicorn.Config(app, uds=str(config.http_unix_socket), log_level="info")
+        )
+    return configs
+
+
 async def run_service(config: Config) -> None:
     service, app = await build_service(config)
 
@@ -435,24 +460,7 @@ async def run_service(config: Config) -> None:
         poller = PollingService(polled, PollSink(), config.pull_based.poll_spread)
         poller.start()
 
-    # uvicorn binds only one of host/port and uds per server, so a
-    # deployment with both gets two servers over the same app.
-    servers = [
-        uvicorn.Server(
-            uvicorn.Config(
-                app,
-                host="0.0.0.0",  # noqa: S104
-                port=config.http_port,
-                log_level="info",
-            )
-        )
-    ]
-    if config.http_unix_socket:
-        servers.append(
-            uvicorn.Server(
-                uvicorn.Config(app, uds=str(config.http_unix_socket), log_level="info")
-            )
-        )
+    servers = [uvicorn.Server(cfg) for cfg in _uvicorn_configs(config, app)]
     server_tasks = [asyncio.create_task(server.serve()) for server in servers]
     try:
         # Each uvicorn server installs its own signal handlers; with two
