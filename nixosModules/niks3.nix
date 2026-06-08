@@ -46,6 +46,9 @@ in
         name = "Upload to niks3";
         environment = {
           NIKS3_SERVER_URL = cfg.niks3.serverUrl;
+          # Token via file, never on the command line: /proc/<pid>/cmdline
+          # is world-readable.
+          NIKS3_AUTH_TOKEN_FILE = "/run/credentials/buildbot-nix.service/niks3-auth-token";
         };
         command = [
           "niks3"
