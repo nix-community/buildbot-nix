@@ -569,17 +569,23 @@ class CIService:
         resumable = results[0] if results else None
         if resumable is None:
             return
-        pending_count = await self.pool.fetchval(
+        unfinished_count = await self.pool.fetchval(
             "SELECT count(*) FROM build_attributes "
-            "WHERE build_id = $1 AND status = 'pending'",
+            "WHERE build_id = $1 AND status IN ('pending', 'building')",
             build_id,
         )
-        if resumable.has_attributes and len(resumable.pending_jobs) == pending_count:
+        if (
+            # A crash mid-eval leaves a partial attribute set; resuming
+            # it would report success for an incomplete build.
+            build.status != "evaluating"
+            and resumable.has_attributes
+            and len(resumable.pending_jobs) == unfinished_count
+        ):
             await self.orchestrator.rerun_pending_attributes(
                 info, build, resumable.pending_jobs, credentials
             )
             return
-        # No resumable eval results (no attribute rows, or pending
+        # No resumable eval results (no attribute rows, or unfinished
         # rows without drv_path): an empty rerun would aggregate to
         # "succeeded" without building anything; re-evaluate instead.
         try:
@@ -616,9 +622,13 @@ class CIService:
         )
         try:
             # Stale rows (e.g. failed_eval with NULL drv_path) would
-            # wedge the aggregate; the re-eval rewrites the full set.
+            # wedge the aggregate; the re-eval rewrites them. Finished
+            # rows with a drv_path are kept: their results are valid
+            # and the re-eval skips already-built attributes.
             await self.pool.execute(
-                "DELETE FROM build_attributes WHERE build_id = $1", build.id
+                "DELETE FROM build_attributes WHERE build_id = $1 "
+                "AND (status IN ('pending', 'building') OR drv_path IS NULL)",
+                build.id,
             )
             await self.orchestrator.run_build(event, build, worktree.path)
         finally:

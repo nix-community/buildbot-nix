@@ -665,6 +665,118 @@ def test_startup_reevaluates_interrupted_eval(
     asyncio.run(run())
 
 
+def test_rerun_of_interrupted_eval_reevaluates(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """A crash mid-evaluation leaves a partial attribute set; resuming
+    only those rows would report success for a build that never
+    finished evaluating. It must re-evaluate."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="evaluating"
+            )
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, system, status, "
+                "drv_path) VALUES ($1, 'partial', 'x86_64-linux', 'pending', "
+                "'/nix/store/p.drv')",
+                build_id,
+            )
+
+            reevals: list[int] = []
+            resumes: list[int] = []
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                reevals.append(build.id)
+
+            async def fake_resume(
+                info: Any, build: Any, jobs: Any, credentials: Any = None
+            ) -> None:
+                resumes.append(build.id)
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            service.orchestrator.rerun_pending_attributes = fake_resume  # type: ignore[method-assign, assignment]
+            await service._rerun(build_id)  # noqa: SLF001
+
+            assert resumes == []
+            assert reevals == [build_id]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_rerun_resumes_building_rows_and_keeps_finished(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """A build that crashed with an attribute in 'building' resumes that
+    attribute; already-finished rows are kept, not re-evaluated away."""
+    repo, sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, str(repo))
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="building"
+            )
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, system, status, "
+                "drv_path) VALUES "
+                "($1, 'done', 'x86_64-linux', 'succeeded', '/nix/store/d.drv'), "
+                "($1, 'mid', 'x86_64-linux', 'building', '/nix/store/m.drv')",
+                build_id,
+            )
+
+            reevals: list[int] = []
+            resumed_attrs: list[str] = []
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                reevals.append(build.id)
+
+            async def fake_resume(
+                info: Any, build: Any, jobs: Any, credentials: Any = None
+            ) -> None:
+                resumed_attrs.extend(job.attr for job in jobs)
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            service.orchestrator.rerun_pending_attributes = fake_resume  # type: ignore[method-assign, assignment]
+            await service._rerun(build_id)  # noqa: SLF001
+
+            assert reevals == []
+            assert resumed_attrs == ["mid"]
+            kept = await pool.fetchval(
+                "SELECT status FROM build_attributes "
+                "WHERE build_id = $1 AND attr = 'done'",
+                build_id,
+            )
+            assert kept == "succeeded"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_reeval_failure_marks_build_failed(
     postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
 ) -> None:
