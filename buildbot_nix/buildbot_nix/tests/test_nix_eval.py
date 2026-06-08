@@ -431,3 +431,28 @@ def test_cgroup_oom_killed_reads_memory_events(tmp_path: Path) -> None:
     assert not nix_eval.cgroup_oom_killed(tmp_path)
     (tmp_path / "memory.events").write_text("low 0\noom 1\noom_kill 3\n")
     assert nix_eval.cgroup_oom_killed(tmp_path)
+
+
+def test_eval_runner_proxy_env_reaches_evaluator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Proxy/TLS settings must reach nix-eval-jobs or evaluation breaks
+    # in proxy/custom-CA deployments. The fake echoes its environment
+    # into stderr, which the EvalError carries.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "nix-eval-jobs"
+    fake.write_text(
+        '#!/bin/sh\necho "proxy=$https_proxy ca=$NIX_SSL_CERT_FILE" >&2\nexit 1\n'
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    monkeypatch.setenv("https_proxy", "http://proxy:3128")
+    monkeypatch.setenv("NIX_SSL_CERT_FILE", "/etc/ssl/ca.pem")
+
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots", sandbox=False, systemd_scope=False
+    )
+    with pytest.raises(EvalError) as excinfo:
+        asyncio.run(EvalRunner().run(tmp_path, BranchConfig(), settings))
+    assert "proxy=http://proxy:3128 ca=/etc/ssl/ca.pem" in str(excinfo.value)

@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from .environ import passthrough_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +101,9 @@ async def run_git(
 ) -> str:
     """Run a git command, returning stdout. Raises GitError on failure."""
     env = {
+        # Proxy/TLS/NIX_* passthrough: fetches go through libcurl,
+        # which needs the proxy and CA configuration of the service.
+        **passthrough_env(),
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_CONFIG_GLOBAL": "/dev/null",
         "GIT_CONFIG_SYSTEM": "/dev/null",

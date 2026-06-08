@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from typing import TYPE_CHECKING
 
@@ -278,3 +279,20 @@ def test_merge_infra_failure_is_not_conflict(
             await manager.remove_worktree(wt)
 
     asyncio.run(run())
+
+
+def test_run_git_passes_proxy_env_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Fetches go through libcurl: the service's proxy/CA configuration
+    # must survive run_git's env scrubbing.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "git"
+    fake.write_text('#!/bin/sh\necho "proxy=$https_proxy ca=$SSL_CERT_FILE"\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    monkeypatch.setenv("https_proxy", "http://proxy:3128")
+    monkeypatch.setenv("SSL_CERT_FILE", "/etc/ssl/ca.pem")
+    out = asyncio.run(run_git(["version"]))
+    assert out.strip() == "proxy=http://proxy:3128 ca=/etc/ssl/ca.pem"

@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .environ import passthrough_env
 from .models import NixEvalJob, NixEvalJobModel
 
 if TYPE_CHECKING:
@@ -509,7 +510,10 @@ class EvalRunner:
             stderr=asyncio.subprocess.PIPE,
             preexec_fn=preexec_fn,
             limit=STREAM_LIMIT,
+            # Proxy/TLS/NIX_* must reach the evaluator: flake input
+            # fetching fails in proxy/custom-CA deployments otherwise.
             env={
+                **passthrough_env(),
                 "CLICOLOR_FORCE": "1",
                 "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             },
