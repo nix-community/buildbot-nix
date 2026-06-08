@@ -307,10 +307,11 @@ def select_secrets(
     secrets: dict[str, Any],
     opts: EffectsOptions,
 ) -> dict[str, Any]:
-    """Hercules semantics when the effect declares secretsMap;
-    whole-file passthrough otherwise (legacy buildbot-nix behavior)."""
+    """Hercules semantics when the effect declares secretsMap (an
+    empty declared map grants nothing); whole-file passthrough only
+    when no map is declared at all (legacy buildbot-nix behavior)."""
     secrets_map = parse_secrets_map(drv.get("env", {}))
-    if not secrets_map:
+    if secrets_map is None:
         return secrets
     ctx = secret_context(opts)
     git_token = None

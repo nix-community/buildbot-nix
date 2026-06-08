@@ -13,6 +13,7 @@ from buildbot_effects import (
     pass_as_file_env,
     sandbox_env,
     select_mounts,
+    select_secrets,
     virtual_ids,
 )
 from buildbot_effects.options import EffectsOptions
@@ -69,9 +70,35 @@ def test_parse_secrets_map() -> None:
     }
     refs = parse_secrets_map(env)
     assert refs == {"ssh": SimpleSecret("deploy-key"), "token": GitToken()}
-    assert parse_secrets_map({}) == {}
+    assert parse_secrets_map({}) is None
+    assert parse_secrets_map({"secretsMap": "{}"}) == {}
     with pytest.raises(SecretsError):
         parse_secrets_map({"secretsMap": json.dumps({"x": {"type": "wat"}})})
+
+
+def _opts() -> EffectsOptions:
+    return EffectsOptions(repo="acme/widget", branch="main", default_branch="main")
+
+
+ALL_SECRETS = {
+    "deploy-key": {"data": {"key": "k"}, "condition": True},
+    "other": {"data": {"x": 1}, "condition": True},
+}
+
+
+def test_select_secrets_absent_map_passes_whole_file() -> None:
+    assert select_secrets({"env": {}}, ALL_SECRETS, _opts()) == ALL_SECRETS
+
+
+def test_select_secrets_empty_map_grants_nothing() -> None:
+    """secretsMap = {} must not fall back to the whole-file passthrough."""
+    drv = {"env": {"secretsMap": "{}"}}
+    assert select_secrets(drv, ALL_SECRETS, _opts()) == {}
+
+
+def test_select_secrets_nonempty_map_filters() -> None:
+    drv = {"env": {"secretsMap": json.dumps({"ssh": "deploy-key"})}}
+    assert select_secrets(drv, ALL_SECRETS, _opts()) == {"ssh": {"data": {"key": "k"}}}
 
 
 def test_gather_secrets_filters_and_renames() -> None:

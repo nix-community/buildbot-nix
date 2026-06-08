@@ -7,7 +7,9 @@ the run's context. Mirrors Hercules/Effect.hs and Hercules/Secrets.hs.
 
 Divergences from hercules-ci-agent (both keep existing buildbot-nix
 deployments working):
-- an effect without secretsMap still gets the whole secrets file,
+- an effect whose derivation does not declare secretsMap at all
+  still gets the whole secrets file (a declared-but-empty map grants
+  nothing),
 - a secret without a condition is allowed with a warning instead of
   being rejected.
 """
@@ -71,11 +73,16 @@ def eval_condition(ctx: SecretContext, cond: Any) -> bool:  # noqa: ANN401, PLR0
     raise SecretsError(msg)
 
 
-def parse_secrets_map(drv_env: dict[str, str]) -> dict[str, SecretRef]:
+def parse_secrets_map(drv_env: dict[str, str]) -> dict[str, SecretRef] | None:
     """`secretsMap` (or legacy `secretsToUse`) from the derivation
-    environment: destination name -> secret reference."""
-    raw = drv_env.get("secretsToUse") or drv_env.get("secretsMap")
-    if not raw:
+    environment: destination name -> secret reference.
+
+    None when no map is declared at all (legacy whole-file
+    passthrough); a declared-but-empty map grants nothing."""
+    raw = drv_env.get("secretsToUse", drv_env.get("secretsMap"))
+    if raw is None:
+        return None
+    if not raw:  # declared but empty string is not valid JSON
         return {}
     try:
         parsed = json.loads(raw)
