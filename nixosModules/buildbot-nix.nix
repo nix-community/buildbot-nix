@@ -1245,10 +1245,6 @@ in
       };
     };
 
-    users.users.nginx = lib.mkIf cfg.nginx.enable {
-      extraGroups = [ "buildbot-nix" ];
-    };
-
     systemd.tmpfiles.rules = [
       "d /nix/var/nix/gcroots/per-user/buildbot-nix 0755 buildbot-nix buildbot-nix - -"
       # Drop gc-roots of builds that have not been refreshed in 90 days.
