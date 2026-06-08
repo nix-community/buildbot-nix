@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 # PR/MR refs are fetched per PR and never covered by --prune of later
 # fetches; without an age-based sweep they accumulate forever.
 PR_REF_MAX_AGE = 90 * 86400
+# Crash-leaked plain files next to worktrees (e.g. effects side-files)
+# are swept once clearly older than any running build.
+ORPHAN_FILE_MAX_AGE = 86400
 
 
 class GitError(Exception):
@@ -223,6 +226,10 @@ class RepoManager:
         self.clones_dir.mkdir(parents=True, exist_ok=True)
         self.worktrees_dir.mkdir(parents=True, exist_ok=True)
         self._fetch_locks: dict[str, asyncio.Lock] = {}
+        # Live checkouts, tracked independently of git metadata: after
+        # a corruption re-clone the new clone knows no worktrees, and
+        # the orphan sweep must not delete those of running builds.
+        self._active_worktrees: set[Path] = set()
 
     def clone_path(self, project_key: str) -> Path:
         # project_key like "github/owner/repo"; one directory per project.
@@ -309,9 +316,11 @@ class RepoManager:
             await self.remove_worktree(Worktree(path=path, clone_path=clone))
         path.parent.mkdir(parents=True, exist_ok=True)
         await run_git(["worktree", "add", "--detach", str(path), commit], cwd=clone)
+        self._active_worktrees.add(path.resolve())
         return Worktree(path=path, clone_path=clone)
 
     async def remove_worktree(self, worktree: Worktree) -> None:
+        self._active_worktrees.discard(worktree.path.resolve())
         try:
             await run_git(
                 ["worktree", "remove", "--force", str(worktree.path)],
@@ -331,16 +340,34 @@ class RepoManager:
         # created mid-scan would be missing from `registered` and must
         # not become a sweep candidate.
         candidates = {entry.resolve() for entry in self.worktrees_dir.iterdir()}
-        registered: set[Path] = set()
+        registered = set(self._active_worktrees)
         for clone in self.clones_dir.rglob("clone.git"):
             with contextlib.suppress(GitError):
                 await run_git(["worktree", "prune"], cwd=clone)
+            try:
                 output = await run_git(["worktree", "list", "--porcelain"], cwd=clone)
-                registered.update(_worktree_paths(output))
-        # Orphan sweep: worktree directories no clone knows about.
+            except GitError as e:
+                # Fail closed: treating an unreadable clone as "no
+                # worktrees" would sweep live build checkouts.
+                logger.warning(
+                    "git worktree list failed, skipping orphan sweep",
+                    extra={"clone": str(clone), "stderr": e.stderr},
+                )
+                return
+            registered.update(_worktree_paths(output))
         for entry in candidates - registered:
-            logger.info("removing orphan worktree", extra={"path": str(entry)})
-            shutil.rmtree(entry, ignore_errors=True)
+            if entry.is_dir():
+                # Orphan sweep: worktree directories no clone knows about.
+                logger.info("removing orphan worktree", extra={"path": str(entry)})
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                # Crash-leaked side-file (e.g. effects secrets): plain
+                # files are never worktrees and would persist forever.
+                # OSError: the entry may vanish concurrently.
+                with contextlib.suppress(OSError):
+                    if time.time() - entry.stat().st_mtime > ORPHAN_FILE_MAX_AGE:
+                        logger.info("removing orphan file", extra={"path": str(entry)})
+                        entry.unlink()
 
     async def _prune_stale_pr_refs(self, clone: Path) -> None:
         """Delete PR/MR refs whose tip commit is old: fetches only ever

@@ -6,6 +6,7 @@ import asyncio
 import os
 import shutil
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -284,6 +285,54 @@ def test_cleanup_prunes_stale_pr_refs(manager: RepoManager, upstream: Path) -> N
     assert "refs/merge-requests/2/head" not in refs
     assert "refs/pull/3/head" in refs
     assert "refs/heads/main" in refs or "refs/heads/master" in refs
+
+
+def test_cleanup_removes_stale_orphan_files(
+    manager: RepoManager, upstream: Path
+) -> None:
+    """Crash-leaked side-files next to worktrees (e.g. effects secrets)
+    must be swept once old enough; fresh files stay."""
+    fetch(manager, upstream)
+    stale = manager.worktrees_dir / "stale-secret"
+    stale.write_text("s3cret")
+    old = time.time() - 2 * 86400
+    os.utime(stale, (old, old))
+    fresh = manager.worktrees_dir / "fresh-file"
+    fresh.write_text("x")
+    asyncio.run(manager.cleanup())
+    assert not stale.exists()
+    assert fresh.exists()
+
+
+def test_cleanup_aborts_when_worktree_list_fails(
+    manager: RepoManager, upstream: Path
+) -> None:
+    """A failing `git worktree list` must abort the sweep (fail
+    closed), not be treated as "no worktrees"."""
+    fetch(manager, upstream)
+    sha = git(upstream, "rev-parse", "HEAD")
+    live = asyncio.run(manager.checkout_for_build(KEY, "live", base_commit=sha))
+    # Forget the in-memory registration to exercise the git-metadata
+    # path alone, then corrupt the clone so `git worktree list` fails.
+    manager._active_worktrees.clear()  # noqa: SLF001
+    (manager.clone_path(KEY) / "HEAD").unlink()
+    asyncio.run(manager.cleanup())
+    assert live.path.exists()
+
+
+def test_cleanup_keeps_registered_worktrees_after_reclone(
+    manager: RepoManager, upstream: Path
+) -> None:
+    """After a corruption re-clone the new clone knows no worktrees;
+    live builds' worktrees must survive via the in-memory registry."""
+    fetch(manager, upstream)
+    sha = git(upstream, "rev-parse", "HEAD")
+    live = asyncio.run(manager.checkout_for_build(KEY, "live", base_commit=sha))
+    # Simulate corruption + re-clone: fresh clone, no registered worktrees.
+    shutil.rmtree(manager.clone_path(KEY))
+    fetch(manager, upstream)
+    asyncio.run(manager.cleanup())
+    assert live.path.exists()
 
 
 @pytest.mark.usefixtures("submodule")
