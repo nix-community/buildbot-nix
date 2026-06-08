@@ -278,10 +278,7 @@ class Orchestrator:
                 )
             return
         if not rebuild:
-            # In-flight (or recovering) build shared with another
-            # context: attach for the final status fan-out.
-            self.linked_events.setdefault(build.id, []).append(event)
-            await self.reporter.build_started(event, build)
+            await self._attach_linked_event(event, build)
             return
         try:
             await self.run_build(event, build, worktree_path, credentials)
@@ -868,6 +865,43 @@ class Orchestrator:
             log_truncated=writer.truncated,
         )
 
+    async def _attach_linked_event(
+        self, event: ChangeEvent, build: BuildRecord
+    ) -> None:
+        """In-flight (or recovering) build shared with another context:
+        attach for the final status fan-out."""
+        self.linked_events.setdefault(build.id, []).append(event)
+        await self.reporter.build_started(event, build)
+        # The build may have turned terminal between the record fetch
+        # and the attach: the final fan-out already happened and would
+        # never cover this event. Replay the final status instead.
+        current = await self.db.get_build(build.id)
+        if current is not None and current.status in BuildStatus.TERMINAL:
+            with contextlib.suppress(KeyError, ValueError):
+                self.linked_events[build.id].remove(event)
+            await self._replay_terminal_status(event, current)
+
+    async def _replay_terminal_status(
+        self, event: ChangeEvent, build: BuildRecord
+    ) -> None:
+        """Re-post the final eval and build statuses of an already
+        terminal build for a new context; without this the context's
+        nix-eval/nix-build checks stay pending forever. A succeeded
+        build with zero attributes is a genuine empty-but-green eval,
+        not an eval failure."""
+        if build.status == BuildStatus.CANCELLED:
+            await self.reporter.eval_cancelled(event, build)
+        else:
+            eval_success = build.status == BuildStatus.SUCCEEDED or bool(
+                await self.db.get_attribute_statuses(build.id)
+            )
+            await self.reporter.eval_finished(
+                event, build, success=eval_success, warnings=[]
+            )
+        await self.reporter.build_finished(
+            event, build, build.status, build.status_generation, []
+        )
+
     async def _finish_linked(
         self,
         build: BuildRecord,
@@ -884,6 +918,10 @@ class Orchestrator:
                 await self.reporter.eval_finished(
                     linked, build, success=eval_success, warnings=[]
                 )
+            elif status == BuildStatus.CANCELLED:
+                # Cancel during eval: the linked contexts' nix-eval
+                # status would otherwise stay pending forever.
+                await self.reporter.eval_cancelled(linked, build)
             await self.reporter.build_finished(
                 linked, build, status, generation, results
             )
@@ -936,25 +974,12 @@ class Orchestrator:
         self.canceller.complete(build.id)
         if build.status == BuildStatus.SUCCEEDED:
             await self._post_process_existing(event, build)
-            # A build that ran as a PR never started effects; a
-            # default-branch push reusing it must still deploy. The
-            # effects_started flag keeps already-deployed builds from
-            # re-running.
+            # A build that ran as a PR never started effects, so a
+            # default-branch push reusing it must still deploy; the
+            # effects_started flag prevents re-deploys.
             await self._maybe_run_effects(event, build, worktree_path, credentials)
             await self._refresh_schedules(event)
-        # Post the eval context too, or a required nix-eval check on
-        # this commit stays "Expected" forever. A succeeded build with
-        # zero attributes is a genuine empty-but-green eval, not a
-        # failure.
-        eval_success = build.status == BuildStatus.SUCCEEDED or bool(
-            await self.db.get_attribute_statuses(build.id)
-        )
-        await self.reporter.eval_finished(
-            event, build, success=eval_success, warnings=[]
-        )
-        await self.reporter.build_finished(
-            event, build, build.status, build.status_generation, []
-        )
+        await self._replay_terminal_status(event, build)
 
     async def _post_process_existing(
         self, event: ChangeEvent, build: BuildRecord

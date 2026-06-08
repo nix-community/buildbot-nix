@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -1730,6 +1730,98 @@ def test_reuse_for_default_branch_push_runs_effects(
             assert main_build.id == pr_build.id
             await drain_effect_items(orchestrator, project, pool)
             assert ran == ["deploy"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_attach_to_already_terminal_build_replays_status(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """An event attaching to a build that turned terminal between the
+    record fetch and the attach must get the final status replayed,
+    not stay pending forever."""
+
+    async def run() -> None:
+        add_commit(upstream, "attach-late")
+        sha = git(upstream, "rev-parse", "HEAD")
+        pool, orchestrator, reporter, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([mk_job("a")]),
+            FakeExecutor(),
+            name="attach-late",
+        )
+        try:
+            build = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
+            )
+            assert build is not None
+            assert await build_status(pool, build.id) == BuildStatus.SUCCEEDED
+            # Simulate the race: record fetched before completion,
+            # cancel event still registered (build "in flight").
+            stale_record = replace(build, status=BuildStatus.BUILDING)
+            orchestrator.cancel_events[build.id] = asyncio.Event()
+            reporter.events.clear()
+            event2 = ChangeEvent(
+                repo=project, branch="main", commit_sha=sha, pr_number=11
+            )
+            await orchestrator._dispatch_build(  # noqa: SLF001
+                event2,
+                stale_record,
+                created=False,
+                tree_hash=build.tree_hash or "",
+                worktree_path=tmp_path,
+                credentials=None,
+            )
+            finished = [e for e in reporter.events if e[0] == "finished"]
+            assert finished
+            assert finished[-1][2] == BuildStatus.SUCCEEDED
+        finally:
+            orchestrator.cancel_events.pop(build.id, None)
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_cancel_during_eval_resolves_linked_eval_contexts(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """Cancelling a build mid-eval must resolve the nix-eval context of
+    every linked event, not only the primary one."""
+
+    async def run() -> None:
+        add_commit(upstream, "linked-cancel")
+        sha = git(upstream, "rev-parse", "HEAD")
+        eval_runner = FakeEvalRunner([mk_job("a")], block=asyncio.Event())
+        pool, orchestrator, reporter, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            eval_runner,
+            FakeExecutor(),
+            name="linked-cancel",
+        )
+        try:
+            task1 = asyncio.create_task(
+                orchestrator.handle_change_event(
+                    ChangeEvent(repo=project, branch="main", commit_sha=sha)
+                )
+            )
+            await eval_runner.started.wait()
+            build2 = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha, pr_number=4)
+            )
+            assert build2 is not None
+            orchestrator.cancel_events[build2.id].set()
+            await task1
+            cancelled_evals = [e for e in reporter.events if e[0] == "eval-cancelled"]
+            assert len(cancelled_evals) == 2
+            finished = [e for e in reporter.events if e[0] == "finished"]
+            assert len(finished) == 2
+            assert all(e[2] == BuildStatus.CANCELLED for e in finished)
         finally:
             await pool.close()
 
