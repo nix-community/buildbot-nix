@@ -70,7 +70,7 @@ def get_git_remote_url(path: Path) -> str | None:
 def git_get_tag(path: Path, rev: str) -> str | None:
     tags = git_command(["tag", "--points-at", rev], path)
     if tags:
-        return tags.splitlines()[1]
+        return tags.splitlines()[0]
     return None
 
 

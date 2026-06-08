@@ -8,7 +8,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from buildbot_effects import _flake_url, effects_args
+from buildbot_effects import _flake_url, effects_args, git_get_tag
 from buildbot_effects.options import EffectsOptions
 
 
@@ -76,3 +76,29 @@ class TestFlakeUrl:
         assert (
             _flake_url(opts, "abc1234") == "git+file:///home/user/my-repo?rev=abc1234#"
         )
+
+
+def _init_repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "test")
+    _git(repo, "config", "user.email", "test@test")
+    (repo / "file.txt").write_text("content")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def test_git_get_tag_single_tag(tmp_path: Path) -> None:
+    """A commit with exactly one tag must return that tag."""
+    repo, rev = _init_repo(tmp_path)
+    _git(repo, "tag", "v1.0.0")
+
+    assert git_get_tag(repo, rev) == "v1.0.0"
+
+
+def test_git_get_tag_no_tag(tmp_path: Path) -> None:
+    repo, rev = _init_repo(tmp_path)
+
+    assert git_get_tag(repo, rev) is None
