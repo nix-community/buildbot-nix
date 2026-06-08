@@ -1,5 +1,5 @@
 [tool.pytest.ini_options]
-pythonpath = ["buildbot_nix"]
+pythonpath = ["nixbot"]
 testpaths = ["tests"]
 timeout = 60
 

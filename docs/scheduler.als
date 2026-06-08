@@ -1,4 +1,4 @@
-// Alloy 6 model of buildbot_nix/scheduler.py (JobScheduler.run_incremental):
+// Alloy 6 model of nixbot/scheduler.py (JobScheduler.run_incremental):
 // jobs arrive in batches from a still-running evaluation and are
 // dispatched in dependency order; failures propagate to dependents;
 // an abort cancels everything unfinished.

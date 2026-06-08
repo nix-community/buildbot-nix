@@ -1,6 +1,6 @@
 { pkgs, config, ... }:
 {
-  services.buildbot-nix = {
+  services.nixbot = {
     # Admin entries for OIDC users are qualified as
     # "oidc:<issuer-host>:<claim>" with the configured identity claim
     # (default: the stable "sub"). Authelia issues opaque subject
@@ -13,7 +13,7 @@
       enable = true;
       name = "Authelia";
       discoveryUrl = "https://auth.thalheim.io/.well-known/openid-configuration";
-      clientId = "buildbot";
+      clientId = "nixbot";
       clientSecretFile = pkgs.writeText "oidc-secret" "00000000000000000000"; # FIXME: use a secret manager
       mapping.username = "preferred_username";
     };
@@ -46,13 +46,13 @@
 
       identity_providers.oidc.clients = [
         {
-          client_id = "buildbot";
-          client_name = "Buildbot";
+          client_id = "nixbot";
+          client_name = "Nixbot";
           # Authelia stores only a digest of the client secret; hash the
           # plaintext from clientSecretFile above with:
           #   authelia crypto hash generate pbkdf2 --password <secret>
           client_secret = "$pbkdf2-sha512$310000$0000000000000000$00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"; # FIXME
-          redirect_uris = [ "https://${config.services.buildbot-nix.domain}/auth/oidc/callback" ];
+          redirect_uris = [ "https://${config.services.nixbot.domain}/auth/oidc/callback" ];
           scopes = [
             "openid"
             "email"

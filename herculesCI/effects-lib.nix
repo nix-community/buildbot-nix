@@ -1,4 +1,4 @@
-# Minimal subset of hercules-ci-effects sufficient for buildbot-effects.
+# Minimal subset of hercules-ci-effects sufficient for nixbot-effects.
 # Avoids pulling hercules-ci-effects (and its transitive flake-parts input)
 # into every consumer of this flake.
 { pkgs }:

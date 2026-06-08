@@ -1,12 +1,15 @@
-# Buildbot-nix
+# Nixbot
 
-Buildbot-nix is a continuous integration (CI) service for the Nix ecosystem,
-shipped as a single NixOS service. It started as a set of Buildbot plugins and
-now runs standalone: one asyncio process handles forge webhooks, nix-eval-jobs
-evaluation, builds through the local nix daemon (offloaded via remote builders),
-commit statuses, and its own web frontend. This project is under active
-development, and while it's generally stable and widely used, please be aware
-that some APIs may change over time.
+Nixbot is a continuous integration (CI) service for the Nix ecosystem, shipped
+as a single NixOS service. It is a rewrite of
+[buildbot-nix](https://github.com/nix-community/buildbot-nix), its spiritual
+ancestor: what started as a set of Buildbot plugins now runs standalone — one
+asyncio process handles forge webhooks, nix-eval-jobs evaluation, builds through
+the local nix daemon (offloaded via remote builders), commit statuses, and its
+own web frontend.
+
+Status: alpha — under active development; APIs, options and the database schema
+may change without notice.
 
 ## Features
 
@@ -25,11 +28,11 @@ that some APIs may change over time.
 
 ## Getting Started
 
-To set up buildbot-nix, start by exploring the provided examples:
+To set up nixbot, start by exploring the provided examples:
 
-- Check out the basic setup in [example](./examples/buildbot-nix.nix).
+- Check out the basic setup in [example](./examples/nixbot.nix).
 - The NixOS module lives in
-  [nixosModules/buildbot-nix.nix](./nixosModules/buildbot-nix.nix).
+  [nixosModules/nixbot.nix](./nixosModules/nixbot.nix).
 - For local development, see
   [Local Development Guide](./docs/LOCAL_DEVELOPMENT.md).
 
@@ -41,15 +44,14 @@ out builds, configure
 For a practical NixOS example, see
 [this remote builder configuration](https://github.com/Mic92/dotfiles/blob/main/machines/eve/modules/remote-builder.nix).
 
-## Migrating from the buildbot-based versions
+## Migrating from buildbot-nix
 
-This major release replaces the buildbot master/worker pair with a single
-service. See the [changelog](./CHANGELOG.md) for the full upgrade guide.
+Nixbot replaces the buildbot master/worker pair with a single service. See the
+[migration guide](./docs/MIGRATION.md) for the full upgrade instructions.
 
-## Using Buildbot in Your Project
+## Using Nixbot in Your Project
 
-Buildbot-nix automatically triggers builds for your project under these
-conditions:
+Nixbot automatically triggers builds for your project under these conditions:
 
 - When a pull request is opened.
 - When a commit is pushed to the default git branch.
@@ -74,7 +76,7 @@ Anonymous users get read-only access to public projects; private repositories
 and their builds are only visible to users with access on the forge. For write
 actions (restart, cancel, rebuild) a login is required. Every enabled forge with
 OAuth credentials configured offers a login, OIDC via
-`services.buildbot-nix.oidc.enable`; several providers can be active at once.
+`services.nixbot.oidc.enable`; several providers can be active at once.
 
 We have the following two roles:
 
@@ -87,16 +89,16 @@ We have the following two roles:
 
 ##### GitHub Integration
 
-Buildbot-nix uses GitHub App authentication to integrate with GitHub
-repositories. This enables automatic webhook setup, commit status updates, and
-secure authentication.
+Nixbot uses GitHub App authentication to integrate with GitHub repositories.
+This enables automatic webhook setup, commit status updates, and secure
+authentication.
 
 See the [GitHub documentation](./docs/GITHUB.md) for setup instructions.
 
 ##### Gitea Integration
 
-Buildbot-nix integrates with Gitea using access tokens for repository management
-and OAuth2 for user authentication. This enables automatic webhook setup, commit
+Nixbot integrates with Gitea using access tokens for repository management and
+OAuth2 for user authentication. This enables automatic webhook setup, commit
 status updates, and secure authentication.
 
 See the [Gitea documentation](./docs/GITEA.md) for setup instructions.
@@ -109,31 +111,31 @@ See the [GitLab documentation](./docs/GITLAB.md) for setup instructions.
 
 ##### Generic OIDC Authentication
 
-Buildbot-nix supports generic OpenID Connect (OIDC) authentication, allowing you
-to use any OIDC-compliant identity provider (Keycloak, PocketID, Authentik,
-etc.) for user login.
+Nixbot supports generic OpenID Connect (OIDC) authentication, allowing you to
+use any OIDC-compliant identity provider (Keycloak, PocketID, Authentik, etc.)
+for user login.
 
 See the [OIDC documentation](./docs/OIDC.md) for configuration details.
 
 ### Per Repository Configuration
 
-Currently `buildbot-nix` will look for a file named `buildbot-nix.toml` in the
-root of whichever branch it's currently evaluating, parse it as TOML and apply
-the configuration specified. The following table illustrates the supported
-options.
+Currently `nixbot` will look for a file named `nixbot.toml` (falling back to the
+legacy `buildbot-nix.toml`) in the root of whichever branch it's currently
+evaluating, parse it as TOML and apply the configuration specified. The
+following table illustrates the supported options.
 
-|                          | key                        | type        | description                                                                 | default      | example                                                                                                                                                                                                 |
-| :----------------------- | :------------------------- | :---------- | :-------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| lock file                | `lock_file`                | `str`       | dictates which lock file `buildbot-nix` will use when evaluating your flake | `flake.lock` | have multiple lockfiles, one for `nixpkgs-stable`, one for `nixpkgs-unstable` or by default pin an input to a private repo, but have a lockfile with that private repo replaced by a public repo for CI |
-| attribute                | `attribute`                | `str`       | which attribute in the flake to evaluate and build                          | `checks`     | using a different attribute, like `hydraJobs`                                                                                                                                                           |
-| flake_dir                | `flake_dir`                | `str`       | which directory the flake is located                                        | `.`          | using a different flake, like `./tests`                                                                                                                                                                 |
-| effects on pull requests | `effects_on_pull_requests` | `bool`      | run hercules-ci effects on pull requests                                    | `false`      | set to `true` to run effects on PRs                                                                                                                                                                     |
-| effects branches         | `effects_branches`         | `list[str]` | glob patterns for additional branches that run effects                      | `[]`         | `["staging", "release/*"]`                                                                                                                                                                              |
+|                          | key                        | type        | description                                                           | default      | example                                                                                                                                                                                                 |
+| :----------------------- | :------------------------- | :---------- | :-------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| lock file                | `lock_file`                | `str`       | dictates which lock file `nixbot` will use when evaluating your flake | `flake.lock` | have multiple lockfiles, one for `nixpkgs-stable`, one for `nixpkgs-unstable` or by default pin an input to a private repo, but have a lockfile with that private repo replaced by a public repo for CI |
+| attribute                | `attribute`                | `str`       | which attribute in the flake to evaluate and build                    | `checks`     | using a different attribute, like `hydraJobs`                                                                                                                                                           |
+| flake_dir                | `flake_dir`                | `str`       | which directory the flake is located                                  | `.`          | using a different flake, like `./tests`                                                                                                                                                                 |
+| effects on pull requests | `effects_on_pull_requests` | `bool`      | run hercules-ci effects on pull requests                              | `false`      | set to `true` to run effects on PRs                                                                                                                                                                     |
+| effects branches         | `effects_branches`         | `list[str]` | glob patterns for additional branches that run effects                | `[]`         | `["staging", "release/*"]`                                                                                                                                                                              |
 
 By default, effects only run on the default branch. The `effects_branches` and
 `effects_on_pull_requests` settings are always read from the **default
-branch's** `buildbot-nix.toml` (via `git show`) so that pull request authors
-cannot grant themselves effects access.
+branch's** `nixbot.toml` (via `git show`) so that pull request authors cannot
+grant themselves effects access.
 
 > **⚠️ Security warning:** PR effects receive the same
 > `effects_per_repo_secrets` as default-branch effects. A malicious PR can
@@ -155,12 +157,12 @@ for an example configuration
 
 #### Cachix
 
-Buildbot-nix also supports pushing packages to cachix via the
-`services.buildbot-nix.cachix` options.
+Nixbot also supports pushing packages to cachix via the `services.nixbot.cachix`
+options.
 
 #### Attic
 
-Buildbot-nix does not have native support for pushing packages to
+Nixbot does not have native support for pushing packages to
 [attic](https://github.com/zhaofengli/attic) yet. However it's possible to
 integrate run a systemd service as described in
 [this example configuration](./examples/attic-watch-store.nix). The systemd
@@ -175,8 +177,8 @@ and secrets configuration.
 ## Incompatibilities with the lix overlay
 
 The lix overlay overrides nix-eval-jobs with a version that doesn't work with
-buildbot-nix because of missing features and therefore cannot be used together
-with the buildbot-nix module.
+nixbot because of missing features and therefore cannot be used together with
+the nixbot module.
 
 Possible workaround: Don't use the overlay and only set the
 `nix.package = pkgs.lix;` NixOS option.
@@ -185,22 +187,26 @@ Possible workaround: Don't use the overlay and only set the
 
 - [Garnix](https://garnix.io/) - Fully hosted, zero-config CI for flakes.
 - [Hercules CI](https://hercules-ci.com/) - Hosted CI with self-hosted agents.
-  Buildbot-nix's effects system is inspired by theirs.
+  Nixbot's effects system is inspired by theirs.
 - [Hydra](https://github.com/NixOS/hydra) - The original Nix CI, powers
   nixos.org. Written in Perl, not recommended for new deployments.
 
 ## Real-World Deployments
 
-See Buildbot-nix in action in these deployments:
+See Nixbot in action in these deployments:
+
+- [**Mic92's dotfiles**](https://github.com/Mic92/dotfiles):
+  [Configuration](https://github.com/Mic92/dotfiles/blob/main/machines/eve/modules/nixbot.nix)
+  | [Instance](https://buildbot.thalheim.io/)
+
+<!-- These instances still run the buildbot-nix ancestor; uncomment as they
+migrate to nixbot:
 
 The following instances run on GitHub:
 
 - [**Nix-community infra**](https://nix-community.org/):
   [Configuration](https://github.com/nix-community/infra/tree/master/modules/nixos)
   | [Instance](https://buildbot.nix-community.org/)
-- [**Mic92's dotfiles**](https://github.com/Mic92/dotfiles):
-  [Configuration](https://github.com/Mic92/dotfiles/blob/main/nixos/eve/modules/buildbot.nix)
-  | [Instance](https://buildbot.thalheim.io/)
 - [**Technical University Munich**](https://dse.in.tum.de/):
   [Configuration](https://github.com/TUM-DSE/doctor-cluster-config/tree/master/modules/buildbot)
   | [Instance](https://buildbot.dse.in.tum.de/)
@@ -213,11 +219,11 @@ The following instances integrated with Gitea:
 - **Clan infra**:
   [Configuration](https://git.clan.lol/clan/clan-infra/src/branch/main/modules/buildbot.nix)
   | [Instance](https://buildbot.clan.lol/)
+-->
 
 ## Get in touch
 
-We have a matrix channel at
-[buildbot-nix](https://matrix.to/#/#buildbot-nix:thalheim.io).
+We have a matrix channel at [nixbot](https://matrix.to/#/#nixbot:thalheim.io).
 
 ## Need commercial support or customization?
 

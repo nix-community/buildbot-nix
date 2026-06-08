@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}
+  {{ status_code }} · nixbot
+{% endblock title %}
+{% block body %}
+  <main id="main">
+    <section class="content">
+      <h2>{{ status_code }} — {{ detail }}</h2>
+      <p class="muted">
+        <a href="/">back to the dashboard</a>
+      </p>
+    </section>
+  </main>
+{% endblock body %}

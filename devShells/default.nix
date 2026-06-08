@@ -6,10 +6,10 @@
 }:
 let
   # process-compose wrapped with the local dev stack config
-  # (postgres + buildbot-nix).
+  # (postgres + nixbot).
   devProcessCompose = pkgs.python3.pkgs.callPackage ../packages/process-compose.nix {
-    buildbot-nix = self.packages.${system}.buildbot-nix;
-    buildbot-effects = self.packages.${system}.buildbot-effects or null;
+    nixbot = self.packages.${system}.nixbot;
+    nixbot-effects = self.packages.${system}.nixbot-effects or null;
   };
 in
 {
@@ -30,7 +30,7 @@ in
           ps.pytest-benchmark
           ps.playwright
         ]
-        ++ self.packages.${system}.buildbot-nix.dependencies
+        ++ self.packages.${system}.nixbot.dependencies
       ))
     ];
     # pkgs.mypy's setup hook disables pytest plugin autoloading, which

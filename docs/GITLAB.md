@@ -18,10 +18,10 @@ Maintainer permission on a project is required for automatic webhook
 registration; without it the project is still discovered and built, but the
 webhook must be created manually (see below).
 
-## Step 2: Configure buildbot-nix
+## Step 2: Configure nixbot
 
 ```nix
-services.buildbot-nix = {
+services.nixbot = {
   gitlab = {
     enable = true;
     # instanceUrl defaults to https://gitlab.com
@@ -40,7 +40,7 @@ services.buildbot-nix = {
 
 ## Step 3: Enable Projects
 
-1. Open the buildbot-nix web UI as an admin
+1. Open the nixbot web UI as an admin
 2. Enable the repository on the dashboard
 3. With Maintainer permission the webhook (push + merge request events) is
    registered automatically on the next discovery cycle
@@ -51,8 +51,8 @@ Only needed when the token lacks Maintainer on the project (watch for the "no
 maintainer permission to manage webhooks" warning):
 
 1. Enable the project
-2. On the repository page in the buildbot-nix web UI, expand **webhook setup**
-   and press **regenerate** - the secret is shown exactly once
+2. On the repository page in the nixbot web UI, expand **webhook setup** and
+   press **regenerate** - the secret is shown exactly once
 3. In GitLab: Settings → Webhooks → Add new webhook
 4. URL from step 2, Secret token from step 2
 5. Trigger: **Push events** and **Merge request events**

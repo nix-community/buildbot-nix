@@ -5,10 +5,10 @@ let
   scope = lib.makeScope newScope (
     self:
     {
-      buildbot-nix = self.callPackage ./buildbot-nix.nix { };
+      nixbot = self.callPackage ./nixbot.nix { };
     }
     // lib.optionalAttrs pkgs.stdenv.isLinux {
-      buildbot-effects = self.callPackage ./buildbot-effects.nix { };
+      nixbot-effects = self.callPackage ./nixbot-effects.nix { };
     }
   );
 in

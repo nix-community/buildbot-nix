@@ -1,7 +1,7 @@
 {
   nixpkgs,
   system,
-  buildbot-nix,
+  nixbot,
   ...
 }:
 let
@@ -28,24 +28,24 @@ let
   inherit (lib) nixosSystem;
 in
 {
-  # buildbot-nix is one service; actual builds are offloaded to nix
+  # nixbot is one service; actual builds are offloaded to nix
   # remote builders, so a single machine works well for production.
-  "example-buildbot-nix-${system}" = nixosSystem {
+  "example-nixbot-${system}" = nixosSystem {
     inherit system;
     modules = [
       dummy
-      buildbot-nix.nixosModules.buildbot-nix
-      ./buildbot-nix.nix
+      nixbot.nixosModules.nixbot
+      ./nixbot.nix
     ];
   };
 
   # The base example plus OIDC login backed by Authelia.
-  "example-buildbot-nix-oidc-authelia-${system}" = nixosSystem {
+  "example-nixbot-oidc-authelia-${system}" = nixosSystem {
     inherit system;
     modules = [
       dummy
-      buildbot-nix.nixosModules.buildbot-nix
-      ./buildbot-nix.nix
+      nixbot.nixosModules.nixbot
+      ./nixbot.nix
       ./oidc-authelia.nix
     ];
   };

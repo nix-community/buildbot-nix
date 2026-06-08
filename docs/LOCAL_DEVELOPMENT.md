@@ -4,8 +4,8 @@
 
 ```bash
 nix develop
-cd buildbot_nix
-python -m pytest buildbot_nix/tests -q
+cd nixbot
+python -m pytest nixbot/tests -q
 ```
 
 The tests cover the full pipeline (webhook parsing, evaluation, scheduling,
@@ -14,20 +14,20 @@ instance and real `nix`/`git` where available.
 
 ## Running the service locally
 
-buildbot-nix is a single process configured by a JSON file:
+nixbot is a single process configured by a JSON file:
 
 ```bash
 # Start an ephemeral PostgreSQL
 initdb -D /tmp/bb-pg
 pg_ctl -D /tmp/bb-pg -o "-k /tmp/bb-pg -c listen_addresses=" start
-createdb -h /tmp/bb-pg buildbot-nix
+createdb -h /tmp/bb-pg nixbot
 
-cat > /tmp/buildbot-nix.json <<EOF
+cat > /tmp/nixbot.json <<EOF
 {
-  "db_url": "postgresql://$(whoami)@/buildbot-nix?host=/tmp/bb-pg",
+  "db_url": "postgresql://$(whoami)@/nixbot?host=/tmp/bb-pg",
   "build_systems": ["x86_64-linux"],
   "url": "http://localhost:8010/",
-  "state_dir": "/tmp/buildbot-nix-state",
+  "state_dir": "/tmp/nixbot-state",
   "pull_based": {
     "repositories": {
       "my-project": {
@@ -40,7 +40,7 @@ cat > /tmp/buildbot-nix.json <<EOF
 }
 EOF
 
-python -m buildbot_nix.main --config /tmp/buildbot-nix.json --log-format text
+python -m nixbot.main --config /tmp/nixbot.json --log-format text
 ```
 
 Access the web UI at http://localhost:8010. Pull-based repositories need no
@@ -51,16 +51,16 @@ pointing at plain local files.
 ## VM integration test
 
 The end-to-end NixOS test (fake GitHub + real Gitea) lives in
-`checks/buildbot-nix.nix`:
+`checks/nixbot.nix`:
 
 ```bash
-nix build .#checks.x86_64-linux.buildbot-nix -L
+nix build .#checks.x86_64-linux.nixbot -L
 ```
 
 For interactive debugging:
 
 ```bash
-nix build .#checks.x86_64-linux.buildbot-nix.driverInteractive
+nix build .#checks.x86_64-linux.nixbot.driverInteractive
 ./result/bin/nixos-test-driver
 ```
 

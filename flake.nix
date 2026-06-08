@@ -1,6 +1,6 @@
 {
-  # https://github.com/Mic92/buildbot-nix
-  description = "A nixos module to make buildbot a proper Nix-CI.";
+  # https://github.com/Mic92/nixbot
+  description = "A standalone Nix CI service for NixOS.";
 
   inputs = {
     nixpkgs.url = "git+https://github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable-small";
@@ -50,15 +50,16 @@
           # removed-option stubs handle the options) but warn about the
           # import itself.
           alias = name: {
-            key = "buildbot-nix#nixosModules.${name}";
-            imports = [ ./nixosModules/buildbot-nix.nix ];
+            key = "nixbot#nixosModules.${name}";
+            imports = [ ./nixosModules/nixbot.nix ];
             config.warnings = [
-              "buildbot-nix: nixosModules.${name} is deprecated; import nixosModules.buildbot-nix instead"
+              "nixbot: nixosModules.${name} is deprecated; import nixosModules.nixbot instead"
             ];
           };
         in
         {
-          buildbot-nix = ./nixosModules/buildbot-nix.nix;
+          nixbot = ./nixosModules/nixbot.nix;
+          buildbot-nix = alias "buildbot-nix";
           buildbot-master = alias "buildbot-master";
           buildbot-worker = alias "buildbot-worker";
         };
@@ -69,7 +70,7 @@
             system:
             import ./examples {
               inherit system nixpkgs;
-              buildbot-nix = self;
+              nixbot = self;
             };
         in
         examplesFor "x86_64-linux" // examplesFor "aarch64-linux";

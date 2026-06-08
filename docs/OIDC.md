@@ -1,14 +1,14 @@
 # OIDC Authentication
 
-buildbot-nix supports generic OpenID Connect (OIDC) authentication, allowing you
-to use any OIDC-compliant identity provider (Keycloak, PocketID, Authentik,
-etc.) for user login.
+nixbot supports generic OpenID Connect (OIDC) authentication, allowing you to
+use any OIDC-compliant identity provider (Keycloak, PocketID, Authentik, etc.)
+for user login.
 
 ## NixOS Configuration
 
 ```nix
 {
-  services.buildbot-nix = {
+  services.nixbot = {
     oidc.enable = true;
 
     # Provider-qualified identities: "oidc:<issuer-host>:<sub>" with the
@@ -25,8 +25,8 @@ etc.) for user login.
       # OIDC discovery endpoint URL
       discoveryUrl = "https://keycloak.example.com/realms/myrealm/.well-known/openid-configuration";
 
-      clientId = "buildbot";
-      clientSecretFile = "/run/secrets/buildbot-oidc-secret";
+      clientId = "nixbot";
+      clientSecretFile = "/run/secrets/nixbot-oidc-secret";
 
       # Scopes to request (defaults shown)
       scope = [ "openid" "email" "profile" ];
@@ -45,12 +45,12 @@ etc.) for user login.
 ```
 
 Set your OIDC provider's callback URL to:
-`https://buildbot.example.com/auth/oidc/callback`
+`https://nixbot.example.com/auth/oidc/callback`
 
 ## Manual Configuration
 
 For non-NixOS setups or local development, the service is configured via a JSON
-file passed to `buildbot-nix --config`:
+file passed to `nixbot --config`:
 
 ```json
 {
@@ -61,7 +61,7 @@ file passed to `buildbot-nix --config`:
   "oidc": {
     "name": "My Identity Provider",
     "discovery_url": "https://keycloak.example.com/realms/myrealm/.well-known/openid-configuration",
-    "client_id": "buildbot",
+    "client_id": "nixbot",
     "client_secret_file": "/path/to/client_secret",
     "scope": ["openid", "email", "profile"],
     "mapping": {
@@ -80,7 +80,7 @@ file passed to `buildbot-nix --config`:
 oidc = {
   name = "Keycloak";
   discoveryUrl = "https://keycloak.example.com/realms/{realm-name}/.well-known/openid-configuration";
-  clientId = "buildbot";
+  clientId = "nixbot";
   clientSecretFile = "/run/secrets/keycloak-secret";
 };
 ```
@@ -98,7 +98,7 @@ issuer key.
 oidc = {
   name = "PocketID";
   discoveryUrl = "https://id.example.com/.well-known/openid-configuration";
-  clientId = "buildbot";
+  clientId = "nixbot";
   clientSecretFile = "/run/secrets/pocketid-secret";
 };
 ```
@@ -116,7 +116,7 @@ nix run nixpkgs#pipx -- run oidc-provider-mock \
   --user-claims '{"sub": "alice", "email": "alice@example.com", "name": "Alice", "preferred_username": "alice123"}'
 ```
 
-Then configure buildbot-nix to use it (in the JSON config file):
+Then configure nixbot to use it (in the JSON config file):
 
 ```json
 "oidc": {
@@ -154,7 +154,7 @@ OIDC users have no forge token, so they only see public repositories by default.
 `admins`):
 
 ```nix
-services.buildbot-nix.privateRepoViewers = {
+services.nixbot.privateRepoViewers = {
   # Repository keys: "forge:owner/repo", "forge:owner/*" or "*";
   # the most specific key wins.
   "*" = [

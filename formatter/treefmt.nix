@@ -8,26 +8,26 @@
   # deno fmt cannot parse Jinja syntax in the service's HTML templates
   # (djlint handles those) and biome owns the stylesheet.
   settings.formatter.deno.excludes = [
-    "buildbot_nix/buildbot_nix/web/templates/*"
-    "buildbot_nix/buildbot_nix/web/static/*.css"
+    "nixbot/nixbot/web/templates/*"
+    "nixbot/nixbot/web/static/*.css"
     # Vendored third-party code stays byte-identical to upstream.
-    "buildbot_nix/buildbot_nix/web/static/vendor/*"
+    "nixbot/nixbot/web/static/vendor/*"
   ];
 
-  # Jinja-aware HTML formatter + linter; config in buildbot_nix/pyproject.toml.
+  # Jinja-aware HTML formatter + linter; config in nixbot/pyproject.toml.
   settings.formatter.djlint = {
     command = lib.getExe (
       pkgs.writeShellScriptBin "djlint-fmt" ''
         ${lib.getExe pkgs.djlint} "$@" --reformat \
-          --configuration buildbot_nix/pyproject.toml --quiet
+          --configuration nixbot/pyproject.toml --quiet
         status=$?
         # 1 means files were reformatted, which is fine for a formatter.
         [ "$status" -le 1 ] || exit "$status"
         exec ${lib.getExe pkgs.djlint} "$@" --lint \
-          --configuration buildbot_nix/pyproject.toml
+          --configuration nixbot/pyproject.toml
       ''
     );
-    includes = [ "buildbot_nix/buildbot_nix/web/templates/*.html" ];
+    includes = [ "nixbot/nixbot/web/templates/*.html" ];
   };
 
   settings.formatter.biome-css = {
@@ -51,8 +51,8 @@
     package = pkgs.python3.pkgs.mypy;
     directories."." = {
       modules = [
-        "buildbot_nix"
-        "buildbot_effects"
+        "nixbot"
+        "nixbot_effects"
       ];
       extraPythonPackages = [
         pkgs.python3.pkgs.pydantic
@@ -70,13 +70,13 @@
     };
   };
 
-  # the mypy module adds `./buildbot_nix/**/*.py` which does not appear to work
-  # furthermore, saying `directories.""` will lead to `/buildbot_nix/**/*.py` which
+  # the mypy module adds `./nixbot/**/*.py` which does not appear to work
+  # furthermore, saying `directories.""` will lead to `/nixbot/**/*.py` which
   # is obviously incorrect...
   settings.formatter."mypy-" = lib.mkIf pkgs.stdenv.buildPlatform.isLinux {
     includes = [
-      "buildbot_nix/**/*.py"
-      "buildbot_effects/**/*.py"
+      "nixbot/**/*.py"
+      "nixbot_effects/**/*.py"
     ];
   };
   settings.formatter.ruff-check.priority = 1;

@@ -31,19 +31,19 @@ status updates, and secure authentication.
      - User Settings → Applications (for personal use)
 
 2. **Configure the OAuth2 app**:
-   - **Application Name**: `buildbot-nix`
-   - **Redirect URI**: `https://buildbot.<your-domain>/auth/gitea/callback`
+   - **Application Name**: `nixbot`
+   - **Redirect URI**: `https://nixbot.<your-domain>/auth/gitea/callback`
 
 3. **Note the credentials**:
    - Client ID
    - Client Secret
 
-## Step 3: Configure buildbot-nix
+## Step 3: Configure nixbot
 
 Add the Gitea configuration to your NixOS module:
 
 ```nix
-services.buildbot-nix = {
+services.nixbot = {
   gitea = {
     enable = true;
     instanceUrl = "https://gitea.example.com";
@@ -70,15 +70,15 @@ services.buildbot-nix = {
 };
 ```
 
-If webhooks must reach buildbot-nix under a different URL than the web UI, set
-`services.buildbot-nix.webhookBaseUrl`.
+If webhooks must reach nixbot under a different URL than the web UI, set
+`services.nixbot.webhookBaseUrl`.
 
 ## Step 4: Repository Configuration
 
 For each repository you want to build:
 
 1. **Grant repository access**:
-   - Add the buildbot user as a collaborator with admin access
+   - Add the nixbot user as a collaborator with admin access
    - Admin access is required for webhook creation
 
 2. **Enable the project**:
@@ -87,20 +87,20 @@ For each repository you want to build:
 3. **Automatic webhook creation**:
    - Webhooks are created for enabled projects on every discovery cycle
      (startup, periodic refresh, manual reload) at
-     `https://buildbot.<your-domain>/webhooks/gitea`
+     `https://nixbot.<your-domain>/webhooks/gitea`
    - Each repository gets an auto-generated secret stored in the database;
      existing hooks are re-synced in place, leftover buildbot-era hooks pointing
      at this instance are removed
    - Webhook events: `push`, `pull_request` and `pull_request_sync`
 
-4. **Manual webhook creation** (only when the buildbot user is not a repo admin;
+4. **Manual webhook creation** (only when the nixbot user is not a repo admin;
    watch for the "no admin permission to manage webhooks" warning):
 
    1. Enable the project
-   2. As a buildbot-nix admin, open the repository page in the buildbot-nix web
-      UI, expand **webhook setup** and press **regenerate** - the secret is
-      shown exactly once (rotating later invalidates the old secret;
-      auto-managed hooks pick the new one up on the next discovery cycle)
+   2. As a nixbot admin, open the repository page in the nixbot web UI, expand
+      **webhook setup** and press **regenerate** - the secret is shown exactly
+      once (rotating later invalidates the old secret; auto-managed hooks pick
+      the new one up on the next discovery cycle)
    3. In the Gitea repository: Settings → Webhooks → Add Webhook → Gitea
    4. Target URL and Secret from step 2, POST Content Type `application/json`
    5. Trigger On: Custom Events → check **Push**, **Pull Request**, and **Pull
@@ -110,7 +110,7 @@ For each repository you want to build:
 ## How It Works
 
 - **Authentication**: Uses Gitea access tokens for API operations
-- **Project Discovery**: Automatically discovers repositories where the buildbot
+- **Project Discovery**: Automatically discovers repositories where the nixbot
   user has admin access (restricted by `userAllowlist`/`repoAllowlist` if set);
   discovered projects are built once enabled in the web UI
 - **Webhook Management**: Automatically creates and manages webhooks (push and
@@ -127,14 +127,14 @@ For each repository you want to build:
 ## Troubleshooting
 
 - **Projects not appearing**: Check that:
-  - The buildbot user has admin access to the repository
+  - The nixbot user has admin access to the repository
   - The repository is not excluded by `userAllowlist`/`repoAllowlist`
   - The access token has the correct permissions
   - Reload projects manually through the web UI
 
 - **Project appears but nothing builds**: Enable the project in the web UI
 
-- **Webhooks not created**: Verify the project is enabled and the buildbot user
+- **Webhooks not created**: Verify the project is enabled and the nixbot user
   has admin permissions on the repository
 
 - **Authentication issues**:

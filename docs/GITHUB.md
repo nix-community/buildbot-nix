@@ -12,13 +12,13 @@ secure authentication.
      `https://github.com/organizations/<org>/settings/apps/new`
 
 2. Configure the app with these settings:
-   - **GitHub App Name**: `buildbot-nix-<org>` (or any unique name)
-   - **Homepage URL**: `https://buildbot.<your-domain>`
+   - **GitHub App Name**: `nixbot-<org>` (or any unique name)
+   - **Homepage URL**: `https://nixbot.<your-domain>`
    - **Webhook**: Enable (Active) and set:
-     - **Webhook URL**: `https://buildbot.<your-domain>/webhooks/github`
+     - **Webhook URL**: `https://nixbot.<your-domain>/webhooks/github`
      - **Webhook secret**: the same value as `webhookSecretFile` below
    - **Callback URL** (optional, for OAuth):
-     `https://buildbot.<your-domain>/auth/github/callback`
+     `https://nixbot.<your-domain>/auth/github/callback`
 
 3. Set the required permissions:
    - **Repository Permissions:**
@@ -39,14 +39,14 @@ secure authentication.
    - Note the **App ID**
    - Generate and download a **private key** (.pem file)
 
-## Step 2: Configure buildbot-nix
+## Step 2: Configure nixbot
 
 Add the GitHub configuration to your NixOS module:
 
 ```nix
-services.buildbot-nix = {
+services.nixbot = {
   enable = true;
-  domain = "buildbot.example.com";  # Your buildbot domain
+  domain = "nixbot.example.com";  # Your nixbot domain
   github = {
     enable = true;
     appId = <your-app-id>;  # The numeric App ID
@@ -80,7 +80,7 @@ services.buildbot-nix = {
 
 1. Go to your app's settings page
 2. Click "Install App" and choose which repositories to grant access
-3. The app needs access to all repositories you want to build with buildbot-nix
+3. The app needs access to all repositories you want to build with nixbot
 
 ## Step 4: Repository Configuration
 
@@ -92,8 +92,8 @@ For each repository you want to build:
 2. **Webhook delivery**:
    - GitHub delivers push and pull_request events through the App-level webhook
      configured in Step 1; no per-repository webhooks are created.
-   - The endpoint is `https://buildbot.<your-domain>/webhooks/github` (the
-     legacy `/change_hook/github` path also works).
+   - The endpoint is `https://nixbot.<your-domain>/webhooks/github` (the legacy
+     `/change_hook/github` path also works).
 
 ## How It Works
 
@@ -120,8 +120,8 @@ For each repository you want to build:
 - **Project appears but nothing builds**: Enable the project in the web UI
 
 - **No builds on push**: Verify the App webhook is Active, its URL points to
-  `https://buildbot.<your-domain>/webhooks/github`, and its secret matches
+  `https://nixbot.<your-domain>/webhooks/github`, and its secret matches
   `webhookSecretFile`. Check recent deliveries under the app's "Advanced" tab.
 
 - **Authentication issues**: Ensure the private key file is readable by the
-  buildbot service
+  nixbot service

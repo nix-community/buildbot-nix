@@ -6,7 +6,7 @@ for the upstream reference.
 
 ## CLI usage
 
-The `buildbot-effects` CLI can list and run effects locally, or against remote
+The `nixbot-effects` CLI can list and run effects locally, or against remote
 repositories using
 [Nix flake references](https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-flake#flake-references).
 
@@ -14,10 +14,10 @@ repositories using
 
 ```console
 $ cd my-repo
-$ buildbot-effects list
+$ nixbot-effects list
 ["deploy", "notify"]
 
-$ buildbot-effects run deploy
+$ nixbot-effects run deploy
 ```
 
 ### Remote repository (flake reference)
@@ -25,10 +25,10 @@ $ buildbot-effects run deploy
 No local checkout needed:
 
 ```console
-$ buildbot-effects run github:org/repo/branch#deploy
-$ buildbot-effects list github:org/repo/branch
-$ buildbot-effects list-schedules github:org/repo/branch
-$ buildbot-effects run-scheduled github:org/repo#flake-update update
+$ nixbot-effects run github:org/repo/branch#deploy
+$ nixbot-effects list github:org/repo/branch
+$ nixbot-effects list-schedules github:org/repo/branch
+$ nixbot-effects run-scheduled github:org/repo#flake-update update
 ```
 
 ### Subcommands
@@ -76,7 +76,7 @@ containing key-value pairs:
 ```
 
 ```console
-$ buildbot-effects run --secrets secrets.json deploy
+$ nixbot-effects run --secrets secrets.json deploy
 ```
 
 Inside the effect, secrets are available at `/run/secrets.json` (via
@@ -85,7 +85,7 @@ Inside the effect, secrets are available at `/run/secrets.json` (via
 
 ## Buildbot secrets configuration
 
-When running effects through buildbot (not locally), secrets are configured at
+When running effects through nixbot (not locally), secrets are configured at
 different scopes:
 
 1. **Repository-specific**: `"github:owner/repo"` — applies to a single
@@ -94,12 +94,12 @@ different scopes:
    organization
 
 ```nix
-services.buildbot-nix.effects.perRepoSecretFiles = {
+services.nixbot.effects.perRepoSecretFiles = {
   # All repos in nix-community org get this token
   "github:nix-community/*" = config.agenix.secrets.nix-community-effects.path;
 
   # This specific repo gets its own token (overrides org-level)
-  "github:nix-community/buildbot-nix" = config.agenix.secrets.buildbot-nix-effects.path;
+  "github:nix-community/nixbot" = config.agenix.secrets.nixbot-effects.path;
 
   # All repos in a Gitea org
   "gitea:my-org/*" = config.agenix.secrets.my-org-effects.path;

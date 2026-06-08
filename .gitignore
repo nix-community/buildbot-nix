@@ -1,6 +1,8 @@
 result
 result-*
 
+.nixbot-dev
+# legacy dev state dir from before the buildbot-nix -> nixbot rename
 .buildbot-dev
 
 # Byte-compiled / optimized / DLL files

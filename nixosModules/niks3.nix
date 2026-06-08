@@ -5,14 +5,14 @@
   ...
 }:
 let
-  cfg = config.services.buildbot-nix;
+  cfg = config.services.nixbot;
   interpolate = value: {
     _type = "interpolate";
     inherit value;
   };
 in
 {
-  options.services.buildbot-nix.niks3 = {
+  options.services.nixbot.niks3 = {
     enable = lib.mkEnableOption "Enable niks3 integration";
 
     serverUrl = lib.mkOption {
@@ -35,20 +35,20 @@ in
   };
 
   config = lib.mkIf cfg.niks3.enable {
-    systemd.services.buildbot-nix.serviceConfig.LoadCredential = [
+    systemd.services.nixbot.serviceConfig.LoadCredential = [
       "niks3-auth-token:${builtins.toString cfg.niks3.authTokenFile}"
     ];
 
-    systemd.services.buildbot-nix.path = [ cfg.niks3.package ];
+    systemd.services.nixbot.path = [ cfg.niks3.package ];
 
-    services.buildbot-nix.postBuildSteps = [
+    services.nixbot.postBuildSteps = [
       {
         name = "Upload to niks3";
         environment = {
           NIKS3_SERVER_URL = cfg.niks3.serverUrl;
           # Token via file, never on the command line: /proc/<pid>/cmdline
           # is world-readable.
-          NIKS3_AUTH_TOKEN_FILE = "/run/credentials/buildbot-nix.service/niks3-auth-token";
+          NIKS3_AUTH_TOKEN_FILE = "/run/credentials/nixbot.service/niks3-auth-token";
         };
         command = [
           "niks3"
