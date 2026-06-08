@@ -355,6 +355,9 @@ class Config(BaseModel):
     allow_unauthenticated_control: bool = False
     build_max_silent_time: int = 60 * 20  # stop stuck builds after 20 minutes
     build_timeout: int = 60 * 60 * 3  # 3 hours default for nix build
+    # Wall-clock limit for one nix-eval-jobs run; a hung evaluation
+    # would otherwise hold the global eval slot forever.
+    eval_timeout: int = 60 * 60
 
     # Per-attribute log size cap in bytes; head and tail kept on truncation.
     log_size_limit: int = 64 * 1024 * 1024

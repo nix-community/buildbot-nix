@@ -309,6 +309,7 @@ class Orchestrator:
         branch_config = BranchConfig.load(worktree_path)
         eval_settings = EvalSettings(
             gc_roots_dir=self._gcroots_dir(build),
+            timeout=self.config.eval_timeout,
             worker_count=self.config.eval_worker_count
             or calculate_eval_workers().count,
             max_memory_size_mib=self.config.eval_max_memory_size,

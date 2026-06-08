@@ -22,6 +22,7 @@ import itertools
 import json
 import logging
 import os
+import signal
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -62,6 +63,11 @@ class EvalOOMError(EvalError):
 @dataclass
 class EvalSettings:
     gc_roots_dir: Path
+    # Overall wall-clock limit for one evaluation. A hung evaluator
+    # would otherwise hold the global eval semaphore forever and wedge
+    # CI for every project.
+    timeout: float = 60 * 60
+
     worker_count: int = 1
     max_memory_size_mib: int = 4096
     show_trace: bool = False
@@ -435,6 +441,17 @@ def cgroup_oom_killed(eval_cgroup: Path | None) -> bool:
     return False
 
 
+def _kill_process_tree(proc: asyncio.subprocess.Process) -> None:
+    """Kill the evaluator and its children (systemd-run/bwrap wrap the
+    real evaluator); the process group exists because the subprocess is
+    started with start_new_session=True."""
+    with contextlib.suppress(ProcessLookupError):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            proc.kill()
+
+
 class EvalRunner:
     """Runs nix-eval-jobs with a global concurrency cap."""
 
@@ -521,6 +538,8 @@ class EvalRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             preexec_fn=preexec_fn,
+            # Own process group so a timeout can kill the whole tree.
+            start_new_session=True,
             limit=STREAM_LIMIT,
             # Proxy/TLS/NIX_* must reach the evaluator: flake input
             # fetching fails in proxy/custom-CA deployments otherwise.
@@ -541,16 +560,21 @@ class EvalRunner:
             return await proc.stderr.read()
 
         try:
-            _, stderr_bytes = await asyncio.gather(
-                _read_job_stream(proc.stdout, jobs, parse_errors, on_jobs),
-                read_stderr(),
-            )
-            returncode = await proc.wait()
+            async with asyncio.timeout(settings.timeout):
+                _, stderr_bytes = await asyncio.gather(
+                    _read_job_stream(proc.stdout, jobs, parse_errors, on_jobs),
+                    read_stderr(),
+                )
+                returncode = await proc.wait()
+        except TimeoutError:
+            _kill_process_tree(proc)
+            await proc.wait()
+            msg = f"evaluation timed out after {settings.timeout:.0f} seconds"
+            raise EvalError(msg) from None
         except BaseException:
             # Cancellation or a reader bug: kill the evaluator instead
             # of leaking it (possibly blocked on a full pipe) forever.
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
+            _kill_process_tree(proc)
             await proc.wait()
             raise
         stderr_text = stderr_bytes.decode(errors="replace")

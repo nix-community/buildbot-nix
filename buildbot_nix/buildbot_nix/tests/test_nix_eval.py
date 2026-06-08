@@ -233,6 +233,18 @@ def test_eval_runner_integration(tmp_path: Path) -> None:
     assert any("eval warning here" in w for w in result.warnings)
 
 
+def test_eval_runner_times_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(nix_eval, "build_full_command", lambda *_args: ["sleep", "60"])
+    settings = EvalSettings(
+        gc_roots_dir=tmp_path / "gcroots",
+        sandbox=False,
+        systemd_scope=False,
+        timeout=0.2,
+    )
+    with pytest.raises(EvalError, match="timed out"):
+        asyncio.run(EvalRunner().run(tmp_path, BranchConfig(), settings))
+
+
 def test_cgroup_limiter_create_handles_missing_delegation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
