@@ -121,7 +121,7 @@ class GitHubAppClient:
         )
         return token
 
-    async def _paginated(
+    async def paginated(
         self, url: str, token: str, subkey: str | None = None
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
@@ -184,7 +184,7 @@ class GitHubAppClient:
         return problems
 
     async def list_installations(self) -> list[int]:
-        installations = await self._paginated(
+        installations = await self.paginated(
             f"{self.api_url}/app/installations?per_page=100", await self._app_jwt()
         )
         return [installation["id"] for installation in installations]
@@ -193,7 +193,7 @@ class GitHubAppClient:
         repos: list[DiscoveredRepo] = []
         for installation_id in await self.list_installations():
             token = await self.installation_token(installation_id)
-            for repo in await self._paginated(
+            for repo in await self.paginated(
                 f"{self.api_url}/installation/repositories?per_page=100",
                 token,
                 subkey="repositories",

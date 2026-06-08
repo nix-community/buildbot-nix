@@ -156,7 +156,7 @@ class GiteaStatusPoster:
     ) -> None:
         response = await self.client.http.post(
             f"{self.client.instance_url}/api/v1/repos/{owner}/{repo}/statuses/{sha}",
-            headers=self.client._headers(),  # noqa: SLF001
+            headers=self.client.auth_headers(),
             json={
                 "state": state.value,
                 "context": context,
@@ -191,7 +191,7 @@ class GitlabStatusPoster:
     ) -> None:
         response = await self.client.http.post(
             f"{self.client.project_api_url(owner, repo)}/statuses/{sha}",
-            headers=self.client._headers(),  # noqa: SLF001
+            headers=self.client.auth_headers(),
             json={
                 "state": self._STATES[state],
                 "context": context,

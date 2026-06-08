@@ -21,15 +21,15 @@ class GiteaClient:
         self.token = token
         self.http = http or httpx.AsyncClient()
 
-    def _headers(self) -> dict[str, str]:
+    def auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"token {self.token}"}
 
-    async def _paginated(self, url: str) -> list[dict[str, Any]]:
+    async def paginated(self, url: str) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         page = 1
         while True:
             response = await self.http.get(
-                f"{url}&page={page}", headers=self._headers()
+                f"{url}&page={page}", headers=self.auth_headers()
             )
             if response.status_code >= 400:  # noqa: PLR2004
                 msg = f"Gitea request failed: {response.status_code} {response.text}"
@@ -42,13 +42,13 @@ class GiteaClient:
 
     async def discover_repos(self) -> list[DiscoveredRepo]:
         repos = []
-        for repo in await self._paginated(
+        for repo in await self.paginated(
             f"{self.instance_url}/api/v1/user/repos?limit=100"
         ):
             topics_response = await self.http.get(
                 f"{self.instance_url}/api/v1/repos/"
                 f"{repo['owner']['login']}/{repo['name']}/topics",
-                headers=self._headers(),
+                headers=self.auth_headers(),
             )
             topics = (
                 topics_response.json().get("topics", [])

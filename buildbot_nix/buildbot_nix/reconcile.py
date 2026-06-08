@@ -60,9 +60,7 @@ async def github_heads(
                 commit_sha=branch["commit"]["sha"],
             )
         )
-    pulls = await client._paginated(  # noqa: SLF001
-        f"{repo_url}/pulls?state=open&per_page=100", token
-    )
+    pulls = await client.paginated(f"{repo_url}/pulls?state=open&per_page=100", token)
     heads.extend(
         RemoteHead(
             branch=pull["base"]["ref"],
@@ -81,7 +79,7 @@ async def gitea_heads(client: GiteaClient, project: RepoRecord) -> list[RemoteHe
     heads = []
     response = await client.http.get(
         f"{repo_url}/branches/{project.default_branch}",
-        headers=client._headers(),  # noqa: SLF001
+        headers=client.auth_headers(),
     )
     if response.status_code < 400:  # noqa: PLR2004
         heads.append(
@@ -90,7 +88,7 @@ async def gitea_heads(client: GiteaClient, project: RepoRecord) -> list[RemoteHe
                 commit_sha=response.json()["commit"]["id"],
             )
         )
-    pulls = await client._paginated(f"{repo_url}/pulls?state=open&limit=50")  # noqa: SLF001
+    pulls = await client.paginated(f"{repo_url}/pulls?state=open&limit=50")
     heads.extend(
         RemoteHead(
             branch=pull["base"]["ref"],
@@ -109,7 +107,7 @@ async def gitlab_heads(client: GitlabClient, project: RepoRecord) -> list[Remote
     heads = []
     response = await client.http.get(
         f"{repo_url}/repository/branches/{quote(project.default_branch, safe='')}",
-        headers=client._headers(),  # noqa: SLF001
+        headers=client.auth_headers(),
     )
     if response.status_code < 400:  # noqa: PLR2004
         heads.append(
@@ -118,7 +116,7 @@ async def gitlab_heads(client: GitlabClient, project: RepoRecord) -> list[Remote
                 commit_sha=response.json()["commit"]["id"],
             )
         )
-    pulls = await client._paginated(  # noqa: SLF001
+    pulls = await client.paginated(
         f"{repo_url}/merge_requests?state=opened&per_page=100"
     )
     heads.extend(

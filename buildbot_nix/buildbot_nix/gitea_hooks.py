@@ -52,7 +52,7 @@ async def register_repo_hook(  # noqa: PLR0913
     legacy_urls = legacy_hook_urls(webhook_base_url)
 
     try:
-        hooks: list[dict[str, Any]] = await client._paginated(  # noqa: SLF001
+        hooks: list[dict[str, Any]] = await client.paginated(
             f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100"
         )
     except ForgeError as e:
@@ -78,7 +78,7 @@ async def register_repo_hook(  # noqa: PLR0913
             )
             await client.http.delete(
                 f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks/{hook['id']}",
-                headers=client._headers(),  # noqa: SLF001
+                headers=client.auth_headers(),
             )
 
     hook_body = {
@@ -99,7 +99,7 @@ async def register_repo_hook(  # noqa: PLR0913
         # database reset) and Gitea never exposes it, so re-sync in place.
         response = await client.http.patch(
             f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks/{existing_id}",
-            headers={**client._headers(), "Content-Type": "application/json"},  # noqa: SLF001
+            headers={**client.auth_headers(), "Content-Type": "application/json"},
             json=hook_body,
         )
         if response.status_code >= 400:  # noqa: PLR2004
@@ -111,7 +111,7 @@ async def register_repo_hook(  # noqa: PLR0913
     logger.info("registering webhook", extra={"repo": f"{owner}/{repo}"})
     response = await client.http.post(
         f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks",
-        headers={**client._headers(), "Content-Type": "application/json"},  # noqa: SLF001
+        headers={**client.auth_headers(), "Content-Type": "application/json"},
         json=hook_body,
     )
     if response.status_code >= 400:  # noqa: PLR2004

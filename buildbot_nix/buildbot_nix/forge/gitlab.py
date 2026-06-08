@@ -23,7 +23,7 @@ class GitlabClient:
         self.token = token
         self.http = http or httpx.AsyncClient()
 
-    def _headers(self) -> dict[str, str]:
+    def auth_headers(self) -> dict[str, str]:
         return {"PRIVATE-TOKEN": self.token}
 
     def project_api_url(self, owner: str, repo: str) -> str:
@@ -33,11 +33,11 @@ class GitlabClient:
             f"{self.instance_url}/api/v4/projects/{quote(f'{owner}/{repo}', safe='')}"
         )
 
-    async def _paginated(self, url: str) -> list[dict[str, Any]]:
+    async def paginated(self, url: str) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         next_url: str | None = url
         while next_url:
-            response = await self.http.get(next_url, headers=self._headers())
+            response = await self.http.get(next_url, headers=self.auth_headers())
             if response.status_code >= 400:  # noqa: PLR2004
                 msg = f"GitLab request failed: {response.status_code} {response.text}"
                 raise ForgeError(msg)
@@ -47,7 +47,7 @@ class GitlabClient:
 
     async def discover_repos(self) -> list[DiscoveredRepo]:
         repos = []
-        for repo in await self._paginated(
+        for repo in await self.paginated(
             f"{self.instance_url}/api/v4/projects"
             "?membership=true&archived=false&per_page=100"
         ):

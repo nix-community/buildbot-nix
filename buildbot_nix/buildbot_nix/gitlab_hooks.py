@@ -40,7 +40,7 @@ async def register_repo_hook(  # noqa: PLR0913
     api = client.project_api_url(owner, repo)
 
     try:
-        hooks: list[dict[str, Any]] = await client._paginated(f"{api}/hooks")  # noqa: SLF001
+        hooks: list[dict[str, Any]] = await client.paginated(f"{api}/hooks")
     except ForgeError as e:
         if "403" not in str(e):
             raise
@@ -66,7 +66,7 @@ async def register_repo_hook(  # noqa: PLR0913
         # database reset) and GitLab never exposes it, so re-sync in place.
         response = await client.http.put(
             f"{api}/hooks/{existing_id}",
-            headers=client._headers(),  # noqa: SLF001
+            headers=client.auth_headers(),
             json=hook_body,
         )
         if response.status_code >= 400:  # noqa: PLR2004
@@ -78,7 +78,7 @@ async def register_repo_hook(  # noqa: PLR0913
     logger.info("registering webhook", extra={"repo": f"{owner}/{repo}"})
     response = await client.http.post(
         f"{api}/hooks",
-        headers=client._headers(),  # noqa: SLF001
+        headers=client.auth_headers(),
         json=hook_body,
     )
     if response.status_code >= 400:  # noqa: PLR2004
