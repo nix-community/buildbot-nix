@@ -1611,3 +1611,126 @@ def test_unexpected_eval_path_error_settles_build(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_reuse_empty_succeeded_build_posts_eval_success(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """Reusing a genuinely empty-but-green build must not report
+    'evaluation failed' on the new commit."""
+
+    async def run() -> None:
+        add_commit(upstream, "empty-green")
+        eval_runner = FakeEvalRunner([])
+        executor = FakeExecutor()
+        pool, orchestrator, reporter, project = await make_env(
+            postgres_dsn, tmp_path, upstream, eval_runner, executor, name="empty-green"
+        )
+        try:
+            sha = git(upstream, "rev-parse", "HEAD")
+            build1 = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
+            )
+            assert build1 is not None
+            assert await build_status(pool, build1.id) == BuildStatus.SUCCEEDED
+            build2 = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha, pr_number=3)
+            )
+            assert build2 is not None
+            assert build2.id == build1.id
+            evals = [e for e in reporter.events if e[0] == "eval"]
+            assert evals[-1][2] is True
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_stale_event_reusing_old_build_does_not_cancel_newer(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """A redelivered push event for an ancestor commit whose tree
+    matches an old terminal build must not supersede the in-flight
+    newer build."""
+
+    async def run() -> None:
+        sha1 = add_commit(upstream, "stale-1")
+        eval_runner1 = FakeEvalRunner([mk_job("a")])
+        executor = FakeExecutor()
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn, tmp_path, upstream, eval_runner1, executor, name="stale"
+        )
+        try:
+            build1 = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha1)
+            )
+            assert build1 is not None
+            sha2 = add_commit(upstream, "stale-2")
+            eval_runner2 = FakeEvalRunner([mk_job("a")], block=asyncio.Event())
+            orchestrator.eval_runner = eval_runner2
+            task2 = asyncio.create_task(
+                orchestrator.handle_change_event(
+                    ChangeEvent(repo=project, branch="main", commit_sha=sha2)
+                )
+            )
+            await eval_runner2.started.wait()
+            await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha1)
+            )
+            assert eval_runner2.block is not None
+            eval_runner2.block.set()
+            build2 = await task2
+            assert build2 is not None
+            assert await build_status(pool, build2.id) == BuildStatus.SUCCEEDED
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_reuse_for_default_branch_push_runs_effects(
+    postgres_dsn: str, tmp_path: Path, upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A main push reusing a succeeded PR build must still deploy:
+    the PR run never started effects."""
+
+    ran: list[str] = []
+
+    async def fake_list(ctx: object) -> list[str]:
+        return ["deploy"]
+
+    async def fake_run(ctx: object, name: str, log_write: object = None) -> bool:
+        ran.append(name)
+        return True
+
+    async def run() -> None:
+        monkeypatch.setattr(orch_mod, "list_effects", fake_list)
+        monkeypatch.setattr(orch_mod, "run_effect", fake_run)
+        add_commit(upstream, "reuse-deploy")
+        sha = git(upstream, "rev-parse", "HEAD")
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([mk_job("a")]),
+            FakeExecutor(),
+            name="reuse-deploy",
+        )
+        try:
+            pr_build = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha, pr_number=9)
+            )
+            assert pr_build is not None
+            await drain_effect_items(orchestrator, project, pool)
+            assert ran == []
+            main_build = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
+            )
+            assert main_build is not None
+            assert main_build.id == pr_build.id
+            await drain_effect_items(orchestrator, project, pool)
+            assert ran == ["deploy"]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

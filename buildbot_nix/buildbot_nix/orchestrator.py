@@ -225,21 +225,31 @@ class Orchestrator:
         key = branch_key(event.branch, event.pr_number)
         # A branch push reusing a PR build already shed the PR identity
         # (and took over the branch field) in get_or_create_build.
-        if not created and build.status in (
-            BuildStatus.SUCCEEDED,
-            BuildStatus.FAILED,
-        ):
-            await self._reuse_terminal_build(event, build, key, tree_hash)
-            return
-
         # Out-of-order delivery check: an event whose commit is an
-        # ancestor of the context's running build is stale.
+        # ancestor of the context's running build is stale. Checked
+        # before the reuse branch too: a stale redelivery matching an
+        # old terminal build must not supersede the in-flight build.
         incoming_stale = False
         running_commit = self.canceller.running_commit_for(repo.id, key)
         if running_commit is not None and running_commit != event.commit_sha:
             incoming_stale = await self._is_ancestor(
                 repo.key, event.commit_sha, running_commit
             )
+
+        if not created and build.status in (
+            BuildStatus.SUCCEEDED,
+            BuildStatus.FAILED,
+        ):
+            await self._reuse_terminal_build(
+                event,
+                build,
+                key,
+                tree_hash,
+                worktree_path=worktree_path,
+                credentials=credentials,
+                incoming_stale=incoming_stale,
+            )
+            return
 
         in_flight = build.id in self.cancel_events
         rebuild = created or (not in_flight and build.status == BuildStatus.CANCELLED)
@@ -890,8 +900,16 @@ class Orchestrator:
             return False
         return True
 
-    async def _reuse_terminal_build(
-        self, event: ChangeEvent, build: BuildRecord, key: str, tree_hash: str
+    async def _reuse_terminal_build(  # noqa: PLR0913
+        self,
+        event: ChangeEvent,
+        build: BuildRecord,
+        key: str,
+        tree_hash: str,
+        *,
+        worktree_path: Path,
+        credentials: FetchCredentials | None,
+        incoming_stale: bool,
     ) -> None:
         """Same content already built in another context: only report
         the existing result for this context. Still register so an
@@ -902,22 +920,38 @@ class Orchestrator:
             "reusing build for tree hash",
             extra={"build_id": build.id, "tree_hash": tree_hash},
         )
-        self.canceller.register(
+        outcome = self.canceller.register(
             event.repo.id,
             key,
             build.id,
             tree_hash,
             event.commit_sha,
             asyncio.Event(),
+            incoming_is_ancestor_of_running=incoming_stale,
         )
+        if outcome == RegisterOutcome.STALE:
+            # Redelivered out-of-order event: superseding the in-flight
+            # newer build with this old result would cancel it.
+            return
         self.canceller.complete(build.id)
         if build.status == BuildStatus.SUCCEEDED:
             await self._post_process_existing(event, build)
+            # A build that ran as a PR never started effects; a
+            # default-branch push reusing it must still deploy. The
+            # effects_started flag keeps already-deployed builds from
+            # re-running.
+            await self._maybe_run_effects(event, build, worktree_path, credentials)
             await self._refresh_schedules(event)
         # Post the eval context too, or a required nix-eval check on
-        # this commit stays "Expected" forever.
-        has_attrs = bool(await self.db.get_attribute_statuses(build.id))
-        await self.reporter.eval_finished(event, build, success=has_attrs, warnings=[])
+        # this commit stays "Expected" forever. A succeeded build with
+        # zero attributes is a genuine empty-but-green eval, not a
+        # failure.
+        eval_success = build.status == BuildStatus.SUCCEEDED or bool(
+            await self.db.get_attribute_statuses(build.id)
+        )
+        await self.reporter.eval_finished(
+            event, build, success=eval_success, warnings=[]
+        )
         await self.reporter.build_finished(
             event, build, build.status, build.status_generation, []
         )
