@@ -730,7 +730,7 @@ class Orchestrator:
                 self.task_tokens.revoke(task_token)
 
     @asynccontextmanager
-    async def _open_log(
+    async def open_log(
         self, build_id: int, key: str, filename: str
     ) -> AsyncIterator[LogWriter]:
         """LogWriter registered for live streaming; closed and
@@ -752,7 +752,7 @@ class Orchestrator:
         # Effect names come from untrusted flakes; percent-encode so
         # the log file cannot escape the log directory. The "effect-"
         # prefix keeps them apart from attribute logs.
-        async with self._open_log(
+        async with self.open_log(
             build.id, f"effect:{name}", f"effect-{quote(name, safe='')}.zst"
         ) as writer:
             try:
@@ -945,7 +945,7 @@ class _OrchestratorExecutor:
         # Attribute names come from untrusted flakes; percent-encode
         # so the log file cannot escape the log directory.
         try:
-            async with self.o._open_log(  # noqa: SLF001
+            async with self.o.open_log(
                 self.build_record.id, job.attr, f"{quote(job.attr, safe='')}.zst"
             ) as writer:
                 outcome = await self.o.executor.build_attribute(
