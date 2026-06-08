@@ -3,6 +3,8 @@ filtering and netrc-based fetch credentials."""
 
 from __future__ import annotations
 
+import atexit
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,7 +77,15 @@ class NetrcFetchCredentialsProvider:
     """Credentials for fetching from token-auth forges (Gitea, GitLab):
     the API token as a netrc entry for HTTPS clone URLs (both accept it
     as basic auth password for user oauth2), plus the optional
-    per-instance SSH key for SSH remotes."""
+    per-instance SSH key for SSH remotes.
+
+    SECURITY: neither Gitea nor GitLab can mint short-lived per-repo
+    fetch tokens the way GitHub Apps can, so the operator's API token
+    is exposed to every fetch — including PR-controlled paths such as
+    submodule fetches — for every repo on the instance. Use a dedicated
+    machine account with minimal scopes (Gitea: read:repository;
+    GitLab: a read_repository-scoped token) rather than a personal
+    admin token."""
 
     def __init__(
         self,
@@ -85,12 +95,17 @@ class NetrcFetchCredentialsProvider:
         ssh_known_hosts_file: Path | None = None,
     ) -> None:
         host = httpx.URL(instance_url).host
-        self._netrc = Path(tempfile.mkdtemp(prefix="forge-netrc-")) / "netrc"
+        self._netrc_dir = Path(tempfile.mkdtemp(prefix="forge-netrc-"))
+        atexit.register(self.cleanup)
+        self._netrc = self._netrc_dir / "netrc"
         self._netrc.touch(mode=0o600)
         self._netrc.write_text(f"machine {host} login oauth2 password {token}\n")
         self._token = token
         self.ssh_private_key_file = ssh_private_key_file
         self.ssh_known_hosts_file = ssh_known_hosts_file
+
+    def cleanup(self) -> None:
+        shutil.rmtree(self._netrc_dir, ignore_errors=True)
 
     async def get(self, repo_url: str) -> FetchCredentials:  # noqa: ARG002
         return FetchCredentials(

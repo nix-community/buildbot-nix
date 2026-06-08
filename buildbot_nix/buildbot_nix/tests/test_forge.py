@@ -24,6 +24,7 @@ from buildbot_nix.forge import (
     GitHubAppClient,
     GitHubFetchCredentialsProvider,
     GitlabClient,
+    NetrcFetchCredentialsProvider,
     filter_repos,
 )
 from buildbot_nix.gitea_hooks import (
@@ -1031,3 +1032,15 @@ def test_gitlab_register_repo_hook_status_classification(
     with caplog.at_level("WARNING"):
         asyncio.run(run())
     assert any("manually" in r.message for r in caplog.records)
+
+
+# --- credential temp-dir lifecycle ---------------------------------------------
+
+
+def test_netrc_provider_cleanup_removes_tempdir() -> None:
+    provider = NetrcFetchCredentialsProvider("https://gitea.example.com", "tkn")
+    creds = asyncio.run(provider.get("https://gitea.example.com/a/b.git"))
+    assert creds.netrc_file is not None
+    assert creds.netrc_file.exists()
+    provider.cleanup()
+    assert not creds.netrc_file.parent.exists()

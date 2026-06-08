@@ -7,10 +7,12 @@ gitrepo CredentialsProvider interface (netrc with x-access-token)."""
 from __future__ import annotations
 
 import asyncio
+import atexit
 import base64
 import json
 import logging
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -231,6 +233,10 @@ class GitHubFetchCredentialsProvider:
         self.client = client
         self.host = host
         self._netrc_dir = Path(tempfile.mkdtemp(prefix="github-netrc-"))
+        atexit.register(self.cleanup)
+
+    def cleanup(self) -> None:
+        shutil.rmtree(self._netrc_dir, ignore_errors=True)
 
     async def get(self, repo_url: str) -> FetchCredentials:
         name = _repo_name_from_url(repo_url)
