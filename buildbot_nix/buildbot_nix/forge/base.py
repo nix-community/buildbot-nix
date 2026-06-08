@@ -17,7 +17,13 @@ if TYPE_CHECKING:
 
 
 class ForgeError(Exception):
-    pass
+    """A forge API call failed. `status_code` carries the HTTP status
+    so callers can classify (e.g. 403 = missing permission) without
+    substring-matching the message, which may contain ids/bodies."""
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)

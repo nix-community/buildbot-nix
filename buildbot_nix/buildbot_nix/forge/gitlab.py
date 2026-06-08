@@ -40,7 +40,7 @@ class GitlabClient:
             response = await self.http.get(next_url, headers=self.auth_headers())
             if response.status_code >= 400:  # noqa: PLR2004
                 msg = f"GitLab request failed: {response.status_code} {response.text}"
-                raise ForgeError(msg)
+                raise ForgeError(msg, status_code=response.status_code)
             results.extend(response.json())
             next_url = response.links.get("next", {}).get("url")
         return results

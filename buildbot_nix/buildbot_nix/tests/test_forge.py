@@ -19,6 +19,7 @@ import pytest
 from buildbot_nix.config import RepoFilters
 from buildbot_nix.forge import (
     DiscoveredRepo,
+    ForgeError,
     GiteaClient,
     GitHubAppClient,
     GitHubFetchCredentialsProvider,
@@ -823,3 +824,89 @@ def test_gitlab_hook_registration(postgres_dsn: str) -> None:
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_register_repo_hook_500_with_403_in_body_raises(postgres_dsn: str) -> None:
+    """A 500 whose response body merely contains "403" is not a
+    permission problem: it must propagate, not degrade to a warning."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/hooks"):
+            return httpx.Response(500, json={"message": "object id 403 missing"})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(
+                pool, "err500", forge="gitea", forge_repo_id="hook-500"
+            )
+            client = GiteaClient(
+                "https://gitea.example.com",
+                "tkn",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            with pytest.raises(ForgeError):
+                await register_repo_hook(
+                    client,
+                    WebhookSecrets(pool, "gitea"),
+                    project_id,
+                    "acme",
+                    "err500",
+                    "https://ci.example.com",
+                )
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_gitlab_register_repo_hook_status_classification(
+    postgres_dsn: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """403 degrades to a manual-setup warning; a 500 whose body
+    contains "403" propagates as ForgeError."""
+    status = 403
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/hooks"):
+            return httpx.Response(status, json={"message": "see id 403"})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        nonlocal status
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(
+                pool, "glperm", forge="gitlab", forge_repo_id="glhook-403"
+            )
+            client = GitlabClient(
+                "https://gitlab.example.com",
+                "tkn",
+                http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+            secrets_store = WebhookSecrets(pool, "gitlab")
+            await gitlab_register_repo_hook(
+                client,
+                secrets_store,
+                project_id,
+                "acme",
+                "glperm",
+                "https://ci.example.com",
+            )
+            status = 500
+            with pytest.raises(ForgeError):
+                await gitlab_register_repo_hook(
+                    client,
+                    secrets_store,
+                    project_id,
+                    "acme",
+                    "glperm",
+                    "https://ci.example.com",
+                )
+        finally:
+            await pool.close()
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(run())
+    assert any("manually" in r.message for r in caplog.records)

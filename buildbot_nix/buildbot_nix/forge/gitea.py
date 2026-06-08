@@ -33,7 +33,7 @@ class GiteaClient:
             )
             if response.status_code >= 400:  # noqa: PLR2004
                 msg = f"Gitea request failed: {response.status_code} {response.text}"
-                raise ForgeError(msg)
+                raise ForgeError(msg, status_code=response.status_code)
             data = response.json()
             if not data:
                 return results

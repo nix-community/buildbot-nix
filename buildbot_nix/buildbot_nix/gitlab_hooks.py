@@ -42,7 +42,7 @@ async def register_repo_hook(  # noqa: PLR0913
     try:
         hooks: list[dict[str, Any]] = await client.paginated(f"{api}/hooks")
     except ForgeError as e:
-        if "403" not in str(e):
+        if e.status_code != 403:  # noqa: PLR2004
             raise
         logger.warning(
             "no maintainer permission to manage webhooks; create one "

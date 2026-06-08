@@ -113,7 +113,7 @@ class GitHubAppClient:
         )
         if response.status_code >= 400:  # noqa: PLR2004
             msg = f"failed to mint installation token: {response.status_code} {response.text}"
-            raise ForgeError(msg)
+            raise ForgeError(msg, status_code=response.status_code)
         token = response.json()["token"]
         # GitHub installation tokens last 60 minutes; refresh at 80%.
         self._installation_tokens[installation_id] = _CachedToken(
@@ -136,7 +136,7 @@ class GitHubAppClient:
             )
             if response.status_code >= 400:  # noqa: PLR2004
                 msg = f"GitHub request failed: {response.status_code} {response.text}"
-                raise ForgeError(msg)
+                raise ForgeError(msg, status_code=response.status_code)
             data = response.json()
             results.extend(data[subkey] if subkey else data)
             next_url = response.links.get("next", {}).get("url")
@@ -161,7 +161,7 @@ class GitHubAppClient:
         )
         if response.status_code >= 400:  # noqa: PLR2004
             msg = f"failed to fetch app webhook config: {response.status_code} {response.text}"
-            raise ForgeError(msg)
+            raise ForgeError(msg, status_code=response.status_code)
         url = response.json().get("url") or ""
         if url not in (expected, legacy):
             problems.append(
@@ -173,7 +173,7 @@ class GitHubAppClient:
             msg = (
                 f"failed to fetch app metadata: {response.status_code} {response.text}"
             )
-            raise ForgeError(msg)
+            raise ForgeError(msg, status_code=response.status_code)
         events = set(response.json().get("events") or [])
         problems.extend(
             f"GitHub App is not subscribed to the {required!r} event; "

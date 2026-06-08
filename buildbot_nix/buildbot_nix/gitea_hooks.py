@@ -56,7 +56,7 @@ async def register_repo_hook(  # noqa: PLR0913
             f"{client.instance_url}/api/v1/repos/{owner}/{repo}/hooks?limit=100"
         )
     except ForgeError as e:
-        if "403" not in str(e):
+        if e.status_code != 403:  # noqa: PLR2004
             raise
         # Hook management needs repo-admin permission; the project still
         # works if the webhook is created manually.
