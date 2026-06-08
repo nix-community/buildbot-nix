@@ -138,18 +138,6 @@ class PullBasedRepository(BaseModel):
     ssh_private_key_file: Path | None = None
     ssh_known_hosts_file: Path | None = None
 
-    @property
-    def ssh_private_key(self) -> str | None:
-        if self.ssh_private_key_file is not None:
-            return read_secret_file(self.ssh_private_key_file)
-        return None
-
-    @property
-    def ssh_known_hosts(self) -> str | None:
-        if self.ssh_known_hosts_file is not None:
-            return read_secret_file(self.ssh_known_hosts_file)
-        return None
-
 
 class PullBasedConfig(BaseModel):
     repositories: dict[str, PullBasedRepository]
