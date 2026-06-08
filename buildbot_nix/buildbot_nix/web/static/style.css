@@ -135,6 +135,7 @@ th {
 table.attrs,
 table.builds,
 .summary-strip,
+.webhook-panel,
 .pipeline {
 	background: var(--card);
 	border: 1px solid var(--border);
@@ -353,11 +354,15 @@ details.error pre.error {
 }
 input[type="search"],
 input[type="text"],
-select {
+select,
+button {
 	background: var(--card);
 	color: var(--fg);
 	border: 1px solid var(--border);
 	border-radius: 4px;
+}
+input[type="text"],
+select {
 	padding: 0.3rem 0.5rem;
 }
 form.filters {
@@ -366,10 +371,6 @@ form.filters {
 	margin: 0.8rem 0;
 }
 button {
-	background: var(--card);
-	color: var(--fg);
-	border: 1px solid var(--border);
-	border-radius: 4px;
 	padding: 0.3rem 0.8rem;
 	cursor: pointer;
 }
@@ -806,9 +807,6 @@ details.webhook-setup summary {
 	margin-top: 0.5rem;
 	max-width: 46rem;
 	padding: 0.9rem 1.1rem;
-	background: var(--card);
-	border: 1px solid var(--border);
-	border-radius: 8px;
 }
 .webhook-panel p {
 	margin-top: 0;
