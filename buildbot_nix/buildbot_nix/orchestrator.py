@@ -577,7 +577,7 @@ class Orchestrator:
         )
 
     @asynccontextmanager
-    async def _rerun_worktree(
+    async def rerun_worktree(
         self,
         info: RepoInfo,
         build: BuildRecord,
@@ -662,7 +662,7 @@ class Orchestrator:
                 build.commit_sha,
                 cancel_event,
             )
-            async with self._rerun_worktree(info, build, "rerun", credentials) as (
+            async with self.rerun_worktree(info, build, "rerun", credentials) as (
                 event,
                 worktree_path,
             ):
@@ -706,7 +706,7 @@ class Orchestrator:
                 "log_truncated = FALSE WHERE build_id = $1",
                 build.id,
             )
-            async with self._rerun_worktree(info, build, "effects", credentials) as (
+            async with self.rerun_worktree(info, build, "effects", credentials) as (
                 event,
                 worktree_path,
             ):
@@ -801,7 +801,7 @@ class Orchestrator:
             # Swept after a crash mid-run, or already terminal; started
             # effects never auto-re-run (deploys are not idempotent).
             return
-        async with self._rerun_worktree(info, build, "effect", credentials) as (
+        async with self.rerun_worktree(info, build, "effect", credentials) as (
             event,
             worktree_path,
         ):

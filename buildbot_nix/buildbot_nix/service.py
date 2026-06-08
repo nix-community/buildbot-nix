@@ -34,7 +34,6 @@ from .gitrepo import (
     StaticCredentialsProvider,
 )
 from .hook_secrets import WebhookSecrets
-from .orchestrator import pr_refspec
 from .reconcile import gitea_heads, github_heads, gitlab_heads, reconcile_repo
 from .recovery import (
     check_store_paths,
@@ -616,39 +615,21 @@ class CIService:
         build: BuildRecord,
         credentials: FetchCredentials | None,
     ) -> None:
-        event = ChangeEvent(
-            repo=info,
-            branch=build.branch,
-            commit_sha=build.commit_sha,
-            pr_number=build.pr_number,
-        )
-        refspecs = ["+refs/heads/*:refs/heads/*"]
-        if build.pr_number is not None:
-            refspecs.append(pr_refspec(info.forge, build.pr_number))
-        await self.orchestrator.repos.fetch(
-            info.key, info.clone_url, refspecs, credentials
-        )
-        # Credentials matter here too: submodule init in the checkout
-        # fails for private submodules without them.
-        worktree = await self.orchestrator.repos.checkout_for_build(
-            info.key,
-            f"rerun-{build.id}",
-            base_commit=build.commit_sha,
-            credentials=credentials,
-        )
         try:
-            # Stale rows (e.g. failed_eval with NULL drv_path) would
-            # wedge the aggregate; the re-eval rewrites them. Finished
-            # rows with a drv_path are kept: their results are valid
-            # and the re-eval skips already-built attributes.
-            await self.pool.execute(
-                "DELETE FROM build_attributes WHERE build_id = $1 "
-                "AND (status IN ('pending', 'building') OR drv_path IS NULL)",
-                build.id,
-            )
-            await self.orchestrator.run_build(event, build, worktree.path)
+            async with self.orchestrator.rerun_worktree(
+                info, build, "rerun", credentials
+            ) as (event, worktree_path):
+                # Stale rows (e.g. failed_eval with NULL drv_path) would
+                # wedge the aggregate; the re-eval rewrites them. Finished
+                # rows with a drv_path are kept: their results are valid
+                # and the re-eval skips already-built attributes.
+                await self.pool.execute(
+                    "DELETE FROM build_attributes WHERE build_id = $1 "
+                    "AND (status IN ('pending', 'building') OR drv_path IS NULL)",
+                    build.id,
+                )
+                await self.orchestrator.run_build(event, build, worktree_path)
         finally:
-            await self.orchestrator.repos.remove_worktree(worktree)
             self.orchestrator.cancel_events.pop(build.id, None)
 
     async def recover_unfinished_builds(self) -> None:
