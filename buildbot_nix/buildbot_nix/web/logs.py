@@ -11,7 +11,7 @@ import asyncio
 import html
 from typing import TYPE_CHECKING, NamedTuple
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -293,14 +293,14 @@ class _LogRoutes:
         name: str,
         number: int,
         attr: str,
-        tail: int | None = None,
+        tail: int | None = Query(None, ge=1),
     ) -> PlainTextResponse:
         """Full log as plain text; ?tail=N returns only the last N lines."""
         _, build, path = await self._resolve(request, forge, owner, name, number, attr)
         text = await _log_text(self.registry, build, attr, path)
         if text is None:
             raise HTTPException(status_code=404)
-        if tail is not None and tail > 0:
+        if tail:
             text = "\n".join(text.splitlines()[-tail:]) + "\n"
         return PlainTextResponse(strip_ansi(text))
 
@@ -332,7 +332,9 @@ class _LogRoutes:
         owner: str,
         name: str,
         number: int,
-        tail: int = 50,
+        # ge=1: splitlines()[-0:] would be the whole list, dumping the
+        # full log of every failed attribute.
+        tail: int = Query(50, ge=1),
     ) -> dict:
         """One-shot failure summary: failed attributes with log tails.
 

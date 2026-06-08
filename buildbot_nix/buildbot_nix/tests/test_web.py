@@ -703,6 +703,23 @@ def test_api_build_failures(client: WebHarness, tmp_path: Path) -> None:
     assert "x86_64-linux.ok" not in failed
 
 
+def test_api_build_failures_rejects_non_positive_tail(
+    client: WebHarness, tmp_path: Path
+) -> None:
+    """splitlines()[-0:] is the WHOLE list: tail=0 must not dump the
+    full log of every failed attribute."""
+    seed_log(client, tmp_path)
+    log_file = tmp_path / "logs" / "2" / "x86_64-linux.bad.zst"
+    lines = "".join(f"line {i}\n" for i in range(60))
+    log_file.write_bytes(zstandard.ZstdCompressor().compress(lines.encode()))
+
+    base = "/api/repos/github/acme/widget/builds/2/failures"
+    assert client.get(f"{base}?tail=0").status_code == 422
+    one = client.get(f"{base}?tail=1").json()
+    tails = [f["log_tail"] for f in one["failures"] if f["attr"] == "x86_64-linux.bad"]
+    assert tails == ["line 59"]
+
+
 def test_llms_txt(client: WebHarness) -> None:
     response = client.get("/llms.txt")
     assert response.status_code == 200
