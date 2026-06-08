@@ -8,8 +8,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from buildbot_effects import _flake_url, effects_args, git_get_tag
+from buildbot_effects import _flake_url, effects_args, git_get_tag, secret_context
 from buildbot_effects.options import EffectsOptions
+from buildbot_effects.secrets import SimpleSecret, gather_secrets
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -55,6 +56,35 @@ def test_branch_resolves_to_branch_tip(tmp_path: Path) -> None:
         f"got HEAD ({result['rev'][:7]})"
     )
     assert result["branch"] == "feature"
+
+
+def test_git_tag_propagates_to_secret_context(tmp_path: Path) -> None:
+    """A tag resolved from git must end up in opts.tag so that
+    isTag-conditioned secrets can be granted."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "test")
+    _git(repo, "config", "user.email", "test@test")
+    (repo / "file.txt").write_text("v1")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "release")
+    _git(repo, "tag", "v1.0")
+
+    opts = EffectsOptions(path=repo, repo="acme/widget")
+    result = effects_args(opts)
+    assert result["tag"] == "v1.0"
+    assert opts.tag == "v1.0"
+
+    ctx = secret_context(opts)
+    assert ctx.ref == "refs/tags/v1.0"
+    out = gather_secrets(
+        {"deploy": SimpleSecret("release-key")},
+        {"release-key": {"data": {"token": "s3cret"}, "condition": "isTag"}},
+        ctx,
+        None,
+    )
+    assert out == {"deploy": {"data": {"token": "s3cret"}}}
 
 
 class TestFlakeUrl:

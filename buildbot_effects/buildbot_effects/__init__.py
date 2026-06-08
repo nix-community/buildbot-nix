@@ -109,6 +109,8 @@ def effects_args(opts: EffectsOptions) -> dict[str, Any]:
     branch = opts.branch or (get_git_branch(opts.path) if has_git else None)
     repo = opts.repo or opts.path.name
     tag = opts.tag or (git_get_tag(opts.path, rev) if has_git else None)
+    # secret_context needs the tag (isTag conditions), also when resolved from git
+    opts.tag = tag
     url = opts.url or (get_git_remote_url(opts.path) if has_git else None)
     primary_repo = {
         "name": repo,

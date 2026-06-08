@@ -52,6 +52,7 @@ def options_from_flake_ref(flake_ref: str, base: EffectsOptions) -> EffectsOptio
         repo=base.repo,
         rev=rev,
         branch=locked.get("ref") or base.branch,
+        tag=base.tag,
         url=meta.get("resolvedUrl", meta.get("url", "")),
         locked_url=locked_url,
         default_branch=base.default_branch,
@@ -73,6 +74,7 @@ def _options_from_args(args: argparse.Namespace) -> EffectsOptions:
         branch=args.branch,
         rev=args.rev,
         repo=args.repo or "",
+        tag=args.tag,
         path=args.path.resolve(),
         default_branch=args.default_branch,
         git_token_file=args.git_token_file,
@@ -203,6 +205,11 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
         "--repo",
         type=str,
         help="Git repo name",
+    )
+    parser.add_argument(
+        "--tag",
+        type=str,
+        help="Git tag of the revision (for isTag secret conditions)",
     )
     parser.add_argument(
         "--path",
