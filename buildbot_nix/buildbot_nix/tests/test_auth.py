@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -213,11 +214,11 @@ def test_oauth_login_flow() -> None:
             assert login.status_code == 307
             assert "github.com/login/oauth/authorize" in login.headers["location"]
             assert "client_id=cid" in login.headers["location"]
-            state = login.cookies["buildbot_nix_oauth_state"]
+            state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
 
             callback = await client.get(
                 f"/auth/github/callback?code=thecode&state={state}",
-                headers=cookie_header({"buildbot_nix_oauth_state": state}),
+                headers=cookie_header({f"buildbot_nix_oauth_state_{state}": state}),
             )
             assert callback.status_code == 307
             session = callback.cookies[SESSION_COOKIE]
@@ -237,14 +238,14 @@ def test_oauth_login_flow() -> None:
             # Bad state rejected.
             bad = await client.get(
                 "/auth/github/callback?code=x&state=wrong",
-                headers=cookie_header({"buildbot_nix_oauth_state": state}),
+                headers=cookie_header({f"buildbot_nix_oauth_state_{state}": state}),
             )
             assert bad.status_code == 403
 
             # User cancelled on the authorize page: no code, error param.
             cancelled = await client.get(
                 f"/auth/github/callback?error=access_denied&state={state}",
-                headers=cookie_header({"buildbot_nix_oauth_state": state}),
+                headers=cookie_header({f"buildbot_nix_oauth_state_{state}": state}),
             )
             assert cancelled.status_code == 403
 
@@ -261,6 +262,53 @@ def test_oauth_login_flow() -> None:
             assert ok.status_code == 303
             # Logout invalidates the server-side forge token.
             assert vault.tokens == {}
+
+    asyncio.run(run())
+
+
+def test_concurrent_logins_do_not_clobber_oauth_state() -> None:
+    """Two login attempts in parallel tabs: a single shared state
+    cookie let the second login overwrite the first attempt's state,
+    403ing whichever callback completed first."""
+    provider = github_oauth("cid", "csecret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/login/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "at"})
+        if request.url.path == "/user":
+            return httpx.Response(200, json={"login": "alice"})
+        return httpx.Response(404)
+
+    app = FastAPI()
+    app.include_router(
+        create_auth_router(
+            {"github": provider},
+            SessionSigner([b"k"]),
+            "https://ci.test",
+            DictVault(),
+            http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+    )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://ci.test"
+        ) as client:
+            first = await client.get("/login/github")
+            second = await client.get("/login/github")
+            cookies = dict(first.cookies) | dict(second.cookies)
+            states = [
+                parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+                for r in (first, second)
+            ]
+            assert states[0] != states[1]
+            # Both callbacks succeed, in either completion order.
+            for state in states:
+                callback = await client.get(
+                    f"/auth/github/callback?code=thecode&state={state}",
+                    headers=cookie_header(cookies),
+                )
+                assert callback.status_code == 307, state
 
     asyncio.run(run())
 
@@ -297,7 +345,7 @@ def test_oauth_callback_handles_token_exchange_errors() -> None:
         ) as client:
             response = await client.get(
                 "/auth/github/callback?code=stale&state=s",
-                headers=cookie_header({"buildbot_nix_oauth_state": "s"}),
+                headers=cookie_header({"buildbot_nix_oauth_state_s": "s"}),
             )
             assert response.status_code == 403
             assert "bad_verification_code" in response.text
@@ -305,7 +353,7 @@ def test_oauth_callback_handles_token_exchange_errors() -> None:
             # Userinfo body missing the username field: also 403, not 500.
             response = await client.get(
                 "/auth/github/callback?code=ok&state=s",
-                headers=cookie_header({"buildbot_nix_oauth_state": "s"}),
+                headers=cookie_header({"buildbot_nix_oauth_state_s": "s"}),
             )
             assert response.status_code == 403
             assert "userinfo" in response.json()["detail"]
@@ -567,7 +615,7 @@ def test_oauth_callback_filters_session_groups() -> None:
         ) as client:
             response = await client.get(
                 "/auth/oidc/callback?code=c&state=s",
-                headers=cookie_header({STATE_COOKIE: "s"}),
+                headers=cookie_header({f"{STATE_COOKIE}_s": "s"}),
             )
             assert response.status_code in (302, 307)
             session = response.cookies.get(SESSION_COOKIE)

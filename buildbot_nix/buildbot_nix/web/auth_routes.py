@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -18,10 +19,22 @@ if TYPE_CHECKING:
 
 SESSION_COOKIE = "buildbot_nix_session"
 STATE_COOKIE = "buildbot_nix_oauth_state"
+# Server-generated states are token_urlsafe; the callback echoes the
+# state into a cookie name, so reject anything else outright.
+_STATE_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def _state_cookie(state: str) -> str:
+    """Per-attempt cookie: concurrent logins (multiple tabs) must not
+    clobber each other's state."""
+    return f"{STATE_COOKIE}_{state}"
 
 
 def _check_callback_params(request: Request, code: str, state: str, error: str) -> None:
-    if not state or request.cookies.get(STATE_COOKIE) != state:
+    if (
+        not _STATE_RE.fullmatch(state)
+        or request.cookies.get(_state_cookie(state)) != state
+    ):
         raise HTTPException(status_code=403, detail="invalid oauth state")
     if error or not code:
         # e.g. ?error=access_denied when the user cancels authorization.
@@ -73,7 +86,7 @@ def create_auth_router(  # noqa: PLR0913
         redirect_uri = f"{base_url}/auth/{provider_name}/callback"
         response = RedirectResponse(provider.authorize_redirect(redirect_uri, state))
         response.set_cookie(
-            STATE_COOKIE,
+            _state_cookie(state),
             state,
             max_age=600,
             httponly=True,
@@ -110,7 +123,7 @@ def create_auth_router(  # noqa: PLR0913
         session_id = secrets.token_urlsafe(32)
         await forge_tokens.save(session_id, access_token, signer.lifetime)
         response = RedirectResponse("/")
-        response.delete_cookie(STATE_COOKIE)
+        response.delete_cookie(_state_cookie(state))
         response.set_cookie(
             SESSION_COOKIE,
             signer.session_for(user, session_id),
