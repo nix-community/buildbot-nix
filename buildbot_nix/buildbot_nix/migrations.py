@@ -12,6 +12,7 @@ multi-statement scripts natively.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from dataclasses import dataclass
@@ -91,14 +92,30 @@ async def apply_migrations(dsn: str) -> None:
                         "migration": migration.name,
                     },
                 )
-                async with conn.transaction():
+                # Not `async with conn.transaction()`: when a failed
+                # migration killed the connection, the context manager's
+                # rollback raises InterfaceError and masks the real error.
+                tx = conn.transaction()
+                await tx.start()
+                try:
                     await conn.execute(migration.sql)
                     await conn.execute(
                         "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)",
                         migration.version,
                         migration.name,
                     )
+                except BaseException:
+                    with contextlib.suppress(Exception):
+                        await tx.rollback()
+                    raise
+                await tx.commit()
         finally:
-            await conn.execute("SELECT pg_advisory_unlock($1)", ADVISORY_LOCK_KEY)
+            # A failed migration usually killed the connection too; the
+            # unlock error would replace the real failure. The lock is
+            # session-scoped, so closing the connection releases it.
+            try:
+                await conn.execute("SELECT pg_advisory_unlock($1)", ADVISORY_LOCK_KEY)
+            except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError):
+                logger.warning("failed to release the migration advisory lock")
     finally:
         await conn.close()

@@ -11,6 +11,7 @@ import json
 import asyncpg
 import pytest
 
+from buildbot_nix import migrations as migrations_mod
 from buildbot_nix.db import BuildDB
 from buildbot_nix.failed_builds import PostgresFailedBuildCache
 from buildbot_nix.migrations import apply_migrations, load_migrations
@@ -45,6 +46,24 @@ def test_migrations_idempotent(postgres_dsn: str) -> None:
             await conn.close()
 
     assert asyncio.run(check()) == len(load_migrations())
+
+
+def test_failed_migration_error_not_masked(
+    postgres_dsn: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When a migration kills the connection, the transaction rollback
+    and the advisory unlock fail too; the original error must still
+    propagate."""
+    bad = migrations_mod.Migration(
+        version=9999,
+        name="kill_connection",
+        sql="SELECT pg_terminate_backend(pg_backend_pid())",
+    )
+    monkeypatch.setattr(migrations_mod, "load_migrations", lambda: [bad])
+    # The migration's own connection error, not the InterfaceError that
+    # rollback/unlock raise on the now-dead connection.
+    with pytest.raises(asyncpg.PostgresConnectionError):
+        asyncio.run(migrations_mod.apply_migrations(postgres_dsn))
 
 
 def test_project_build_attribute_crud(postgres_dsn: str) -> None:
