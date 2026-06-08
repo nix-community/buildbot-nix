@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     from .gitrepo import FetchCredentials, RepoManager
     from .models import NixEvalJob
     from .nix_eval import EvalResult, JobBatchCallback
-    from .scheduler import FailedBuildCache
+    from .scheduler import CachedFailure, FailedBuildCache
 
     GcrootRegistrar = Callable[[Path, str, str, str], Awaitable[None]]
     OutputWriter = Callable[[Path, str, str, str, str, str], Path]
@@ -435,6 +435,8 @@ class Orchestrator:
         build: BuildRecord,
         worktree_path: Path,
         jobs: Sequence[NixEvalJob] | asyncio.Queue[list[NixEvalJob] | None],
+        *,
+        cache_failures: bool = True,
     ) -> str:
         """Schedule the attribute builds, persist their results, and
         re-aggregate the build (shared by fresh builds and reruns).
@@ -449,12 +451,15 @@ class Orchestrator:
             if recorded.get(result.attr) in (None, "pending", "building"):
                 await self.db.complete_attribute(build.id, result)
 
+        failed_build_cache: FailedBuildCache | None = (
+            self.failed_build_cache if self.config.cache_failed_builds else None
+        )
+        if failed_build_cache is not None and not cache_failures:
+            failed_build_cache = _ReadOnlyFailedBuildCache(failed_build_cache)
         scheduler = JobScheduler(
             _OrchestratorExecutor(self, event, build, worktree_path, cancel_event),
             self.config.build_systems,
-            failed_build_cache=(
-                self.failed_build_cache if self.config.cache_failed_builds else None
-            ),
+            failed_build_cache=failed_build_cache,
             build_url=f"{self.config.url}/repos/{event.repo.forge}/{event.repo.name}/builds/{build.number}",
             on_result=record_early,
         )
@@ -594,8 +599,9 @@ class Orchestrator:
                 event,
                 worktree_path,
             ):
+                # cache_failures=False: see _ReadOnlyFailedBuildCache.
                 status = await self._build_attributes(
-                    event, build, worktree_path, pending_jobs
+                    event, build, worktree_path, pending_jobs, cache_failures=False
                 )
                 if status == BuildStatus.SUCCEEDED:
                     # Crash recovery before effects started; the
@@ -905,6 +911,26 @@ class Orchestrator:
                     attr,
                     out_path,
                 )
+
+
+class _ReadOnlyFailedBuildCache:
+    """Failed-build cache that skips known failures but records none.
+
+    Recovery/restart reruns rebuild jobs from DB rows without dependency
+    closures, so dependents of one broken drv fail with their own build
+    error; recording those would poison the cache."""
+
+    def __init__(self, inner: FailedBuildCache) -> None:
+        self._inner = inner
+
+    async def check(self, drv_path: str) -> CachedFailure | None:
+        return await self._inner.check(drv_path)
+
+    async def add(self, drv_path: str, url: str) -> None:
+        pass
+
+    async def remove(self, drv_path: str) -> None:
+        await self._inner.remove(drv_path)
 
 
 class _OrchestratorExecutor:

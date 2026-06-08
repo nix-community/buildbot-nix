@@ -782,6 +782,53 @@ def test_rerun_fetches_pr_refs(
     asyncio.run(run())
 
 
+def test_recovery_rerun_failures_not_cached(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """Jobs reconstructed on recovery have empty dependency closures:
+    dependents of one broken drv fail individually and must not enter
+    the failed-build cache."""
+
+    class RecordingCache:
+        def __init__(self) -> None:
+            self.added: list[str] = []
+
+        async def check(self, drv_path: str) -> None:
+            return None
+
+        async def add(self, drv_path: str, url: str) -> None:
+            self.added.append(drv_path)
+
+        async def remove(self, drv_path: str) -> None:
+            pass
+
+    async def run() -> None:
+        sha = add_commit(upstream, "recov")
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([]),
+            FakeExecutor(outcomes={"a": BuildOutcome.failure}),
+            "recov",
+        )
+        cache = RecordingCache()
+        orchestrator.failed_build_cache = cache  # type: ignore[assignment]
+        orchestrator.config = orchestrator.config.model_copy(
+            update={"cache_failed_builds": True}
+        )
+        db = BuildDB(pool)
+        build, _ = await db.get_or_create_build(project.id, "recov-tree", sha, "main")
+        try:
+            await orchestrator.rerun_pending_attributes(project, build, [mk_job("a")])
+            assert await db.get_attribute_statuses(build.id) == {"a": "failed"}
+            assert cache.added == []
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 async def make_gitlab_mr_env(
     dsn: str,
     tmp_path: Path,
