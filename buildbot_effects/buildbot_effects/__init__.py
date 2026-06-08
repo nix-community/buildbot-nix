@@ -19,7 +19,13 @@ if TYPE_CHECKING:
 
 
 from .daemon_proxy import nix_daemon_proxy
-from .secrets import SecretContext, check_mounts, gather_secrets, parse_secrets_map
+from .secrets import (
+    SecretContext,
+    SecretsError,
+    check_mounts,
+    gather_secrets,
+    parse_secrets_map,
+)
 
 
 class BuildbotEffectsError(Exception):
@@ -308,10 +314,23 @@ def select_mounts(
     raw = drv.get("env", {}).get("__hci_effect_mounts")
     if not raw:
         return []
+    try:
+        mounts = json.loads(raw)
+    except json.JSONDecodeError as e:
+        msg = f"could not parse __hci_effect_mounts in the derivation: {e}"
+        raise SecretsError(msg) from e
+    if not isinstance(mounts, dict) or not all(
+        isinstance(name, str) for name in mounts.values()
+    ):
+        msg = (
+            "__hci_effect_mounts in the derivation must be a JSON object "
+            "mapping mount paths to mountable names"
+        )
+        raise SecretsError(msg)
     mountables: dict[str, Any] = {}
     if opts.mountables_file is not None:
         mountables = json.loads(opts.mountables_file.read_text())
-    return check_mounts(mountables, secret_context(opts), json.loads(raw))
+    return check_mounts(mountables, secret_context(opts), mounts)
 
 
 def select_secrets(
@@ -369,8 +388,19 @@ def pass_as_file_env(
 def virtual_ids(drv_env: dict[str, str]) -> tuple[int, int]:
     """`__hci_effect_virtual_uid`/`gid` from the derivation; the
     agent's defaults are 0/uid."""
-    uid = int(drv_env.get("__hci_effect_virtual_uid") or 0)
-    gid = int(drv_env.get("__hci_effect_virtual_gid") or uid)
+
+    def parse(name: str, default: int) -> int:
+        value = drv_env.get(name)
+        if not value:
+            return default
+        try:
+            return int(value)
+        except ValueError as e:
+            msg = f"invalid {name} in the derivation: {value!r} is not an integer"
+            raise BuildbotEffectsError(msg) from e
+
+    uid = parse("__hci_effect_virtual_uid", 0)
+    gid = parse("__hci_effect_virtual_gid", uid)
     return uid, gid
 
 

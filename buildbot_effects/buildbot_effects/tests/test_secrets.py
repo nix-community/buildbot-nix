@@ -8,7 +8,14 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from buildbot_effects import pass_as_file_env, sandbox_env
+from buildbot_effects import (
+    BuildbotEffectsError,
+    pass_as_file_env,
+    sandbox_env,
+    select_mounts,
+    virtual_ids,
+)
+from buildbot_effects.options import EffectsOptions
 from buildbot_effects.secrets import (
     GitToken,
     SecretContext,
@@ -157,3 +164,40 @@ def test_pass_as_file_env(tmp_path: Path) -> None:
     assert clear == {"buildCommand", "extra"}
     assert (tmp_path / ".attr-buildCommand").read_text() == "echo hi"
     assert (tmp_path / ".attr-extra").read_text() == "x"
+
+
+def test_parse_secrets_map_non_object_json() -> None:
+    """Valid JSON that is not an object must give a clean SecretsError."""
+    for raw in ("[]", '"x"', "42"):
+        with pytest.raises(SecretsError, match="must be a JSON object"):
+            parse_secrets_map({"secretsMap": raw})
+
+
+def test_select_mounts_malformed_json(tmp_path: Path) -> None:
+    drv = {"env": {"__hci_effect_mounts": "{not json"}}
+    with pytest.raises(SecretsError, match="__hci_effect_mounts"):
+        select_mounts(drv, EffectsOptions(path=tmp_path))
+
+
+def test_select_mounts_non_object_json(tmp_path: Path) -> None:
+    drv = {"env": {"__hci_effect_mounts": "[1, 2]"}}
+    with pytest.raises(SecretsError, match="__hci_effect_mounts"):
+        select_mounts(drv, EffectsOptions(path=tmp_path))
+
+
+def test_select_mounts_non_string_value(tmp_path: Path) -> None:
+    drv = {"env": {"__hci_effect_mounts": '{"/mnt": ["x"]}'}}
+    with pytest.raises(SecretsError, match="__hci_effect_mounts"):
+        select_mounts(drv, EffectsOptions(path=tmp_path))
+
+
+def test_virtual_ids_malformed() -> None:
+    with pytest.raises(BuildbotEffectsError, match="__hci_effect_virtual_uid"):
+        virtual_ids({"__hci_effect_virtual_uid": "not-a-number"})
+    with pytest.raises(BuildbotEffectsError, match="__hci_effect_virtual_gid"):
+        virtual_ids({"__hci_effect_virtual_gid": "1.5"})
+
+
+def test_virtual_ids_defaults() -> None:
+    assert virtual_ids({}) == (0, 0)
+    assert virtual_ids({"__hci_effect_virtual_uid": "1000"}) == (1000, 1000)

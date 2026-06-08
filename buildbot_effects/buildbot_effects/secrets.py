@@ -82,6 +82,12 @@ def parse_secrets_map(drv_env: dict[str, str]) -> dict[str, SecretRef]:
     except json.JSONDecodeError as e:
         msg = f"could not parse secretsMap in the derivation: {e}"
         raise SecretsError(msg) from e
+    if not isinstance(parsed, dict):
+        msg = (
+            "secretsMap in the derivation must be a JSON object, "
+            f"got {type(parsed).__name__}"
+        )
+        raise SecretsError(msg)
     refs: dict[str, SecretRef] = {}
     for dest, ref in parsed.items():
         if isinstance(ref, str):
