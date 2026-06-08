@@ -23,10 +23,11 @@ class BuildFilters:
 
     @classmethod
     def for_ref(cls, ref: str | None, **kwargs: Any) -> BuildFilters:
-        """Parse a ref filter: "#123" or "123" means a PR, anything
-        else a branch name."""
-        if ref and re.fullmatch(r"#?\d+", ref):
-            return cls(pr_number=int(ref.lstrip("#")), **kwargs)
+        """Parse a ref filter: "#123" or "pr/123" means a PR, anything
+        else (including bare digits — branches may be named "2024")
+        a branch name."""
+        if ref and (match := re.fullmatch(r"(?:#|pr/)(\d+)", ref)):
+            return cls(pr_number=int(match.group(1)), **kwargs)
         return cls(branch=ref or None, **kwargs)
 
 

@@ -105,6 +105,36 @@ def test_project_page_with_filters(client: WebHarness) -> None:
     assert ">#2<" not in by_pr.text
 
 
+def test_all_digit_branch_is_filterable(client: WebHarness) -> None:
+    """A branch named "2024" must not be hijacked as PR number 2024;
+    PRs use the explicit #N or pr/N forms."""
+    ctx = client.ctx
+
+    async def setup() -> None:
+        project_id = await ctx.pool.fetchval(
+            "SELECT id FROM projects WHERE name = 'widget'"
+        )
+        await ctx.pool.execute(
+            "INSERT INTO builds (project_id, number, commit_sha, branch, status)"
+            " VALUES ($1, 80, 'y1', '2024', 'succeeded')",
+            project_id,
+        )
+
+    client.loop.run_until_complete(setup())
+    try:
+        by_branch = client.get("/repos/github/acme/widget?ref=2024")
+        assert ">#80<" in by_branch.text
+        assert ">#3<" not in by_branch.text
+        for ref in ("%235", "pr/5"):
+            by_pr = client.get(f"/repos/github/acme/widget?ref={ref}")
+            assert ">#3<" in by_pr.text
+            assert ">#80<" not in by_pr.text
+    finally:
+        client.loop.run_until_complete(
+            ctx.pool.execute("DELETE FROM builds WHERE number = 80")
+        )
+
+
 def test_build_page(client: WebHarness) -> None:
     response = client.get("/repos/github/acme/widget/builds/2")
     assert response.status_code == 200
