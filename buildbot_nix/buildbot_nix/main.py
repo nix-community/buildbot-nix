@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import signal
 from pathlib import Path
 
 from .bootstrap import run_service
@@ -45,24 +44,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 async def run(config: Config) -> None:
-    """Run the service until a termination signal arrives."""
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
+    """Run the service until a termination signal arrives.
 
+    Signal handling lives in run_service: uvicorn installs its own
+    SIGINT/SIGTERM handlers (overwriting anything set here), and the
+    bootstrap treats the first server exit as shutdown.
+    """
     logger.info(
         "buildbot-nix starting",
         extra={"url": config.url, "state_dir": str(config.state_dir)},
     )
-    serve = asyncio.create_task(run_service(config))
-    stop_wait = asyncio.create_task(stop.wait())
-    done, _ = await asyncio.wait(
-        {serve, stop_wait}, return_when=asyncio.FIRST_COMPLETED
-    )
-    if serve in done:
-        serve.result()  # propagate startup/serve errors
-    serve.cancel()
+    await run_service(config)
     logger.info("buildbot-nix shutting down")
 
 
