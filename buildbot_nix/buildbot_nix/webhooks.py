@@ -271,6 +271,10 @@ def parse_gitlab_event(  # noqa: PLR0911
         # No cancel on merge; see parse_github_event.
         if action not in ("open", "update", "reopen"):
             return None
+        # Metadata-only updates (labels, title, milestone) carry no
+        # oldrev; only head-moving updates trigger a build.
+        if action == "update" and not attrs.get("oldrev"):
+            return None
         # No commit_message; see parse_github_event.
         target_branch = attrs.get("target_branch", "")
         return ChangeRequest(

@@ -534,12 +534,13 @@ GITLAB_PUSH = {
     "commits": [{"id": "old", "message": "x"}, {"id": "abc", "message": "feat"}],
 }
 
-GITLAB_MR = {
+GITLAB_MR: dict[str, Any] = {
     "project": {"id": 8},
     "user": {"username": "bob"},
     "object_attributes": {
         "iid": 4,
         "action": "update",
+        "oldrev": "old",
         "target_branch": "main",
         "last_commit": {"id": "def"},
     },
@@ -569,6 +570,18 @@ def test_parse_gitlab_events() -> None:
         # No base sha in the payload: merge against the target branch.
         base_sha="refs/heads/main",
     )
+    # Update without oldrev: metadata-only edit, nothing to build.
+    metadata_update = parse_gitlab_event(
+        "Merge Request Hook",
+        {
+            **GITLAB_MR,
+            "object_attributes": {
+                k: v for k, v in GITLAB_MR["object_attributes"].items() if k != "oldrev"
+            },
+        },
+    )
+    assert metadata_update is None
+
     closed = parse_gitlab_event(
         "Merge Request Hook",
         {**GITLAB_MR, "object_attributes": {"iid": 4, "action": "close"}},
