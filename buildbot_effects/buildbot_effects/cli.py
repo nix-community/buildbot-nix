@@ -14,6 +14,7 @@ from . import (
     instantiate_scheduled_effect,
     list_effects,
     list_scheduled_effects,
+    nix_command,
     parse_derivation,
     run_effects,
     select_mounts,
@@ -24,15 +25,7 @@ from .options import EffectsOptions
 
 def resolve_flake(flake_ref: str, *, debug: bool = False) -> dict[str, Any]:
     """Run `nix flake metadata --json` and return the parsed JSON."""
-    cmd = [
-        "nix",
-        "--extra-experimental-features",
-        "nix-command flakes",
-        "flake",
-        "metadata",
-        "--json",
-        flake_ref,
-    ]
+    cmd = nix_command("flake", "metadata", "--json", flake_ref)
     if debug:
         print("$", shlex.join(cmd), file=sys.stderr)
     try:

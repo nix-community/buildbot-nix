@@ -212,6 +212,9 @@ def list_scheduled_effects(opts: EffectsOptions) -> dict[str, Any]:
 def _instantiate(expr: str, opts: EffectsOptions, gcroot: Path) -> str:
     cmd = [
         "nix-instantiate",
+        # the expression uses builtins.getFlake
+        "--extra-experimental-features",
+        "flakes",
         "--add-root",
         str(gcroot),
         "--expr",
@@ -242,14 +245,7 @@ def instantiate_scheduled_effect(
 
 
 def parse_derivation(path: str, *, debug: bool = False) -> dict[str, Any]:
-    cmd = [
-        "nix",
-        "--extra-experimental-features",
-        "nix-command flakes",
-        "derivation",
-        "show",
-        f"{path}^*",
-    ]
+    cmd = nix_command("derivation", "show", f"{path}^*")
     proc = run(cmd, stdout=subprocess.PIPE, debug=debug)
     return json.loads(proc.stdout)
 
@@ -450,11 +446,7 @@ def run_effects(  # noqa: PLR0913
 
     # Mirrors hercules-ci implementation: https://github.com/hercules-ci/hercules-ci-agent/blob/57c564298bafde509bd23f4d5862574c94be01ba/hercules-ci-agent/src/Hercules/Effect.hs#L285
     bubblewrap_cmd = [
-        "nix",
-        "develop",
-        "-i",
-        f"{drv_path}^*",
-        "-c",
+        *nix_command("develop", "-i", f"{drv_path}^*", "-c"),
         bwrap,
         "--unshare-all",
         "--share-net",
