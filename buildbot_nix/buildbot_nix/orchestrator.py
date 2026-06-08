@@ -1071,9 +1071,6 @@ class _ReadOnlyFailedBuildCache:
     async def add(self, drv_path: str, url: str) -> None:
         pass
 
-    async def remove(self, drv_path: str) -> None:
-        await self._inner.remove(drv_path)
-
 
 class _OrchestratorExecutor:
     """Scheduler executor adapter: runs the build, then post-build

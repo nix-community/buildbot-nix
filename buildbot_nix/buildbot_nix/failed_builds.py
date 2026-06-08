@@ -3,7 +3,8 @@
 Storage port of db/failed_builds.py onto the service schema; the skip
 semantics live in scheduler.py (cached failures skip the build,
 report with a link to the first failure, and propagate to dependents;
-an explicit rebuild removes the entry and builds again).
+an explicit rebuild deletes the rows up front in service.py and
+builds again).
 """
 
 from __future__ import annotations
@@ -53,11 +54,4 @@ class PostgresFailedBuildCache:
             drv_path,
             datetime.now(tz=UTC).timestamp(),
             url,
-        )
-
-    async def remove(self, drv_path: str) -> None:
-        await self.pool.execute(
-            "DELETE FROM failed_builds WHERE project_id = $1 AND derivation = $2",
-            self.project_id,
-            drv_path,
         )

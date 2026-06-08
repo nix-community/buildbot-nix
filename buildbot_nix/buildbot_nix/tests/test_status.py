@@ -198,8 +198,6 @@ def test_success_flip_on_rebuild() -> None:
             EVENT, BUILD, "failed", 1, [attr_result("flaky", AttributeStatus.failed)]
         )
         assert context in await store.get_failed("sha1")
-        # force_attrs derived from persisted failed statuses.
-        assert await reporter.force_attrs_for(EVENT) == {"flaky"}
         # Rebuild succeeds: status flipped, record cleared.
         await reporter.build_finished(
             EVENT,
@@ -362,7 +360,6 @@ def test_attr_prefix_follows_repo_configuration() -> None:
             [attr_result("foo", AttributeStatus.failed)],
             attr_prefix="hydraJobs",
         )
-        assert await reporter.force_attrs_for(EVENT, "hydraJobs") == {"foo"}
 
     asyncio.run(run())
     assert any(

@@ -253,8 +253,6 @@ def test_failed_build_cache_component(postgres_dsn: str) -> None:
             assert entry is not None
             assert entry.url == "http://ci/b/2"
             assert entry.time >= first_time
-            await cache.remove(drv)
-            assert await cache.check(drv) is None
         finally:
             await pool.close()
 

@@ -589,9 +589,6 @@ def test_internal_error_not_recorded_in_failed_build_cache(
             async def add(self, drv_path: str, url: str) -> None:
                 self.added.append(drv_path)
 
-            async def remove(self, drv_path: str) -> None:
-                pass
-
         sha = add_commit(upstream, "crash")
         pool, orchestrator, _, project = await make_env(
             postgres_dsn,
@@ -799,9 +796,6 @@ def test_recovery_rerun_failures_not_cached(
 
         async def add(self, drv_path: str, url: str) -> None:
             self.added.append(drv_path)
-
-        async def remove(self, drv_path: str) -> None:
-            pass
 
     async def run() -> None:
         sha = add_commit(upstream, "recov")

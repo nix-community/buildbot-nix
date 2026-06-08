@@ -46,17 +46,12 @@ class FakeCache:
     def __init__(self, entries: dict[str, CachedFailure] | None = None) -> None:
         self.entries = entries or {}
         self.added: list[tuple[str, str]] = []
-        self.removed: list[str] = []
 
     async def check(self, drv_path: str) -> CachedFailure | None:
         return self.entries.get(drv_path)
 
     async def add(self, drv_path: str, url: str) -> None:
         self.added.append((drv_path, url))
-
-    async def remove(self, drv_path: str) -> None:
-        self.removed.append(drv_path)
-        self.entries.pop(drv_path, None)
 
 
 def run_scheduler(scheduler: JobScheduler, jobs: list) -> ScheduleResult:
@@ -207,25 +202,6 @@ def test_cached_failure_propagates_to_dependents() -> None:
     assert executor.built == []
 
 
-def test_rebuild_clears_cached_failure_and_builds() -> None:
-    job = mk_job("flaky")
-    cache = FakeCache(
-        {
-            job.drv_path: CachedFailure(
-                drv_path=job.drv_path, time=datetime(2026, 1, 1, tzinfo=UTC), url="u"
-            )
-        }
-    )
-    executor = FakeExecutor()
-    result = run_scheduler(
-        JobScheduler(executor, [SYSTEM], failed_build_cache=cache, is_rebuild=True),
-        [job],
-    )
-    assert executor.built == ["flaky"]
-    assert cache.removed == [job.drv_path]
-    assert result.success
-
-
 def test_failure_recorded_in_cache() -> None:
     job = mk_job("breaks")
     cache = FakeCache()
@@ -252,16 +228,6 @@ def test_cancelled_not_recorded_in_cache_and_propagates_cancelled() -> None:
     assert statuses["a"] == AttributeStatus.cancelled
     # Cancelled propagates "cancelled/skipped", never dependency_failed.
     assert statuses["b"] == AttributeStatus.cancelled
-
-
-def test_force_attr_builds_local_job() -> None:
-    local = mk_job("local", cache_status=CacheStatus.local)
-    executor = FakeExecutor()
-    result = run_scheduler(
-        JobScheduler(executor, [SYSTEM], force_attrs={"local"}), [local]
-    )
-    assert executor.built == ["local"]
-    assert by_attr(result)["local"] == AttributeStatus.succeeded
 
 
 def test_mixed_eval_results_independent() -> None:

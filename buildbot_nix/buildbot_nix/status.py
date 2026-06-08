@@ -477,17 +477,3 @@ class ForgeStatusReporter:
             description or "failed",
             propagate=True,
         )
-
-    async def force_attrs_for(
-        self, event: ChangeEvent, attr_prefix: str = "checks"
-    ) -> set[str]:
-        """Attrs whose failed status must be flipped: feed to the
-        scheduler as force_attrs so already-built attrs still run."""
-        prefix = (
-            f"buildbot/nix-build {event.repo.forge}:{event.repo.name}#{attr_prefix}."
-        )
-        return {
-            name.removeprefix(prefix)
-            for name in await self.failed_statuses.get_failed(event.commit_sha)
-            if name.startswith(prefix)
-        }

@@ -77,8 +77,6 @@ class FailedBuildCache(Protocol):
 
     async def add(self, drv_path: str, url: str) -> None: ...
 
-    async def remove(self, drv_path: str) -> None: ...
-
 
 class AttributeStatus(StrEnum):
     succeeded = "succeeded"
@@ -298,24 +296,18 @@ class _State:
 class JobScheduler:
     """Schedules evaluated attributes in dependency order."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         executor: BuildExecutor,
         supported_systems: list[str],
         failed_build_cache: FailedBuildCache | None = None,
         *,
-        is_rebuild: bool = False,
-        force_attrs: set[str] | None = None,
         build_url: str = "",
         on_result: Callable[[AttributeResult], Awaitable[None]] | None = None,
     ) -> None:
         self.executor = executor
         self.supported_systems = supported_systems
         self.failed_build_cache = failed_build_cache
-        self.is_rebuild = is_rebuild
-        # Attrs that would be skipped as already built but must run
-        # anyway to flip a previously failed forge status.
-        self.force_attrs = force_attrs or set()
         self.build_url = build_url
         # Called for each result as soon as it is known.
         self.on_result = on_result
@@ -539,17 +531,13 @@ class JobScheduler:
         # An output already in the local store is not a failure: the
         # local-store skip must win over a stale failed-build cache
         # entry for the same drv.
-        if job.cache_status == CacheStatus.local and job.attr not in self.force_attrs:
+        if job.cache_status == CacheStatus.local:
             result.results.append(_success_result(job, AttributeStatus.skipped_local))
             return "skip"
 
         if self.failed_build_cache is not None:
             cached = await self.failed_build_cache.check(job.drv_path)
             if cached is not None:
-                if self.is_rebuild:
-                    # Rebuild requested: drop the cache entry and build.
-                    await self.failed_build_cache.remove(job.drv_path)
-                    return "run"
                 result.results.append(
                     _success_result(
                         job,
