@@ -283,6 +283,7 @@ async def build_service(config: Config) -> tuple[CIService, FastAPI]:
                 ctx.forge_tokens,
                 private_repo_viewers=config.private_repo_viewers,
                 revoked_sessions=ctx.revoked_sessions,
+                on_logout=ctx.visibility.invalidate_user,
             ),
             include_in_schema=False,
         )

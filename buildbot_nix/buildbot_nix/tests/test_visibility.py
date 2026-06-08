@@ -16,8 +16,15 @@ from buildbot_nix.api_tokens import ApiTokenStore
 from buildbot_nix.auth import AuthzConfig, User
 from buildbot_nix.forge_tokens import ForgeTokenStore
 from buildbot_nix.visibility import AccessCache, RepoAccess, VisibilityService
+from buildbot_nix.web.auth_routes import SESSION_COOKIE, create_auth_router
 
-from .support import WebHarness, insert_build, insert_project, web_harness
+from .support import (
+    WebHarness,
+    cookie_header,
+    insert_build,
+    insert_project,
+    web_harness,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -296,3 +303,44 @@ def test_api_token_inherits_login_groups(harness: WebHarness) -> None:
         assert response.status_code == 200
     finally:
         ctx.visibility.authz = saved
+
+
+def test_access_cache_prunes_expired_on_get() -> None:
+    """Expired entries must not accumulate forever; get() prunes them."""
+    cache = AccessCache(ttl=0)
+    cache.set("github:alice", RepoAccess(frozenset(), frozenset()))
+    cache.set("github:bob", RepoAccess(frozenset(), frozenset()))
+    assert cache.get("github:alice") is None
+    assert cache._entries == {}  # noqa: SLF001
+
+
+def test_logout_invalidates_access_cache(postgres_dsn: str) -> None:
+    """The cache docstring promises entries are dropped on logout."""
+
+    def configure(app: FastAPI, pool: asyncpg.Pool) -> None:
+        ctx = app.state.web_context
+        ctx.visibility = VisibilityService(
+            pool, AuthzConfig(admins=[]), fetcher=FETCHER, cache=AccessCache(ttl=3600)
+        )
+        ctx.forge_tokens = ForgeTokenStore(pool)
+        app.include_router(
+            create_auth_router(
+                {},
+                ctx.signer,
+                "http://test",
+                ctx.forge_tokens,
+                revoked_sessions=ctx.revoked_sessions,
+                on_logout=ctx.visibility.invalidate_user,
+            )
+        )
+
+    with web_harness(postgres_dsn, configure=configure) as h:
+        visibility = h.ctx.visibility
+        assert visibility is not None
+        visibility.cache.set(
+            CAROL.qualified, RepoAccess(frozenset({"github:priv-1"}), frozenset())
+        )
+        cookie = h.signer.session_for(CAROL, "sid-vis-logout")
+        headers = cookie_header({SESSION_COOKIE: cookie}) | {"Origin": "http://test"}
+        assert h.run(h.http.post("/logout", headers=headers)).status_code == 303
+        assert visibility.cache.get(CAROL.qualified) is None

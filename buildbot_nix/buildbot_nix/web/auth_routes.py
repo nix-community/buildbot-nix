@@ -14,7 +14,9 @@ from fastapi.responses import RedirectResponse
 from ..auth import OAuthError, relevant_groups, same_origin  # noqa: TID252
 
 if TYPE_CHECKING:
-    from ..auth import OAuthProvider, SessionSigner  # noqa: TID252
+    from collections.abc import Callable
+
+    from ..auth import OAuthProvider, SessionSigner, User  # noqa: TID252
     from ..forge_tokens import SessionRevocations, TokenVault  # noqa: TID252
 
 SESSION_COOKIE = "buildbot_nix_session"
@@ -72,6 +74,7 @@ def create_auth_router(  # noqa: PLR0913
     http: httpx.AsyncClient | None = None,
     private_repo_viewers: dict[str, list[str]] | None = None,
     revoked_sessions: SessionRevocations | None = None,
+    on_logout: Callable[[User], None] | None = None,
 ) -> APIRouter:
     router = APIRouter()
     http = http or httpx.AsyncClient()
@@ -144,9 +147,11 @@ def create_auth_router(  # noqa: PLR0913
     async def logout(request: Request) -> RedirectResponse:
         if not same_origin(request, base_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
-        await _invalidate_session(
-            signer, forge_tokens, revoked_sessions, request.cookies.get(SESSION_COOKIE)
-        )
+        cookie = request.cookies.get(SESSION_COOKIE)
+        await _invalidate_session(signer, forge_tokens, revoked_sessions, cookie)
+        user = signer.user_from(cookie)
+        if user is not None and on_logout is not None:
+            on_logout(user)
         response = RedirectResponse("/", status_code=303)
         response.delete_cookie(SESSION_COOKIE)
         return response

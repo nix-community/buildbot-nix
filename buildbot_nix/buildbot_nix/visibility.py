@@ -53,10 +53,13 @@ class AccessCache:
         self._entries: dict[str, _CacheEntry] = {}
 
     def get(self, user_key: str) -> RepoAccess | None:
+        # Opportunistic pruning keeps the cache from growing without
+        # bound as users come and go.
+        now = time.monotonic()
+        for key in [k for k, e in self._entries.items() if e.expires <= now]:
+            del self._entries[key]
         entry = self._entries.get(user_key)
-        if entry is None or entry.expires < time.monotonic():
-            return None
-        return entry.access
+        return entry.access if entry is not None else None
 
     def set(self, user_key: str, access: RepoAccess) -> None:
         self._entries[user_key] = _CacheEntry(
@@ -139,6 +142,9 @@ class VisibilityService:
         self.authz = authz
         self.fetcher = fetcher
         self.cache = cache or AccessCache()
+
+    def invalidate_user(self, user: User) -> None:
+        self.cache.invalidate(user.qualified)
 
     async def visible_repo_ids(
         self, user: User | None, token: str | None = None
