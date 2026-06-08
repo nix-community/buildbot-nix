@@ -395,7 +395,7 @@ class _LogRoutes:
         prev_number, next_number = await self.ctx.queries.attribute_neighbors(
             project["id"], attr, number
         )
-        return self.ctx.render(
+        return await self.ctx.render(
             "log.html",
             request=request,
             project=project,

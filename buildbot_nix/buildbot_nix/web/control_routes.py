@@ -235,7 +235,9 @@ class _ControlRoutes:
         readable afterwards."""
         await self._require_repo_admin(request, project_id)
         secret = await WebhookSecrets(self.ctx.pool).rotate(project_id)
-        return self.ctx.render("_webhook_secret.html", request=request, secret=secret)
+        return await self.ctx.render(
+            "_webhook_secret.html", request=request, secret=secret
+        )
 
 
 def create_control_router(

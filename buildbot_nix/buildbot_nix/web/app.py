@@ -37,6 +37,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from buildbot_nix.effects_state import TaskTokens
 
 from ..auth import can_control_build, is_admin  # noqa: TID252
+from ..forge_tokens import RevokedSessionStore  # noqa: TID252
 from ..recovery import check_db_health  # noqa: TID252
 from ..scheduled import ScheduledEffectsStore, schedule_overview  # noqa: TID252
 from .api_routes import create_api_router
@@ -51,7 +52,7 @@ from .templating import STATIC_DIR, CachedStaticFiles, make_env
 if TYPE_CHECKING:
     from ..api_tokens import ApiTokenStore  # noqa: TID252
     from ..auth import AuthzConfig, SessionSigner, User  # noqa: TID252
-    from ..forge_tokens import TokenVault  # noqa: TID252
+    from ..forge_tokens import SessionRevocations, TokenVault  # noqa: TID252
     from ..visibility import VisibilityService  # noqa: TID252
 
 if TYPE_CHECKING:
@@ -96,6 +97,9 @@ class WebContext:
         self.webhook_base_url: str | None = None
         self.token_store: ApiTokenStore | None = None
         self.forge_tokens: TokenVault | None = None
+        # Logout denylist: stateless cookies stay verifiable until
+        # expiry, so revoked session ids are checked server-side.
+        self.revoked_sessions: SessionRevocations | None = RevokedSessionStore(pool)
 
     async def can_control(self, request: Request, build: dict[str, Any]) -> bool:
         """Whether to render restart/cancel buttons; the control
@@ -108,10 +112,23 @@ class WebContext:
             build_pr_author=build.get("pr_author"),
         )
 
-    def current_user(self, request: Request) -> User | None:
+    async def current_user(self, request: Request) -> User | None:
         if self.signer is None:
             return None
-        return self.signer.user_from(request.cookies.get(SESSION_COOKIE))
+        token = request.cookies.get(SESSION_COOKIE)
+        user = self.signer.user_from(token)
+        if user is None:
+            return None
+        # A validly signed cookie may belong to a logged-out session;
+        # captured copies must not stay usable after logout.
+        session_id = self.signer.session_id_from(token)
+        if (
+            session_id is not None
+            and self.revoked_sessions is not None
+            and await self.revoked_sessions.is_revoked(session_id)
+        ):
+            return None
+        return user
 
     async def request_user(self, request: Request) -> User | None:
         """Session cookie or personal API token (Authorization: Bearer).
@@ -127,13 +144,13 @@ class WebContext:
             return await self.token_store.authenticate(
                 auth_header.removeprefix("Bearer ")
             )
-        return self.current_user(request)
+        return await self.current_user(request)
 
-    def render(
+    async def render(
         self, template: str, request: Request | None = None, **context: Any
     ) -> HTMLResponse:
-        if request is not None:
-            context.setdefault("user", self.current_user(request))
+        if request is not None and "user" not in context:
+            context["user"] = await self.request_user(request)
         return HTMLResponse(self.env.get_template(template).render(**context))
 
     async def visible_repo_ids(self, request: Request) -> list[int] | None:
@@ -222,7 +239,7 @@ class _PageRoutes:
             for p in (await ctx.queries.projects(enabled=False, q=q) if q else [])
             if toggleable is None or p["id"] in toggleable
         ]
-        return ctx.render(
+        return await ctx.render(
             "index.html",
             request=request,
             q=q,
@@ -236,7 +253,7 @@ class _PageRoutes:
     async def activity(self, request: Request) -> HTMLResponse:
         ctx = self.ctx
         visible = await ctx.visible_repo_ids(request)
-        return ctx.render(
+        return await ctx.render(
             "activity.html",
             request=request,
             queue=await ctx.queries.queue(visible),
@@ -256,7 +273,7 @@ class _PageRoutes:
         builds = await ctx.queries.recent_builds(
             limit=limit + 1, project_ids=visible, before=before
         )
-        return ctx.render(
+        return await ctx.render(
             "_build_rows.html",
             request=request,
             builds=builds[:limit],
@@ -267,7 +284,7 @@ class _PageRoutes:
     async def queue_fragment(self, request: Request) -> HTMLResponse:
         ctx = self.ctx
         visible = await ctx.visible_repo_ids(request)
-        return ctx.render(
+        return await ctx.render(
             "_queue.html", request=request, queue=await ctx.queries.queue(visible)
         )
 
@@ -289,7 +306,7 @@ class _PageRoutes:
             filters=BuildFilters.for_ref(ref, status=status),
         )
         store = ScheduledEffectsStore(ctx.pool)
-        return ctx.render(
+        return await ctx.render(
             "repo.html",
             request=request,
             project=project,
@@ -340,7 +357,7 @@ class _PageRoutes:
             limit=limit,
             filters=BuildFilters.for_ref(ref, status=status or None, before=before),
         )
-        return ctx.render(
+        return await ctx.render(
             "_build_rows.html",
             request=request,
             builds=builds.items,
@@ -366,7 +383,7 @@ class _PageRoutes:
         )
         group_counts, inline = await self._grouped_attributes(build["id"], None)
         total = sum(group_counts.values())
-        return ctx.render(
+        return await ctx.render(
             "build.html",
             request=request,
             project=project,
@@ -409,7 +426,7 @@ class _PageRoutes:
         rows = await ctx.queries.attribute_page(
             build["id"], statuses, limit, max(page, 1), q or None
         )
-        return ctx.render(
+        return await ctx.render(
             "_attr_rows.html",
             request=request,
             project=project,
@@ -452,7 +469,7 @@ class _PageRoutes:
         """The grouped attribute fragment; a query filters every group
         and renders all of them eagerly opened."""
         group_counts, inline = await self._grouped_attributes(build["id"], q)
-        return self.ctx.render(
+        return await self.ctx.render(
             "_attributes.html",
             request=request,
             project=project,
@@ -467,7 +484,7 @@ class _PageRoutes:
     ) -> HTMLResponse:
         ctx = self.ctx
         project = await ctx.repo_or_404(forge, owner, name, request)
-        return ctx.render(
+        return await ctx.render(
             "attribute_history.html",
             request=request,
             project=project,
@@ -573,7 +590,7 @@ def create_app(
         if not wants_html:
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
         detail = exc.detail or HTTPStatus(exc.status_code).phrase
-        page = ctx.render(
+        page = await ctx.render(
             "error.html", request=request, status_code=exc.status_code, detail=detail
         )
         page.status_code = exc.status_code

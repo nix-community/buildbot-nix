@@ -14,7 +14,7 @@ from ..auth import OAuthError, relevant_groups, same_origin  # noqa: TID252
 
 if TYPE_CHECKING:
     from ..auth import OAuthProvider, SessionSigner  # noqa: TID252
-    from ..forge_tokens import TokenVault  # noqa: TID252
+    from ..forge_tokens import SessionRevocations, TokenVault  # noqa: TID252
 
 SESSION_COOKIE = "buildbot_nix_session"
 STATE_COOKIE = "buildbot_nix_oauth_state"
@@ -30,6 +30,27 @@ def _check_callback_params(request: Request, code: str, state: str, error: str) 
         )
 
 
+async def _invalidate_session(
+    signer: SessionSigner,
+    forge_tokens: TokenVault,
+    revoked_sessions: SessionRevocations | None,
+    cookie: str | None,
+) -> None:
+    """Captured cookie copies must not stay usable after logout: the
+    cookie is stateless and stays validly signed until expiry, so the
+    session id goes on a server-side denylist and the forge token is
+    dropped."""
+    session_id = signer.session_id_from(cookie)
+    if session_id is None:
+        return
+    # Revoke first: if we crash in between, a still-present forge token
+    # is useless without an accepted session, but the reverse order
+    # would leave a cookie that keeps authenticating.
+    if revoked_sessions is not None:
+        await revoked_sessions.revoke(session_id, signer.lifetime)
+    await forge_tokens.delete(session_id)
+
+
 def create_auth_router(  # noqa: PLR0913
     providers: dict[str, OAuthProvider],
     signer: SessionSigner,
@@ -37,6 +58,7 @@ def create_auth_router(  # noqa: PLR0913
     forge_tokens: TokenVault,
     http: httpx.AsyncClient | None = None,
     private_repo_viewers: dict[str, list[str]] | None = None,
+    revoked_sessions: SessionRevocations | None = None,
 ) -> APIRouter:
     router = APIRouter()
     http = http or httpx.AsyncClient()
@@ -103,10 +125,9 @@ def create_auth_router(  # noqa: PLR0913
     async def logout(request: Request) -> RedirectResponse:
         if not same_origin(request, base_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
-        # Captured cookie copies must not stay usable after logout.
-        session_id = signer.session_id_from(request.cookies.get(SESSION_COOKIE))
-        if session_id is not None:
-            await forge_tokens.delete(session_id)
+        await _invalidate_session(
+            signer, forge_tokens, revoked_sessions, request.cookies.get(SESSION_COOKIE)
+        )
         response = RedirectResponse("/", status_code=303)
         response.delete_cookie(SESSION_COOKIE)
         return response

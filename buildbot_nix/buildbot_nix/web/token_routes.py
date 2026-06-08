@@ -41,10 +41,10 @@ def create_token_router(
 
     @router.get("/settings", response_class=HTMLResponse)
     async def settings_page(request: Request) -> HTMLResponse:
-        user = ctx.current_user(request)
+        user = await ctx.current_user(request)
         if user is None:
             raise HTTPException(status_code=403, detail="login required")
-        return ctx.render(
+        return await ctx.render(
             "settings.html",
             user=user,
             tokens=await store.list_for(user),
@@ -59,12 +59,12 @@ def create_token_router(
     ) -> HTMLResponse:
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
-        user = ctx.current_user(request)
+        user = await ctx.current_user(request)
         if user is None:
             raise HTTPException(status_code=403, detail="login required")
         token = await store.create(user, name or "unnamed", _parse_expiry(expires_days))
         # Shown exactly once.
-        return ctx.render(
+        return await ctx.render(
             "settings.html",
             user=user,
             tokens=await store.list_for(user),
@@ -75,7 +75,7 @@ def create_token_router(
     async def revoke_token(request: Request, token_id: int) -> RedirectResponse:
         if not same_origin(request, own_url):
             raise HTTPException(status_code=403, detail="cross-origin request")
-        user = ctx.current_user(request)
+        user = await ctx.current_user(request)
         if user is None:
             raise HTTPException(status_code=403, detail="login required")
         if not await store.revoke(user, token_id):

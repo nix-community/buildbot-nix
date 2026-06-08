@@ -15,11 +15,16 @@ from typing import TYPE_CHECKING
 import asyncpg
 import pytest
 import zstandard
+from fastapi import Request  # noqa: TC002 (FastAPI resolves annotations at runtime)
+from fastapi.responses import JSONResponse
 
+from buildbot_nix.auth import User
 from buildbot_nix.db import BuildStatus
 from buildbot_nix.effects_state import TaskTokens
 from buildbot_nix.executor import LogWriter
+from buildbot_nix.forge_tokens import ForgeTokenStore
 from buildbot_nix.scheduler import AttributeStatus
+from buildbot_nix.web.auth_routes import SESSION_COOKIE, create_auth_router
 from buildbot_nix.web.events import EventBroker
 from buildbot_nix.web.logs import (
     AnsiHtmlStream,
@@ -31,10 +36,12 @@ from buildbot_nix.web.state_routes import create_state_router
 from buildbot_nix.web.templating import branch_url, commit_url, pr_url, timeago
 
 from .e2e.support import seed
-from .support import WebHarness, web_harness
+from .support import WebHarness, cookie_header, web_harness
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from fastapi import FastAPI
 
 
 @pytest.fixture(scope="module")
@@ -881,3 +888,43 @@ def test_effects_state_api(client: WebHarness, tmp_path: Path) -> None:
     client.loop.run_until_complete(run())
     # Scoped under the project directory, name percent-encoded.
     assert (tmp_path / "effects-state" / "7" / "known-hosts").exists()
+
+
+def test_logout_revokes_session_cookie(postgres_dsn: str) -> None:
+    """A captured copy of the session cookie must stop authenticating
+    once the user logs out, even though the cookie itself is still
+    validly signed and unexpired."""
+
+    def configure(app: FastAPI, pool: asyncpg.Pool) -> None:
+        ctx = app.state.web_context
+        app.include_router(
+            create_auth_router(
+                {},
+                ctx.signer,
+                "http://test",
+                ForgeTokenStore(pool),
+                revoked_sessions=ctx.revoked_sessions,
+            )
+        )
+
+        @app.get("/whoami")
+        async def whoami(request: Request) -> JSONResponse:
+            user = await ctx.request_user(request)
+            return JSONResponse({"user": user.qualified if user else None})
+
+    with web_harness(postgres_dsn, configure=configure) as harness:
+        cookie = harness.signer.session_for(
+            User(provider="github", username="alice"), "sid-logout-test"
+        )
+        headers = cookie_header({SESSION_COOKIE: cookie})
+
+        before = harness.run(harness.http.get("/whoami", headers=headers))
+        assert before.json() == {"user": "github:alice"}
+
+        logout = harness.run(
+            harness.http.post("/logout", headers=headers | {"Origin": "http://test"})
+        )
+        assert logout.status_code == 303
+
+        after = harness.run(harness.http.get("/whoami", headers=headers))
+        assert after.json() == {"user": None}
