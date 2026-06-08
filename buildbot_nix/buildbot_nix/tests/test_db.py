@@ -14,6 +14,7 @@ import pytest
 from buildbot_nix.db import BuildDB
 from buildbot_nix.failed_builds import PostgresFailedBuildCache
 from buildbot_nix.migrations import apply_migrations, load_migrations
+from buildbot_nix.models import CacheStatus
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 
 from .support import insert_project, mk_job
@@ -467,6 +468,51 @@ def test_complete_attribute_preserves_eval_outputs(postgres_dsn: str) -> None:
                 "out": "/nix/store/foo-out-new",
                 "dev": "/nix/store/foo-dev",
             }
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_complete_attribute_marks_substituted_as_cached(postgres_dsn: str) -> None:
+    # The API documents `cached` as "came from cache": attributes
+    # substituted from a binary cache must set it, not only ones
+    # skipped because they were already in the local store.
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "cached-flag")
+            db = BuildDB(pool)
+            build, _ = await db.get_or_create_build(project_id, "tree-s", "sha", "main")
+
+            async def cached(attr: str) -> bool:
+                return await pool.fetchval(
+                    "SELECT cached FROM build_attributes "
+                    "WHERE build_id = $1 AND attr = $2",
+                    build.id,
+                    attr,
+                )
+
+            for attr, cache_status, status in (
+                ("sub", CacheStatus.cached, AttributeStatus.succeeded),
+                ("local", CacheStatus.local, AttributeStatus.skipped_local),
+                ("built", CacheStatus.not_built, AttributeStatus.succeeded),
+            ):
+                job = mk_job(attr, cache_status=cache_status)
+                await db.complete_attribute(
+                    build.id,
+                    AttributeResult(
+                        attr=attr,
+                        status=status,
+                        job=job,
+                        out_path=f"/nix/store/{attr}-out",
+                        drv_path=job.drv_path,
+                        system=job.system,
+                    ),
+                )
+            assert await cached("sub") is True
+            assert await cached("local") is True
+            assert await cached("built") is False
         finally:
             await pool.close()
 

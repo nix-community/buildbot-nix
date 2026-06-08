@@ -18,7 +18,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .models import NixEvalJobSuccess
+from .models import CacheStatus, NixEvalJobSuccess
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -364,7 +364,14 @@ class BuildDB:
                 json.dumps({"out": result.out_path}) if result.out_path else None,
                 result.status.value,
                 result.error,
-                result.status.value == "skipped_local",
+                # "Came from cache": already in the local store, or
+                # successfully substituted from a binary cache.
+                result.status.value == "skipped_local"
+                or (
+                    result.status.value == "succeeded"
+                    and isinstance(result.job, NixEvalJobSuccess)
+                    and result.job.cache_status == CacheStatus.cached
+                ),
             )
             if log_path is not None:
                 # Reruns rewrite the same log file; replace the
