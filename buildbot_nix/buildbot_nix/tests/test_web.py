@@ -8,13 +8,11 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
-import httpx
 import pytest
 import zstandard
 
@@ -22,7 +20,6 @@ from buildbot_nix.db import BuildStatus
 from buildbot_nix.effects_state import TaskTokens
 from buildbot_nix.executor import LogWriter
 from buildbot_nix.scheduler import AttributeStatus
-from buildbot_nix.web.app import create_app
 from buildbot_nix.web.events import EventBroker
 from buildbot_nix.web.logs import (
     AnsiHtmlStream,
@@ -34,66 +31,25 @@ from buildbot_nix.web.state_routes import create_state_router
 from buildbot_nix.web.templating import timeago
 
 from .e2e.support import seed
-from .support import ephemeral_postgres
+from .support import WebHarness, web_harness
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from fastapi import FastAPI
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
-)
+@pytest.fixture(scope="module")
+def postgres_dsn(postgres_dsn: str) -> str:
+    asyncio.run(seed(postgres_dsn))
+    return postgres_dsn
 
 
 @pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "web") as dsn:
-        asyncio.run(seed(dsn))
-        yield dsn
+def client(postgres_dsn: str) -> Iterator[WebHarness]:
+    with web_harness(postgres_dsn) as harness:
+        yield harness
 
 
-@pytest.fixture(scope="module")
-def loop() -> Iterator[asyncio.AbstractEventLoop]:
-    event_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(event_loop)
-    yield event_loop
-    asyncio.set_event_loop(None)
-    event_loop.close()
-
-
-@pytest.fixture(scope="module")
-def client(postgres_dsn: str, loop: asyncio.AbstractEventLoop) -> Iterator[WebClient]:
-    async def make_pool() -> asyncpg.Pool:
-        return await asyncpg.create_pool(postgres_dsn)
-
-    pool = loop.run_until_complete(make_pool())
-    app = create_app(pool)
-    http = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    )
-    yield WebClient(loop, http, app)
-    loop.run_until_complete(http.aclose())
-    loop.run_until_complete(pool.close())
-
-
-class WebClient:
-    def __init__(
-        self,
-        event_loop: asyncio.AbstractEventLoop,
-        http: httpx.AsyncClient,
-        app: FastAPI,
-    ) -> None:
-        self.loop = event_loop
-        self.http = http
-        self.app = app
-
-
-def get(client: WebClient, url: str) -> httpx.Response:
-    return client.loop.run_until_complete(client.http.get(url))
-
-
-def test_html_error_pages(client: WebClient) -> None:
+def test_html_error_pages(client: WebHarness) -> None:
     missing = client.loop.run_until_complete(
         client.http.get("/repos/github/nope/nope", headers={"accept": "text/html"})
     )
@@ -101,47 +57,47 @@ def test_html_error_pages(client: WebClient) -> None:
     assert missing.headers["content-type"].startswith("text/html")
     assert 'href="/"' in missing.text
 
-    api = get(client, "/api/repos/github/nope/nope")
+    api = client.get("/api/repos/github/nope/nope")
     assert api.status_code == 404
     assert api.json() == {"detail": "Not Found"}
 
 
-def test_api_strips_ansi_from_errors(client: WebClient) -> None:
-    build = get(client, "/api/repos/github/acme/widget/builds/2").json()
+def test_api_strips_ansi_from_errors(client: WebHarness) -> None:
+    build = client.get("/api/repos/github/acme/widget/builds/2").json()
     errors = [a["error"] for a in build["attributes"] if a["error"]]
     assert errors
     assert all("\x1b" not in e for e in errors)
 
 
-def test_homepage(client: WebClient) -> None:
-    response = get(client, "/")
+def test_homepage(client: WebHarness) -> None:
+    response = client.get("/")
     assert response.status_code == 200
     assert "acme/widget" in response.text  # sidebar
     assert "#3" in response.text  # recent feed
 
 
-def test_project_page_with_filters(client: WebClient) -> None:
-    response = get(client, "/repos/github/acme/widget")
+def test_project_page_with_filters(client: WebHarness) -> None:
+    response = client.get("/repos/github/acme/widget")
     assert response.status_code == 200
     assert "#1" in response.text
     assert "#2" in response.text
 
-    filtered = get(client, "/repos/github/acme/widget?status=failed")
+    filtered = client.get("/repos/github/acme/widget?status=failed")
     assert "#2" in filtered.text
     assert ">#1<" not in filtered.text
 
-    by_branch = get(client, "/repos/github/acme/widget?ref=feature")
+    by_branch = client.get("/repos/github/acme/widget?ref=feature")
     assert "#3" in by_branch.text
     assert ">#2<" not in by_branch.text
 
     # A numeric ref means a PR; build 3 is PR #5.
-    by_pr = get(client, "/repos/github/acme/widget?ref=%235")
+    by_pr = client.get("/repos/github/acme/widget?ref=%235")
     assert "#3" in by_pr.text
     assert ">#2<" not in by_pr.text
 
 
-def test_build_page(client: WebClient) -> None:
-    response = get(client, "/repos/github/acme/widget/builds/2")
+def test_build_page(client: WebHarness) -> None:
+    response = client.get("/repos/github/acme/widget/builds/2")
     assert response.status_code == 200
     text = response.text
     # Failures render eagerly in an open group; the succeeded bulk is
@@ -169,26 +125,26 @@ def test_build_page(client: WebClient) -> None:
     assert "https://github.com/acme/widget/commit/sha-2" in text
 
 
-def test_attribute_rows_fragment_paginates(client: WebClient) -> None:
+def test_attribute_rows_fragment_paginates(client: WebHarness) -> None:
     base = "/repos/github/acme/widget/builds/2/attrs"
-    rows = get(client, f"{base}?group=succeeded")
+    rows = client.get(f"{base}?group=succeeded")
     assert rows.status_code == 200
     assert "x86_64-linux.ok" in rows.text
     assert "aarch64-linux.other" in rows.text
 
-    first = get(client, f"{base}?group=succeeded&limit=1").text
+    first = client.get(f"{base}?group=succeeded&limit=1").text
     assert "aarch64-linux.other" in first  # alphabetical within the group
     assert "x86_64-linux.ok" not in first
     assert "page=2" in first  # load-more sentinel
 
-    second = get(client, f"{base}?group=succeeded&limit=1&page=2").text
+    second = client.get(f"{base}?group=succeeded&limit=1&page=2").text
     assert "x86_64-linux.ok" in second
     assert "page=3" not in second
 
-    assert get(client, f"{base}?group=nonsense").status_code == 404
+    assert client.get(f"{base}?group=nonsense").status_code == 404
 
 
-def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
+def test_build_page_shows_eval_warnings_as_text(client: WebHarness) -> None:
     async def seed() -> None:
         ctx = client.app.state.web_context
         await ctx.pool.execute(
@@ -197,7 +153,7 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
         )
 
     client.loop.run_until_complete(seed())
-    text = get(client, "/repos/github/acme/widget/builds/2").text
+    text = client.get("/repos/github/acme/widget/builds/2").text
     assert "evaluation warning: foo is deprecated" in text
     assert "trace: bar" in text
     # Decoded, not the raw jsonb string.
@@ -205,55 +161,55 @@ def test_build_page_shows_eval_warnings_as_text(client: WebClient) -> None:
     assert '["' not in text
 
 
-def test_running_build_shows_progress(client: WebClient) -> None:
-    running = get(client, "/repos/github/acme/widget/builds/3").text
+def test_running_build_shows_progress(client: WebHarness) -> None:
+    running = client.get("/repos/github/acme/widget/builds/3").text
     assert 'class="progress-track"' in running
     assert 'class="spinner"' in running
     assert "seg ok" in running  # settled attrs render as a green segment
     assert "3 of 3" in running  # seeded attrs are all settled
-    finished = get(client, "/repos/github/acme/widget/builds/2").text
+    finished = client.get("/repos/github/acme/widget/builds/2").text
     assert 'class="progress-track"' not in finished
 
 
-def test_build_page_live_markers(client: WebClient) -> None:
-    running = get(client, "/repos/github/acme/widget/builds/3")
+def test_build_page_live_markers(client: WebHarness) -> None:
+    running = client.get("/repos/github/acme/widget/builds/3")
     # htmx SSE wiring: event stream scoped to the build, main region
     # refetched and morphed on events.
     assert 'sse-connect="/events?build=' in running.text
     assert 'hx-trigger="sse:message' in running.text
     # Finished pages re-check on connect too (rebuild-failed).
-    finished = get(client, "/repos/github/acme/widget/builds/2")
+    finished = client.get("/repos/github/acme/widget/builds/2")
     assert "htmx:sseOpen" in finished.text
     # PR link on the PR build.
     assert "/pull/5" in running.text
 
 
-def test_attribute_history(client: WebClient) -> None:
-    response = get(client, "/repos/github/acme/widget/attrs/x86_64-linux.bad")
+def test_attribute_history(client: WebHarness) -> None:
+    response = client.get("/repos/github/acme/widget/attrs/x86_64-linux.bad")
     assert response.status_code == 200
     # Appears in all three builds.
     for number in (1, 2, 3):
         assert f"/builds/{number}" in response.text
 
 
-def test_project_filter_escapes_like_wildcards(client: WebClient) -> None:
+def test_project_filter_escapes_like_wildcards(client: WebHarness) -> None:
     # `%` and `_` must match literally, not as ILIKE wildcards.
-    assert "acme/widget" in get(client, "/?q=widg").text
-    assert "acme/widget" not in get(client, "/?q=%25").text
-    assert "acme/widget" not in get(client, "/?q=widge_").text
+    assert "acme/widget" in client.get("/?q=widg").text
+    assert "acme/widget" not in client.get("/?q=%25").text
+    assert "acme/widget" not in client.get("/?q=widge_").text
 
 
-def test_page_out_of_range_does_not_error(client: WebClient) -> None:
+def test_page_out_of_range_does_not_error(client: WebHarness) -> None:
     # page <= 0 must not turn into a negative SQL OFFSET (500).
-    assert get(client, "/repos/github/acme/widget?page=0").status_code == 200
-    assert get(client, "/repos/github/acme/widget?page=-5").status_code == 200
-    api = get(client, "/api/repos/github/acme/widget/builds?page=0")
+    assert client.get("/repos/github/acme/widget?page=0").status_code == 200
+    assert client.get("/repos/github/acme/widget?page=-5").status_code == 200
+    api = client.get("/api/repos/github/acme/widget/builds?page=0")
     assert api.status_code == 200
     assert api.json()["items"]
 
 
-def test_activity_page(client: WebClient) -> None:
-    response = get(client, "/builds")
+def test_activity_page(client: WebHarness) -> None:
+    response = client.get("/builds")
     assert response.status_code == 200
     # Queue section shows the building build with its position.
     assert "queue-pos" in response.text
@@ -262,8 +218,8 @@ def test_activity_page(client: WebClient) -> None:
     assert ">#1<" in response.text
 
 
-def test_activity_rows_fragment_pagination(client: WebClient) -> None:
-    rows = get(client, "/builds/rows?before=1")
+def test_activity_rows_fragment_pagination(client: WebHarness) -> None:
+    rows = client.get("/builds/rows?before=1")
     assert rows.status_code == 200
     assert "<tr" not in rows.text  # nothing older than build id 1
 
@@ -272,7 +228,7 @@ def test_activity_rows_fragment_pagination(client: WebClient) -> None:
     cursor = 999999
     seen: list[int] = []
     while True:
-        text = get(client, f"/builds/rows?before={cursor}").text
+        text = client.get(f"/builds/rows?before={cursor}").text
         ids = re.findall(r'data-id="(\d+)"', text)
         if not ids:
             break
@@ -282,53 +238,53 @@ def test_activity_rows_fragment_pagination(client: WebClient) -> None:
     assert seen == sorted(seen, reverse=True)  # newest first, no overlap
 
 
-def test_project_rows_fragment_filters(client: WebClient) -> None:
-    all_rows = get(client, "/repos/github/acme/widget/rows?before=999999")
+def test_project_rows_fragment_filters(client: WebHarness) -> None:
+    all_rows = client.get("/repos/github/acme/widget/rows?before=999999")
     assert all_rows.text.count("data-id=") == 3
 
-    failed = get(client, "/repos/github/acme/widget/rows?before=999999&status=failed")
+    failed = client.get("/repos/github/acme/widget/rows?before=999999&status=failed")
     assert failed.text.count("data-id=") == 1
     assert ">#2<" in failed.text
 
-    branch = get(client, "/repos/github/acme/widget/rows?before=999999&ref=feature")
+    branch = client.get("/repos/github/acme/widget/rows?before=999999&ref=feature")
     assert branch.text.count("data-id=") == 1
     assert ">#3<" in branch.text
 
 
-def test_metrics_are_gauges(client: WebClient) -> None:
+def test_metrics_are_gauges(client: WebHarness) -> None:
     # Table-derived series shrink, so they must not be counters.
-    text = get(client, "/metrics").text
+    text = client.get("/metrics").text
     assert "# TYPE buildbot_nix_builds_total gauge" in text
     assert "counter" not in text
 
 
-def test_static_urls_carry_content_version(client: WebClient) -> None:
-    page = get(client, "/").text
+def test_static_urls_carry_content_version(client: WebHarness) -> None:
+    page = client.get("/").text
     m = re.search(r"/static/style\.css\?v=([0-9a-f]{12})", page)
     assert m
-    response = get(client, f"/static/style.css?v={m.group(1)}")
+    response = client.get(f"/static/style.css?v={m.group(1)}")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-def test_legacy_project_urls_redirect(client: WebClient) -> None:
-    r = get(client, "/projects/acme/widget/builds/2?x=1")
+def test_legacy_project_urls_redirect(client: WebHarness) -> None:
+    r = client.get("/projects/acme/widget/builds/2?x=1")
     assert r.status_code == 307
     assert r.headers["location"] == "/repos/github/acme/widget/builds/2?x=1"
-    r = get(client, "/api/projects/acme/widget")
+    r = client.get("/api/projects/acme/widget")
     assert r.headers["location"] == "/api/repos/github/acme/widget"
-    assert get(client, "/projects/acme/nope").status_code == 404
+    assert client.get("/projects/acme/nope").status_code == 404
 
 
-def test_health_and_static(client: WebClient) -> None:
-    assert get(client, "/health").text == "ok"
-    css = get(client, "/static/style.css")
+def test_health_and_static(client: WebHarness) -> None:
+    assert client.get("/health").text == "ok"
+    css = client.get("/static/style.css")
     assert "prefers-color-scheme: dark" in css.text
 
 
-def test_404s(client: WebClient) -> None:
-    assert get(client, "/repos/github/acme/nope").status_code == 404
-    assert get(client, "/repos/github/acme/widget/builds/999").status_code == 404
+def test_404s(client: WebHarness) -> None:
+    assert client.get("/repos/github/acme/nope").status_code == 404
+    assert client.get("/repos/github/acme/widget/builds/999").status_code == 404
 
 
 def test_timeago() -> None:
@@ -430,7 +386,7 @@ def test_ansi_stream_state_across_chunks() -> None:
     assert stream.feed("\\link") == link
 
 
-def seed_log(client: WebClient, tmp_path: Path) -> None:
+def seed_log(client: WebHarness, tmp_path: Path) -> None:
     async def run() -> None:
         ctx = client.app.state.web_context
         ctx.state_dir = tmp_path
@@ -457,9 +413,9 @@ def seed_log(client: WebClient, tmp_path: Path) -> None:
     client.loop.run_until_complete(run())
 
 
-def test_log_viewer_and_raw(client: WebClient, tmp_path: Path) -> None:
+def test_log_viewer_and_raw(client: WebHarness, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    viewer = get(client, "/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad")
+    viewer = client.get("/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad")
     assert viewer.status_code == 200
     assert "ansi-red" in viewer.text
     assert 'id="L1"' in viewer.text
@@ -470,14 +426,14 @@ def test_log_viewer_and_raw(client: WebClient, tmp_path: Path) -> None:
     assert 'rel="next"' in viewer.text
     assert "/builds/3/logs/x86_64-linux.bad" in viewer.text
 
-    raw = get(client, "/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
+    raw = client.get("/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
     assert "build exploded" in raw.text
 
-    missing = get(client, "/repos/github/acme/widget/builds/2/logs/nope")
+    missing = client.get("/repos/github/acme/widget/builds/2/logs/nope")
     assert missing.status_code == 404
 
 
-def test_log_viewer_waits_for_queued_attribute(client: WebClient) -> None:
+def test_log_viewer_waits_for_queued_attribute(client: WebHarness) -> None:
     # The build page links queued attributes before any log exists.
     async def make_pending() -> None:
         ctx = client.app.state.web_context
@@ -503,19 +459,17 @@ def test_log_viewer_waits_for_queued_attribute(client: WebClient) -> None:
 
     client.loop.run_until_complete(make_pending())
     try:
-        response = get(
-            client, "/repos/github/acme/widget/builds/3/logs/x86_64-linux.ok"
-        )
+        response = client.get("/repos/github/acme/widget/builds/3/logs/x86_64-linux.ok")
         assert response.status_code == 200
         assert "waiting for the build to start" in response.text
     finally:
         client.loop.run_until_complete(restore())
 
 
-def test_log_sse_stream_finished(client: WebClient, tmp_path: Path) -> None:
+def test_log_sse_stream_finished(client: WebHarness, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    response = get(
-        client, "/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad/stream"
+    response = client.get(
+        "/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad/stream"
     )
     assert response.status_code == 200
     assert "build exploded" in response.text
@@ -525,44 +479,44 @@ def test_log_sse_stream_finished(client: WebClient, tmp_path: Path) -> None:
 # --- JSON API ----------------------------------------------------------
 
 
-def test_api_projects_and_builds(client: WebClient) -> None:
-    projects = get(client, "/api/repos").json()
+def test_api_projects_and_builds(client: WebHarness) -> None:
+    projects = client.get("/api/repos").json()
     assert any(p["name"] == "widget" for p in projects)
 
-    repo = get(client, "/api/repos/github/acme/widget").json()
+    repo = client.get("/api/repos/github/acme/widget").json()
     assert repo["name"] == "widget"
     assert repo["default_branch"] == "main"
 
-    builds = get(client, "/api/repos/github/acme/widget/builds").json()
+    builds = client.get("/api/repos/github/acme/widget/builds").json()
     assert builds["page"] == 1
     assert len(builds["items"]) == 3
 
-    filtered = get(client, "/api/repos/github/acme/widget/builds?status=failed").json()
+    filtered = client.get("/api/repos/github/acme/widget/builds?status=failed").json()
     assert [b["number"] for b in filtered["items"]] == [2]
 
-    detail = get(client, "/api/repos/github/acme/widget/builds/2").json()
+    detail = client.get("/api/repos/github/acme/widget/builds/2").json()
     assert detail["build"]["status"] == "failed"
     statuses = {a["attr"]: a["status"] for a in detail["attributes"]}
     assert statuses["x86_64-linux.bad"] == "failed"
 
-    history = get(client, "/api/repos/github/acme/widget/attrs/x86_64-linux.bad").json()
+    history = client.get("/api/repos/github/acme/widget/attrs/x86_64-linux.bad").json()
     assert len(history) == 3
 
-    queue = get(client, "/api/queue").json()
+    queue = client.get("/api/queue").json()
     assert [b["number"] for b in queue] == [3]
 
 
-def test_build_rows_link_refs(client: WebClient) -> None:
+def test_build_rows_link_refs(client: WebHarness) -> None:
     # Branch builds link to the branch, PR builds to the pull request.
-    page = get(client, "/repos/github/acme/widget").text
+    page = client.get("/repos/github/acme/widget").text
     assert "https://github.com/acme/widget/tree/main" in page
     assert "https://github.com/acme/widget/pull/5" in page
     # Cross-project rows on the activity feed carry their own forge URL.
-    activity = get(client, "/builds").text
+    activity = client.get("/builds").text
     assert "https://github.com/acme/widget/pull/5" in activity
 
 
-def test_attributes_sort_building_before_pending(client: WebClient) -> None:
+def test_attributes_sort_building_before_pending(client: WebHarness) -> None:
     seeded = ("a-pending", "b-building", "c-failed")
 
     async def run() -> list[str]:
@@ -591,7 +545,7 @@ def test_attributes_sort_building_before_pending(client: WebClient) -> None:
     assert order == ["c-failed", "b-building", "a-pending"]
 
 
-def test_queue_sorts_active_before_pending(client: WebClient) -> None:
+def test_queue_sorts_active_before_pending(client: WebHarness) -> None:
     async def run() -> list[int]:
         ctx = client.app.state.web_context
         project_id = await ctx.pool.fetchval(
@@ -614,15 +568,15 @@ def test_queue_sorts_active_before_pending(client: WebClient) -> None:
     # earlier-submitted pending one.
     assert client.loop.run_until_complete(run()) == [3, 91, 90]
 
-    assert get(client, "/api/repos/github/acme/nope").status_code == 404
+    assert client.get("/api/repos/github/acme/nope").status_code == 404
 
 
-def test_openapi_docs(client: WebClient) -> None:
-    spec = get(client, "/api/openapi.json").json()
+def test_openapi_docs(client: WebHarness) -> None:
+    spec = client.get("/api/openapi.json").json()
     assert "/api/repos" in spec["paths"]
     # HTML pages and other non-API routes stay out of the spec.
     assert all(path.startswith("/api/") for path in spec["paths"])
-    assert get(client, "/docs").status_code == 200
+    assert client.get("/docs").status_code == 200
     # Responses are typed: every operation documents a response schema.
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
@@ -634,7 +588,7 @@ def test_openapi_docs(client: WebClient) -> None:
 # --- live logs ---------------------------------------------------------
 
 
-def test_live_log_history_before_completion(client: WebClient, tmp_path: Path) -> None:
+def test_live_log_history_before_completion(client: WebHarness, tmp_path: Path) -> None:
     """Running attributes have no logs DB row yet: viewer/raw/stream
     must fall back to the registered LogWriter's on-disk file."""
     ctx = client.app.state.web_context
@@ -670,27 +624,27 @@ def test_live_log_history_before_completion(client: WebClient, tmp_path: Path) -
     assert "event: done" in stream
 
 
-def test_api_builds_commit_filter(client: WebClient) -> None:
-    hits = get(client, "/api/repos/github/acme/widget/builds?commit=sha-2").json()
+def test_api_builds_commit_filter(client: WebHarness) -> None:
+    hits = client.get("/api/repos/github/acme/widget/builds?commit=sha-2").json()
     assert [b["number"] for b in hits["items"]] == [2]
-    misses = get(client, "/api/repos/github/acme/widget/builds?commit=ffff").json()
+    misses = client.get("/api/repos/github/acme/widget/builds?commit=ffff").json()
     assert misses["items"] == []
 
 
-def test_log_tail_param(client: WebClient, tmp_path: Path) -> None:
+def test_log_tail_param(client: WebHarness, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    full = get(client, "/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
+    full = client.get("/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad.txt")
     assert "build exploded" in full.text
-    tail = get(
-        client, "/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad.txt?tail=1"
+    tail = client.get(
+        "/repos/github/acme/widget/builds/2/logs/x86_64-linux.bad.txt?tail=1"
     )
     # ANSI escapes are stripped from the plain-text view.
     assert tail.text == "build exploded\n"
 
 
-def test_api_build_failures(client: WebClient, tmp_path: Path) -> None:
+def test_api_build_failures(client: WebHarness, tmp_path: Path) -> None:
     seed_log(client, tmp_path)
-    summary = get(client, "/api/repos/github/acme/widget/builds/2/failures").json()
+    summary = client.get("/api/repos/github/acme/widget/builds/2/failures").json()
     assert summary["status"] == "failed"
     failed = {f["attr"]: f for f in summary["failures"]}
     assert "x86_64-linux.bad" in failed
@@ -699,15 +653,15 @@ def test_api_build_failures(client: WebClient, tmp_path: Path) -> None:
     assert "x86_64-linux.ok" not in failed
 
 
-def test_llms_txt(client: WebClient) -> None:
-    response = get(client, "/llms.txt")
+def test_llms_txt(client: WebHarness) -> None:
+    response = client.get("/llms.txt")
     assert response.status_code == 200
     assert "/api/openapi.json" in response.text
     assert "failures" in response.text
 
 
 def test_event_broker_pushes_status_changes(
-    client: WebClient, postgres_dsn: str
+    client: WebHarness, postgres_dsn: str
 ) -> None:
     """Trigger -> NOTIFY -> broker -> subscriber queue, end to end."""
 
@@ -749,18 +703,18 @@ def test_event_broker_pushes_status_changes(
     assert build_event["status"] == "failed"
 
 
-def test_attribute_search(client: WebClient) -> None:
+def test_attribute_search(client: WebHarness) -> None:
     # Results keep the group structure, opened and filtered.
-    found = get(client, "/repos/github/acme/widget/builds/2/attrs?q=bad")
+    found = client.get("/repos/github/acme/widget/builds/2/attrs?q=bad")
     assert "x86_64-linux.bad" in found.text
     assert "x86_64-linux.ok" not in found.text
     assert "1 failed" in found.text
     assert "succeeded" not in found.text
-    by_name = get(client, "/repos/github/acme/widget/builds/2/attrs?q=other")
+    by_name = client.get("/repos/github/acme/widget/builds/2/attrs?q=other")
     assert "1 succeeded" in by_name.text
     assert "open>" in by_name.text
     # Clearing the query restores the unfiltered view.
-    empty = get(client, "/repos/github/acme/widget/builds/2/attrs?q=")
+    empty = client.get("/repos/github/acme/widget/builds/2/attrs?q=")
     assert "2 succeeded" in empty.text
     assert "attrs?group=succeeded" in empty.text
 
@@ -782,7 +736,7 @@ def test_css_covers_every_status() -> None:
     assert not missing
 
 
-def test_build_page_shows_effects(client: WebClient) -> None:
+def test_build_page_shows_effects(client: WebHarness) -> None:
     async def seed_effects() -> None:
         ctx = client.app.state.web_context
         build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 2")
@@ -798,7 +752,7 @@ def test_build_page_shows_effects(client: WebClient) -> None:
         )
 
     client.loop.run_until_complete(seed_effects())
-    text = get(client, "/repos/github/acme/widget/builds/2").text
+    text = client.get("/repos/github/acme/widget/builds/2").text
     assert "Effects" in text
     assert "deploy" in text
     assert "ssh: connection refused" in text
@@ -806,10 +760,10 @@ def test_build_page_shows_effects(client: WebClient) -> None:
     assert "logs/effect:deploy" in text
     assert "logs/effect:notify" in text
     # Builds without effects don't render the section.
-    assert "Effects" not in get(client, "/repos/github/acme/widget/builds/1").text
+    assert "Effects" not in client.get("/repos/github/acme/widget/builds/1").text
 
 
-def test_effect_log_raw_text(client: WebClient, tmp_path: Path) -> None:
+def test_effect_log_raw_text(client: WebHarness, tmp_path: Path) -> None:
     async def seed_effect_log() -> None:
         ctx = client.app.state.web_context
         ctx.state_dir = tmp_path
@@ -827,12 +781,12 @@ def test_effect_log_raw_text(client: WebClient, tmp_path: Path) -> None:
         )
 
     client.loop.run_until_complete(seed_effect_log())
-    response = get(client, "/repos/github/acme/widget/builds/2/logs/effect:deploy2.txt")
+    response = client.get("/repos/github/acme/widget/builds/2/logs/effect:deploy2.txt")
     assert response.status_code == 200
     assert "activating system" in response.text
 
 
-def test_effect_changes_notify_build_events(client: WebClient) -> None:
+def test_effect_changes_notify_build_events(client: WebHarness) -> None:
     """The page's SSE refresh rides on build_events; without a trigger
     on build_effects the Effects section never updates live."""
 
@@ -865,7 +819,7 @@ def test_effect_changes_notify_build_events(client: WebClient) -> None:
     assert all(p["effect"] == "fxlive" for p in payloads)
 
 
-def test_effects_state_api(client: WebClient, tmp_path: Path) -> None:
+def test_effects_state_api(client: WebHarness, tmp_path: Path) -> None:
     tokens = TaskTokens()
     client.app.include_router(create_state_router(tmp_path, tokens))
     token = tokens.issue(7)

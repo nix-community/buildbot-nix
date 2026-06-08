@@ -16,6 +16,7 @@ import asyncpg
 import uvicorn
 import zstandard
 
+from buildbot_nix.tests.support import insert_build, insert_project
 from buildbot_nix.web.app import create_app
 from buildbot_nix.web.logs import LogRegistry
 
@@ -29,35 +30,24 @@ async def seed(dsn: str, state_dir: Path | None = None) -> None:
     """One project with a succeeded, a failed, and a running build."""
     pool = await asyncpg.create_pool(dsn)
     try:
-        project_id = await pool.fetchval(
-            """
-            INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                  default_branch, url, enabled)
-            VALUES ('github', 'web-1', 'acme', 'widget', 'main',
-                    'https://github.com/acme/widget', TRUE)
-            RETURNING id
-            """
+        project_id = await insert_project(
+            pool, forge_repo_id="web-1", url="https://github.com/acme/widget"
         )
         for number, status, branch in [
             (1, "succeeded", "main"),
             (2, "failed", "main"),
             (3, "building", "feature"),
         ]:
-            build_id = await pool.fetchval(
-                """
-                INSERT INTO builds (project_id, number, tree_hash, commit_sha,
-                                    branch, status, pr_number, created_at,
-                                    started_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
-                RETURNING id
-                """,
+            build_id = await insert_build(
+                pool,
                 project_id,
-                number,
-                f"tree-{number}",
-                f"sha-{number}{'0' * 30}",
-                branch,
-                status,
-                5 if branch == "feature" else None,
+                number=number,
+                tree_hash=f"tree-{number}",
+                commit_sha=f"sha-{number}{'0' * 30}",
+                branch=branch,
+                status=status,
+                pr_number=5 if branch == "feature" else None,
+                started=True,
             )
             await pool.execute(
                 """

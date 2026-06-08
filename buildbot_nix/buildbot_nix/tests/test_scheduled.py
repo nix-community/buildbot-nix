@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -24,10 +23,9 @@ from buildbot_nix.scheduled import (
     schedule_overview,
 )
 
-from .support import ephemeral_postgres
+from .support import insert_project
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
 
 
@@ -80,32 +78,12 @@ def test_deterministic_defaults() -> None:
 
 # --- persistence -------------------------------------------------------------
 
-pytestmark_pg = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
-)
 
-
-@pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    if shutil.which("initdb") is None:
-        pytest.skip("postgresql not available")
-    with ephemeral_postgres(tmp_path_factory, "sched") as dsn:
-        yield dsn
-
-
-@pytestmark_pg
 def test_store_roundtrip_and_due(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url)
-                VALUES ('github', 'sched-1', 'acme', 'widget', 'main', 'u')
-                RETURNING id
-                """
-            )
+            project_id = await insert_project(pool, forge_repo_id="sched-1")
             store = ScheduledEffectsStore(pool)
             schedules = parse_schedules_from_json(
                 {
@@ -193,19 +171,11 @@ def test_run_scheduled_effect_passes_secrets(
     assert not list(tmp_path.glob("checkout-secrets.json"))
 
 
-@pytestmark_pg
 def test_due_effects_window_and_bad_spec(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url)
-                VALUES ('github', 'sched-2', 'acme', 'gadget', 'main', 'u')
-                RETURNING id
-                """
-            )
+            project_id = await insert_project(pool, "gadget", forge_repo_id="sched-2")
             store = ScheduledEffectsStore(pool)
             schedules = parse_schedules_from_json(
                 {
@@ -261,19 +231,11 @@ def test_run_scheduled_effect_secret_read_failure_raises(
         asyncio.run(run_scheduled_effect(ctx, "nightly", "deploy"))
 
 
-@pytestmark_pg
 def test_run_recording_and_overview(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url)
-                VALUES ('github', 'sched-4', 'acme', 'gadget', 'main', 'u')
-                RETURNING id
-                """
-            )
+            project_id = await insert_project(pool, "gadget", forge_repo_id="sched-4")
             store = ScheduledEffectsStore(pool)
             schedules = parse_schedules_from_json(
                 {"heartbeat": {"when": {}, "effects": ["beat"]}}

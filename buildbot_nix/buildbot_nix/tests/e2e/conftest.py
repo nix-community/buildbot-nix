@@ -7,12 +7,11 @@ Skips cleanly when postgresql, playwright, or the browsers
 from __future__ import annotations
 
 import os
-import shutil
 from typing import TYPE_CHECKING
 
 import pytest
 
-from buildbot_nix.tests.support import ephemeral_postgres, run_sync
+from buildbot_nix.tests.support import run_sync
 
 from .support import TestServer, seed
 
@@ -29,14 +28,9 @@ def state_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def postgres_dsn(
-    tmp_path_factory: pytest.TempPathFactory, state_dir: Path
-) -> Iterator[str]:
-    if shutil.which("initdb") is None:
-        pytest.skip("postgresql not available")
-    with ephemeral_postgres(tmp_path_factory, "e2e") as dsn:
-        run_sync(seed(dsn, state_dir))
-        yield dsn
+def postgres_dsn(postgres_dsn: str, state_dir: Path) -> str:
+    run_sync(seed(postgres_dsn, state_dir))
+    return postgres_dsn
 
 
 @pytest.fixture(scope="module")

@@ -1,12 +1,9 @@
 """Tests for clone/worktree management using real git repositories."""
 
-# ruff: noqa: S603 (subprocess calls use fixed argument lists)
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
-import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -20,6 +17,8 @@ from buildbot_nix.gitrepo import (
     run_git,
 )
 
+from .support import git, init_upstream
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -28,33 +27,9 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not ava
 KEY = "github/acme/widget"
 
 
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={
-            "GIT_AUTHOR_NAME": "t",
-            "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "t",
-            "GIT_COMMITTER_EMAIL": "t@t",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_SYSTEM": "/dev/null",
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        },
-    ).stdout.strip()
-
-
 @pytest.fixture
 def upstream(tmp_path: Path) -> Path:
-    repo = tmp_path / "upstream"
-    repo.mkdir()
-    git(repo, "init", "-b", "main")
-    (repo / "file.txt").write_text("hello\n")
-    git(repo, "add", ".")
-    git(repo, "commit", "-m", "initial")
-    return repo
+    return init_upstream(tmp_path / "upstream", {"file.txt": "hello\n"})
 
 
 @pytest.fixture

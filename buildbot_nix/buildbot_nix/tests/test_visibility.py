@@ -6,8 +6,6 @@ unauthorized access on HTML, fragment, log, and SSE endpoints."""
 from __future__ import annotations
 
 import asyncio
-import secrets
-import shutil
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -15,19 +13,16 @@ import httpx
 import pytest
 
 from buildbot_nix.api_tokens import ApiTokenStore
-from buildbot_nix.auth import AuthzConfig, SessionSigner, User
+from buildbot_nix.auth import AuthzConfig, User
 from buildbot_nix.forge_tokens import ForgeTokenStore
 from buildbot_nix.visibility import AccessCache, RepoAccess, VisibilityService
-from buildbot_nix.web.app import create_app
 
-from .support import cookie_header, ephemeral_postgres
+from .support import WebHarness, insert_build, insert_project, web_harness
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
-)
+    from fastapi import FastAPI
 
 
 class FakeFetcher:
@@ -50,10 +45,9 @@ class FakeFetcher:
 
 
 @pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "vis") as dsn:
-        asyncio.run(seed(dsn))
-        yield dsn
+def postgres_dsn(postgres_dsn: str) -> str:
+    asyncio.run(seed(postgres_dsn))
+    return postgres_dsn
 
 
 async def seed(dsn: str) -> None:
@@ -63,24 +57,10 @@ async def seed(dsn: str) -> None:
             ("pub-1", "public", False),
             ("priv-1", "secret", True),
         ]:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url, private, enabled)
-                VALUES ('github', $1, 'acme', $2, 'main', 'u', $3, TRUE)
-                RETURNING id
-                """,
-                repo_id,
-                name,
-                private,
+            project_id = await insert_project(
+                pool, name, forge_repo_id=repo_id, private=private
             )
-            build_id = await pool.fetchval(
-                """
-                INSERT INTO builds (project_id, number, commit_sha, branch, status)
-                VALUES ($1, 1, 'sha', 'main', 'succeeded') RETURNING id
-                """,
-                project_id,
-            )
+            build_id = await insert_build(pool, project_id, status="succeeded")
             await pool.execute(
                 "INSERT INTO build_attributes (build_id, attr, system, status) "
                 "VALUES ($1, 'a.x', 'x86_64-linux', 'succeeded')",
@@ -90,55 +70,23 @@ async def seed(dsn: str) -> None:
         await pool.close()
 
 
-SIGNER = SessionSigner([b"test-key"])
 FETCHER = FakeFetcher({"github:carol:tok-carol": frozenset({"github:priv-1"})})
 
 
 @pytest.fixture(scope="module")
-def harness(postgres_dsn: str) -> Iterator[tuple]:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    async def setup() -> tuple:
-        pool = await asyncpg.create_pool(postgres_dsn)
-        visibility = VisibilityService(
+def harness(postgres_dsn: str) -> Iterator[WebHarness]:
+    def configure(app: FastAPI, pool: asyncpg.Pool) -> None:
+        ctx = app.state.web_context
+        ctx.visibility = VisibilityService(
             pool,
             AuthzConfig(admins=["github:root"]),
             fetcher=FETCHER,
             cache=AccessCache(ttl=3600),
         )
-        app = create_app(pool)
-        ctx = app.state.web_context
-        ctx.signer = SIGNER
-        ctx.visibility = visibility
         ctx.forge_tokens = ForgeTokenStore(pool)
-        client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        )
-        return pool, client
 
-    pool, client = loop.run_until_complete(setup())
-    yield loop, client
-    loop.run_until_complete(client.aclose())
-    loop.run_until_complete(pool.close())
-    asyncio.set_event_loop(None)
-    loop.close()
-
-
-def get(
-    harness: tuple, url: str, user: User | None = None, token: str = ""
-) -> httpx.Response:
-    loop, client = harness
-    cookies = {}
-    if user is not None:
-        session_id = None
-        if token:
-            # Forge tokens are stored server-side, keyed by session id.
-            vault = client._transport.app.state.web_context.forge_tokens  # type: ignore[attr-defined]  # noqa: SLF001
-            session_id = secrets.token_urlsafe(8)
-            loop.run_until_complete(vault.save(session_id, token, 3600))
-        cookies["buildbot_nix_session"] = SIGNER.session_for(user, session_id)
-    return loop.run_until_complete(client.get(url, headers=cookie_header(cookies)))
+    with web_harness(postgres_dsn, configure=configure) as h:
+        yield h
 
 
 CAROL = User(provider="github", username="carol")
@@ -146,56 +94,53 @@ MALLORY = User(provider="github", username="mallory")
 ROOT = User(provider="github", username="root")
 
 
-def test_anonymous_sees_public_only(harness: tuple) -> None:
-    home = get(harness, "/")
+def test_anonymous_sees_public_only(harness: WebHarness) -> None:
+    home = harness.get("/")
     assert "acme/public" in home.text
     assert "secret" not in home.text  # name leak check
-    assert get(harness, "/repos/github/acme/public").status_code == 200
-    assert get(harness, "/repos/github/acme/secret").status_code == 404
-    assert get(harness, "/repos/github/acme/secret/builds/1").status_code == 404
+    assert harness.get("/repos/github/acme/public").status_code == 200
+    assert harness.get("/repos/github/acme/secret").status_code == 404
+    assert harness.get("/repos/github/acme/secret/builds/1").status_code == 404
     # Log + SSE endpoints hidden too.
+    assert harness.get("/repos/github/acme/secret/builds/1/logs/a.x").status_code == 404
     assert (
-        get(harness, "/repos/github/acme/secret/builds/1/logs/a.x").status_code == 404
-    )
-    assert (
-        get(harness, "/repos/github/acme/secret/builds/1/logs/a.x/stream").status_code
+        harness.get("/repos/github/acme/secret/builds/1/logs/a.x/stream").status_code
         == 404
     )
     assert (
-        get(harness, "/repos/github/acme/secret/builds/1/attributes").status_code == 404
+        harness.get("/repos/github/acme/secret/builds/1/attributes").status_code == 404
     )
 
 
-def test_unauthorized_user_sees_public_only(harness: tuple) -> None:
+def test_unauthorized_user_sees_public_only(harness: WebHarness) -> None:
     assert (
-        get(harness, "/repos/github/acme/secret", MALLORY, "tok-mallory").status_code
+        harness.get("/repos/github/acme/secret", MALLORY, "tok-mallory").status_code
         == 404
     )
-    home = get(harness, "/", MALLORY, "tok-mallory")
+    home = harness.get("/", MALLORY, "tok-mallory")
     assert "secret" not in home.text
 
 
-def test_authorized_user_sees_private(harness: tuple) -> None:
+def test_authorized_user_sees_private(harness: WebHarness) -> None:
     assert (
-        get(harness, "/repos/github/acme/secret", CAROL, "tok-carol").status_code == 200
+        harness.get("/repos/github/acme/secret", CAROL, "tok-carol").status_code == 200
     )
-    home = get(harness, "/", CAROL, "tok-carol")
+    home = harness.get("/", CAROL, "tok-carol")
     assert "acme/secret" in home.text
 
 
-def test_admin_sees_everything(harness: tuple) -> None:
-    assert get(harness, "/repos/github/acme/secret", ROOT).status_code == 200
+def test_admin_sees_everything(harness: WebHarness) -> None:
+    assert harness.get("/repos/github/acme/secret", ROOT).status_code == 200
 
 
-def test_admin_api_token_sees_private(harness: tuple) -> None:
+def test_admin_api_token_sees_private(harness: WebHarness) -> None:
     # Bearer tokens carry the owner's identity: an admin token may
     # read private projects.
-    loop, client = harness
-    ctx = client._transport.app.state.web_context  # noqa: SLF001
+    ctx = harness.ctx
     ctx.token_store = ApiTokenStore(ctx.pool)
-    token = loop.run_until_complete(ctx.token_store.create(ROOT, "admin-script"))
-    response = loop.run_until_complete(
-        client.get(
+    token = harness.run(ctx.token_store.create(ROOT, "admin-script"))
+    response = harness.run(
+        harness.http.get(
             "/repos/github/acme/secret", headers={"Authorization": f"Bearer {token}"}
         )
     )
@@ -219,9 +164,8 @@ class FailingFetcher:
         return RepoAccess(frozenset({"github:priv-1"}), frozenset())
 
 
-def test_forge_repo_admins_can_toggle_their_repos(harness: tuple) -> None:
-    loop, client = harness
-    ctx = client._transport.app.state.web_context  # noqa: SLF001
+def test_forge_repo_admins_can_toggle_their_repos(harness: WebHarness) -> None:
+    ctx = harness.ctx
     fetcher = FakeFetcher(
         grants={"github:carol:tok-carol": frozenset({"github:priv-1"})},
         admin_grants={"github:carol:tok-carol": frozenset({"github:priv-1"})},
@@ -245,14 +189,13 @@ def test_forge_repo_admins_can_toggle_their_repos(harness: tuple) -> None:
         # Anonymous: nothing.
         assert await service.toggleable_repo_ids(None) == []
 
-    loop.run_until_complete(run())
+    harness.run(run())
 
 
-def test_fetch_errors_are_not_cached(harness: tuple) -> None:
+def test_fetch_errors_are_not_cached(harness: WebHarness) -> None:
     """A transient forge failure must not poison the access cache:
     the next request retries and sees the private project again."""
-    loop, client = harness
-    ctx = client._transport.app.state.web_context  # noqa: SLF001
+    ctx = harness.ctx
     fetcher = FailingFetcher()
     service = VisibilityService(
         ctx.pool,
@@ -272,13 +215,13 @@ def test_fetch_errors_are_not_cached(harness: tuple) -> None:
         assert len(second) == 2
         assert fetcher.calls == 2
 
-    loop.run_until_complete(run())
+    harness.run(run())
 
 
-def test_access_cache_used(harness: tuple) -> None:
+def test_access_cache_used(harness: WebHarness) -> None:
     calls_before = FETCHER.calls
-    get(harness, "/repos/github/acme/secret", CAROL, "tok-carol")
-    get(harness, "/repos/github/acme/secret", CAROL, "tok-carol")
+    harness.get("/repos/github/acme/secret", CAROL, "tok-carol")
+    harness.get("/repos/github/acme/secret", CAROL, "tok-carol")
     # TTL cache: at most one fetch for repeated requests.
     assert FETCHER.calls <= calls_before + 1
 
@@ -293,8 +236,8 @@ def test_cache_negative_results() -> None:
     assert cache.get("u") is None
 
 
-def test_metrics_unauthenticated_no_private_names(harness: tuple) -> None:
-    response = get(harness, "/metrics")
+def test_metrics_unauthenticated_no_private_names(harness: WebHarness) -> None:
+    response = harness.get("/metrics")
     assert response.status_code == 200
     assert "buildbot_nix_builds_total" in response.text
     assert "buildbot_nix_queue_depth" in response.text
@@ -303,11 +246,11 @@ def test_metrics_unauthenticated_no_private_names(harness: tuple) -> None:
     assert "secret" not in response.text
 
 
-def test_configured_viewers_see_private(harness: tuple) -> None:
+def test_configured_viewers_see_private(harness: WebHarness) -> None:
     """privateRepoViewers grants visibility to users without forge
     tokens (e.g. OIDC logins)."""
-    _loop, client = harness
-    ctx = client._transport.app.state.web_context  # noqa: SLF001
+    ctx = harness.ctx
+    assert ctx.visibility is not None
     saved = ctx.visibility.authz
     ctx.visibility.authz = AuthzConfig(
         admins=["github:root"],
@@ -320,21 +263,21 @@ def test_configured_viewers_see_private(harness: tuple) -> None:
     )
     try:
         idp_user = User(provider="oidc:idp", username="dora")
-        assert get(harness, "/repos/github/acme/secret", idp_user).status_code == 200
+        assert harness.get("/repos/github/acme/secret", idp_user).status_code == 200
         auditor = User(provider="oidc:other", username="erik", groups=("auditors",))
         # Different provider: neither rule matches.
-        assert get(harness, "/repos/github/acme/secret", auditor).status_code == 404
+        assert harness.get("/repos/github/acme/secret", auditor).status_code == 404
         # Anonymous stays out.
-        assert get(harness, "/repos/github/acme/secret").status_code == 404
+        assert harness.get("/repos/github/acme/secret").status_code == 404
     finally:
         ctx.visibility.authz = saved
 
 
-def test_api_token_inherits_login_groups(harness: tuple) -> None:
+def test_api_token_inherits_login_groups(harness: WebHarness) -> None:
     """Tokens snapshot the creator's groups, so group-granted viewers
     keep their visibility over the API."""
-    loop, client = harness
-    ctx = client._transport.app.state.web_context  # noqa: SLF001
+    ctx = harness.ctx
+    assert ctx.visibility is not None
     ctx.token_store = ApiTokenStore(ctx.pool)
     saved = ctx.visibility.authz
     ctx.visibility.authz = AuthzConfig(
@@ -343,13 +286,13 @@ def test_api_token_inherits_login_groups(harness: tuple) -> None:
     )
     try:
         creator = User(provider="oidc:idp", username="erika", groups=("auditors",))
-        token = loop.run_until_complete(ctx.token_store.create(creator, "t1"))
-        restored = loop.run_until_complete(ctx.token_store.authenticate(token))
+        token = harness.run(ctx.token_store.create(creator, "t1"))
+        restored = harness.run(ctx.token_store.authenticate(token))
         assert restored is not None
         assert restored.groups == ("auditors",)
 
-        response = loop.run_until_complete(
-            client.get(
+        response = harness.run(
+            harness.http.get(
                 "/api/repos/github/acme/secret/builds",
                 headers={"Authorization": f"Bearer {token}"},
             )

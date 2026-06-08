@@ -6,8 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
-from typing import TYPE_CHECKING
 
 import asyncpg
 import pytest
@@ -17,20 +15,7 @@ from buildbot_nix.failed_builds import PostgresFailedBuildCache
 from buildbot_nix.migrations import apply_migrations, load_migrations
 from buildbot_nix.scheduler import AttributeResult, AttributeStatus
 
-from .support import ephemeral_postgres, mk_job
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
-)
-
-
-@pytest.fixture(scope="module")
-def migrated_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "main") as dsn:
-        yield dsn
+from .support import insert_project, mk_job
 
 
 async def _connect(dsn: str) -> asyncpg.Connection:
@@ -46,12 +31,12 @@ def test_load_migrations() -> None:
     assert versions == sorted(versions)
 
 
-def test_migrations_idempotent(migrated_dsn: str) -> None:
+def test_migrations_idempotent(postgres_dsn: str) -> None:
     # Second run must be a no-op, not a failure.
-    asyncio.run(apply_migrations(migrated_dsn))
+    asyncio.run(apply_migrations(postgres_dsn))
 
     async def check() -> int:
-        conn = await _connect(migrated_dsn)
+        conn = await _connect(postgres_dsn)
         try:
             return await conn.fetchval("SELECT count(*) FROM schema_migrations")
         finally:
@@ -60,9 +45,9 @@ def test_migrations_idempotent(migrated_dsn: str) -> None:
     assert asyncio.run(check()) == len(load_migrations())
 
 
-def test_project_build_attribute_crud(migrated_dsn: str) -> None:
+def test_project_build_attribute_crud(postgres_dsn: str) -> None:
     async def run() -> None:
-        conn = await _connect(migrated_dsn)
+        conn = await _connect(postgres_dsn)
         try:
             project_id = await conn.fetchval(
                 """
@@ -155,9 +140,9 @@ def test_project_build_attribute_crud(migrated_dsn: str) -> None:
     asyncio.run(run())
 
 
-def test_failed_builds_and_statuses_upsert(migrated_dsn: str) -> None:
+def test_failed_builds_and_statuses_upsert(postgres_dsn: str) -> None:
     async def run() -> None:
-        conn = await _connect(migrated_dsn)
+        conn = await _connect(postgres_dsn)
         try:
             for ts in (1.0, 2.0):
                 await conn.execute(
@@ -193,9 +178,9 @@ def test_failed_builds_and_statuses_upsert(migrated_dsn: str) -> None:
     asyncio.run(run())
 
 
-def test_failed_build_cache_component(migrated_dsn: str) -> None:
+def test_failed_build_cache_component(postgres_dsn: str) -> None:
     async def run() -> None:
-        pool = await asyncpg.create_pool(migrated_dsn)
+        pool = await asyncpg.create_pool(postgres_dsn)
         try:
             cache = PostgresFailedBuildCache(pool)
             drv = "/nix/store/cache-test.drv"
@@ -222,26 +207,14 @@ def test_failed_build_cache_component(migrated_dsn: str) -> None:
 # --- BuildDB regression tests --------------------------------------------------
 
 
-async def _mk_project(pool: asyncpg.Pool, name: str) -> int:
-    return await pool.fetchval(
-        """
-        INSERT INTO projects (forge, forge_repo_id, owner, name,
-                              default_branch, url, enabled)
-        VALUES ('github', $1, 'acme', $1, 'main', 'u', TRUE)
-        RETURNING id
-        """,
-        name,
-    )
-
-
-def test_get_or_create_build_concurrent_no_duplicates(migrated_dsn: str) -> None:
+def test_get_or_create_build_concurrent_no_duplicates(postgres_dsn: str) -> None:
     # SELECT-then-INSERT must be serialized: there is no unique
     # constraint on (project_id, tree_hash), so without locking two
     # concurrent change events for the same tree create two builds.
     async def run() -> None:
-        pool = await asyncpg.create_pool(migrated_dsn, min_size=5, max_size=5)
+        pool = await asyncpg.create_pool(postgres_dsn, min_size=5, max_size=5)
         try:
-            project_id = await _mk_project(pool, "race")
+            project_id = await insert_project(pool, "race")
             db = BuildDB(pool)
             results = await asyncio.gather(
                 *(
@@ -261,13 +234,13 @@ def test_get_or_create_build_concurrent_no_duplicates(migrated_dsn: str) -> None
     asyncio.run(run())
 
 
-def test_cancelled_build_not_reused(migrated_dsn: str) -> None:
+def test_cancelled_build_not_reused(postgres_dsn: str) -> None:
     # A cancelled build carries no verdict; re-pushing the same tree
     # must build again instead of re-reporting "cancelled".
     async def run() -> None:
-        pool = await asyncpg.create_pool(migrated_dsn)
+        pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await _mk_project(pool, "cancelled-reuse")
+            project_id = await insert_project(pool, "cancelled-reuse")
             db = BuildDB(pool)
             first, created = await db.get_or_create_build(
                 project_id, "tree-c", "sha", "main"
@@ -287,14 +260,14 @@ def test_cancelled_build_not_reused(migrated_dsn: str) -> None:
     asyncio.run(run())
 
 
-def test_reuse_backfills_pr_fields(migrated_dsn: str) -> None:
+def test_reuse_backfills_pr_fields(postgres_dsn: str) -> None:
     # Branch push creates the build first; the PR event for the same
     # tree must backfill pr_number/pr_author so the PR author keeps
     # restart/cancel rights.
     async def run() -> None:
-        pool = await asyncpg.create_pool(migrated_dsn)
+        pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await _mk_project(pool, "pr-backfill")
+            project_id = await insert_project(pool, "pr-backfill")
             db = BuildDB(pool)
             first, _ = await db.get_or_create_build(
                 project_id, "tree-p", "sha", "feature"
@@ -322,13 +295,13 @@ def test_reuse_backfills_pr_fields(migrated_dsn: str) -> None:
     asyncio.run(run())
 
 
-def test_complete_attribute_replaces_log_row(migrated_dsn: str) -> None:
+def test_complete_attribute_replaces_log_row(postgres_dsn: str) -> None:
     # Attribute restarts rewrite the same log file; the metadata row
     # must be replaced, not duplicated with stale sizes.
     async def run() -> None:
-        pool = await asyncpg.create_pool(migrated_dsn)
+        pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await _mk_project(pool, "log-dup")
+            project_id = await insert_project(pool, "log-dup")
             db = BuildDB(pool)
             build, _ = await db.get_or_create_build(project_id, "tree-l", "sha", "main")
             job = mk_job("foo")
@@ -363,12 +336,12 @@ def test_complete_attribute_replaces_log_row(migrated_dsn: str) -> None:
 
 
 def test_record_attributes_persists_pending_rows_with_outputs(
-    migrated_dsn: str,
+    postgres_dsn: str,
 ) -> None:
     async def run() -> None:
-        pool = await asyncpg.create_pool(migrated_dsn)
+        pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await _mk_project(pool, "record-attrs")
+            project_id = await insert_project(pool, "record-attrs")
             db = BuildDB(pool)
             build, _ = await db.get_or_create_build(
                 project_id, "tree-ra", "sha", "main"
@@ -409,12 +382,12 @@ def test_record_attributes_persists_pending_rows_with_outputs(
 
 
 def test_mark_attribute_building_sets_status_and_started_at(
-    migrated_dsn: str,
+    postgres_dsn: str,
 ) -> None:
     async def run() -> None:
-        pool = await asyncpg.create_pool(migrated_dsn)
+        pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await _mk_project(pool, "building-status")
+            project_id = await insert_project(pool, "building-status")
             db = BuildDB(pool)
             build, _ = await db.get_or_create_build(project_id, "tree-b", "sha", "main")
             job = mk_job("foo")

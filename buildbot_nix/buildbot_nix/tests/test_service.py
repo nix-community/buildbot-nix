@@ -7,14 +7,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import os
-import shutil
 import socket
-import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import httpx
 import pytest
@@ -30,20 +27,13 @@ from buildbot_nix.scheduled import DueEffect, ScheduleWhen
 from buildbot_nix.service import resolve_credential_path, scheduled_worktree_id
 from buildbot_nix.webhooks import ChangeRequest, PrClosed
 
-from .support import ephemeral_postgres, truncate_work_queue
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
+from .support import (
+    git,
+    init_upstream,
+    insert_build,
+    insert_project,
+    truncate_work_queue,
 )
-
-
-@pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "svc") as dsn:
-        yield dsn
 
 
 @pytest.fixture(autouse=True)
@@ -62,30 +52,9 @@ def make_config(dsn: str, state_dir: Path, **kwargs: Any) -> Config:
     )
 
 
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(  # noqa: S603
-        ["git", "-C", str(repo), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={
-            "GIT_AUTHOR_NAME": "t",
-            "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "t",
-            "GIT_COMMITTER_EMAIL": "t@t",
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        },
-    ).stdout.strip()
-
-
 @pytest.fixture
 def git_repo(tmp_path: Path) -> tuple[Path, str]:
-    repo = tmp_path / "origin"
-    repo.mkdir()
-    git(repo, "init", "-b", "main")
-    (repo / "flake.nix").write_text("{}")
-    git(repo, "add", ".")
-    git(repo, "commit", "-m", "initial")
+    repo = init_upstream(tmp_path / "origin")
     return repo, git(repo, "rev-parse", "HEAD")
 
 
@@ -158,12 +127,8 @@ def test_visibility_fetcher_and_cache_ttl_wired(
 
 
 async def seed_project(pool: Any, url: str) -> int:
-    return await pool.fetchval(
-        "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
-        "default_branch, enabled) VALUES "
-        "('github', $1, 'acme', 'widget', $2, 'main', TRUE) RETURNING id",
-        f"svc-{time.monotonic_ns()}",
-        url,
+    return await insert_project(
+        pool, forge_repo_id=f"svc-{time.monotonic_ns()}", url=url
     )
 
 
@@ -225,12 +190,8 @@ def test_restart_eval_failed_build_reevaluates(
         pool = service.pool
         try:
             project_id = await seed_project(pool, str(repo))
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "status, error) VALUES ($1, 1, 'main', $2, 'failed', 'eval boom') "
-                "RETURNING id",
-                project_id,
-                sha,
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="failed", error="eval boom"
             )
 
             reevals: list[int] = []
@@ -279,11 +240,8 @@ def test_restart_failed_eval_attribute_reevaluates(
         pool = service.pool
         try:
             project_id = await seed_project(pool, str(repo))
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "status) VALUES ($1, 1, 'main', $2, 'failed') RETURNING id",
-                project_id,
-                sha,
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="failed"
             )
             await pool.execute(
                 "INSERT INTO build_attributes (build_id, attr, system, status, "
@@ -362,10 +320,8 @@ def test_cancel_not_running_posts_forge_status(
         pool = service.pool
         try:
             project_id = await seed_project(pool, "http://example/repo")
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "status) VALUES ($1, 1, 'main', 'c1', 'building') RETURNING id",
-                project_id,
+            build_id = await insert_build(
+                pool, project_id, commit_sha="c1", status="building"
             )
             reporter = RecordingReporter()
             service.orchestrator.reporter = reporter  # type: ignore[assignment]
@@ -530,11 +486,8 @@ def test_startup_reevaluates_interrupted_eval(
         pool = service.pool
         try:
             project_id = await seed_project(pool, str(repo))
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "status) VALUES ($1, 1, 'main', $2, 'evaluating') RETURNING id",
-                project_id,
-                sha,
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="evaluating"
             )
 
             reevals: list[int] = []
@@ -578,12 +531,8 @@ def test_reeval_failure_marks_build_failed(
         pool = service.pool
         try:
             project_id = await seed_project(pool, str(repo))
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "status, error) VALUES ($1, 1, 'main', $2, 'failed', 'boom') "
-                "RETURNING id",
-                project_id,
-                sha,
+            build_id = await insert_build(
+                pool, project_id, commit_sha=sha, status="failed", error="boom"
             )
 
             async def broken_run_build(

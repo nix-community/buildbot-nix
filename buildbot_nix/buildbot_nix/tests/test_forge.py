@@ -38,10 +38,9 @@ from buildbot_nix.status import (
     StatusState,
 )
 
-from .support import ephemeral_postgres
+from .support import insert_build, insert_project
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
 
 
@@ -288,14 +287,6 @@ def test_gitea_discovery() -> None:
 # --- project store -----------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    if shutil.which("initdb") is None:
-        pytest.skip("postgresql not available")
-    with ephemeral_postgres(tmp_path_factory, "forge") as dsn:
-        yield dsn
-
-
 def test_project_store_sync_and_legacy_import(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
@@ -418,13 +409,8 @@ def test_gitea_hook_registration(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url)
-                VALUES ('gitea', 'hook-1', 'acme', 'widget', 'main', 'u')
-                RETURNING id
-                """
+            project_id = await insert_project(
+                pool, forge="gitea", forge_repo_id="hook-1"
             )
             secrets_store = WebhookSecrets(pool, "gitea")
             client = GiteaClient(
@@ -514,22 +500,12 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url, enabled)
-                VALUES ('gitea', 'recon-1', 'acme', 'recon', 'main', 'u', TRUE)
-                RETURNING id
-                """
+            project_id = await insert_project(
+                pool, "recon", forge="gitea", forge_repo_id="recon-1"
             )
             # PR 6's head already has a build record.
-            await pool.execute(
-                """
-                INSERT INTO builds (project_id, number, commit_sha, branch,
-                                    status)
-                VALUES ($1, 1, 'already-built', 'main', 'succeeded')
-                """,
-                project_id,
+            await insert_build(
+                pool, project_id, commit_sha="already-built", status="succeeded"
             )
             project = await RepoStore(pool).by_forge_id("gitea", "recon-1")
             assert project is not None
@@ -565,12 +541,12 @@ def test_reconcile_unbuilt_heads(postgres_dsn: str) -> None:
             # Cancelled-only history is still fresh: an operator who
             # cancels the initial build must not get the PR backlog on
             # the next restart.
-            await pool.execute(
-                """
-                INSERT INTO builds (project_id, number, commit_sha, branch, status)
-                VALUES ($1, 2, 'head-main', 'main', 'cancelled')
-                """,
+            await insert_build(
+                pool,
                 project_id,
+                number=2,
+                commit_sha="head-main",
+                status="cancelled",
             )
             events.clear()
             submitted = await reconcile_repo(pool, project, heads, Sink())
@@ -667,13 +643,8 @@ def test_register_repo_hook_without_admin_warns(
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url)
-                VALUES ('gitea', 'hook-403', 'acme', 'locked', 'main', 'u')
-                RETURNING id
-                """
+            project_id = await insert_project(
+                pool, "locked", forge="gitea", forge_repo_id="hook-403"
             )
             client = GiteaClient(
                 "https://gitea.example.com",
@@ -768,13 +739,8 @@ def test_gitlab_hook_registration(postgres_dsn: str) -> None:
     async def run() -> None:
         pool = await asyncpg.create_pool(postgres_dsn)
         try:
-            project_id = await pool.fetchval(
-                """
-                INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                      default_branch, url)
-                VALUES ('gitlab', 'glhook-1', 'acme', 'widget', 'main', 'u')
-                RETURNING id
-                """
+            project_id = await insert_project(
+                pool, forge="gitlab", forge_repo_id="glhook-1"
             )
             secrets_store = WebhookSecrets(pool, "gitlab")
             client = GitlabClient(

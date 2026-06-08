@@ -3,28 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
-from typing import TYPE_CHECKING
 
 import asyncpg
 import pytest
 
 from buildbot_nix.work_queue import WorkQueue
 
-from .support import ephemeral_postgres, truncate_work_queue
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
-)
-
-
-@pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "work_queue") as dsn:
-        yield dsn
+from .support import truncate_work_queue
 
 
 @pytest.fixture(autouse=True)

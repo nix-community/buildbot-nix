@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -31,28 +30,18 @@ from buildbot_nix.scheduler import (
 )
 from buildbot_nix.work_queue import WorkQueue
 
-from .support import ephemeral_postgres, mk_job, truncate_work_queue
+from .support import git, init_upstream, insert_project, mk_job, truncate_work_queue
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
 
     from buildbot_nix.db import BuildRecord
     from buildbot_nix.models import NixEvalJobSuccess
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None or shutil.which("git") is None,
-    reason="postgresql or git not available",
-)
+pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
 
 
 # --- fixtures ---------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "orch") as dsn:
-        yield dsn
 
 
 @pytest.fixture(autouse=True)
@@ -60,33 +49,9 @@ def _fresh_work_queue(postgres_dsn: str) -> None:
     truncate_work_queue(postgres_dsn)
 
 
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(  # noqa: S603
-        ["git", "-C", str(repo), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={
-            "GIT_AUTHOR_NAME": "t",
-            "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "t",
-            "GIT_COMMITTER_EMAIL": "t@t",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_SYSTEM": "/dev/null",
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        },
-    ).stdout.strip()
-
-
 @pytest.fixture
 def upstream(tmp_path: Path) -> Path:
-    repo = tmp_path / "upstream"
-    repo.mkdir()
-    git(repo, "init", "-b", "main")
-    (repo / "flake.nix").write_text("{}")
-    git(repo, "add", ".")
-    git(repo, "commit", "-m", "initial")
-    return repo
+    return init_upstream(tmp_path / "upstream")
 
 
 # --- fakes --------------------------------------------------------------------
@@ -174,16 +139,8 @@ class RecordingReporter:
 
 
 async def make_project(pool: asyncpg.Pool, name: str = "widget") -> RepoInfo:
-    project_id = await pool.fetchval(
-        """
-        INSERT INTO projects (forge, forge_repo_id, owner, name, default_branch,
-                              url, enabled)
-        VALUES ('github', $2, 'acme', $1, 'main', 'https://x', TRUE)
-        ON CONFLICT (forge, forge_repo_id) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-        """,
-        name,
-        f"id-{name}",
+    project_id = await insert_project(
+        pool, name, forge_repo_id=f"id-{name}", url="https://x"
     )
     return RepoInfo(
         id=project_id,

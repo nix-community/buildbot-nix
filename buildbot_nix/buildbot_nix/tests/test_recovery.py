@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 import sqlite3
 import time
 from typing import TYPE_CHECKING
@@ -25,39 +24,16 @@ from buildbot_nix.recovery import (
     settle_already_built,
 )
 
-from .support import ephemeral_postgres
+from .support import insert_build, insert_project
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
-)
-
-
-@pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "recovery") as dsn:
-        yield dsn
 
 
 async def make_build(pool: asyncpg.Pool, name: str) -> int:
-    project_id = await pool.fetchval(
-        """
-        INSERT INTO projects (forge, forge_repo_id, owner, name, default_branch, url)
-        VALUES ('github', $1, 'acme', $1, 'main', 'u') RETURNING id
-        """,
-        name,
-    )
-    return await pool.fetchval(
-        """
-        INSERT INTO builds (project_id, number, tree_hash, commit_sha, branch,
-                            status)
-        VALUES ($1, 1, $2, 'sha', 'main', 'building') RETURNING id
-        """,
-        project_id,
-        f"tree-{name}",
+    project_id = await insert_project(pool, name)
+    return await insert_build(
+        pool, project_id, tree_hash=f"tree-{name}", status="building"
     )
 
 

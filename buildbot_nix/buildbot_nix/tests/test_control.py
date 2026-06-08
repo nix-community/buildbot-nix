@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import math
-import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -17,7 +16,7 @@ import httpx
 import pytest
 
 from buildbot_nix.api_tokens import ApiTokenStore
-from buildbot_nix.auth import AuthzConfig, SessionSigner, User
+from buildbot_nix.auth import AuthzConfig, User
 from buildbot_nix.bootstrap import build_service
 from buildbot_nix.config import Config
 from buildbot_nix.events import ChangeEvent, NullStatusReporter
@@ -29,24 +28,27 @@ from buildbot_nix.service import (
     repo_info,
 )
 from buildbot_nix.status import StatusPostError, _raise_for_status
-from buildbot_nix.web.app import create_app
 from buildbot_nix.web.control_routes import (
     create_control_api_router,
     create_control_router,
 )
 from buildbot_nix.web.token_routes import create_token_router
 
-from .support import cookie_header, ephemeral_postgres, truncate_work_queue
+from .support import (
+    WebHarness,
+    cookie_header,
+    insert_build,
+    insert_project,
+    truncate_work_queue,
+    web_harness,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("initdb") is None, reason="postgresql not available"
-)
+    from fastapi import FastAPI
 
-SIGNER = SessionSigner([b"ctl-key"])
 AUTHZ = AuthzConfig(admins=["github:root"])
 
 ROOT = User(provider="github", username="root")
@@ -83,10 +85,9 @@ class FakeBackend:
 
 
 @pytest.fixture(scope="module")
-def postgres_dsn(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    with ephemeral_postgres(tmp_path_factory, "ctl") as dsn:
-        asyncio.run(seed(dsn))
-        yield dsn
+def postgres_dsn(postgres_dsn: str) -> str:
+    asyncio.run(seed(postgres_dsn))
+    return postgres_dsn
 
 
 @pytest.fixture(autouse=True)
@@ -97,22 +98,13 @@ def _fresh_work_queue(postgres_dsn: str) -> None:
 async def seed(dsn: str) -> None:
     pool = await asyncpg.create_pool(dsn)
     try:
-        project_id = await pool.fetchval(
-            """
-            INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                  default_branch, url, enabled)
-            VALUES ('github', 'ctl-1', 'acme', 'widget', 'main', 'u', TRUE)
-            RETURNING id
-            """
-        )
-        build_id = await pool.fetchval(
-            """
-            INSERT INTO builds (project_id, number, commit_sha, branch, status,
-                                pr_number, pr_author)
-            VALUES ($1, 1, 'sha', 'main', 'failed', 7, 'github:alice')
-            RETURNING id
-            """,
+        project_id = await insert_project(pool, forge_repo_id="ctl-1")
+        build_id = await insert_build(
+            pool,
             project_id,
+            status="failed",
+            pr_number=7,
+            pr_author="github:alice",
         )
         await pool.execute(
             """
@@ -131,15 +123,9 @@ BACKEND = FakeBackend()
 
 
 @pytest.fixture(scope="module")
-def harness(postgres_dsn: str) -> Iterator[tuple]:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    async def setup() -> tuple:
-        pool = await asyncpg.create_pool(postgres_dsn)
-        app = create_app(pool)
+def harness(postgres_dsn: str) -> Iterator[WebHarness]:
+    def configure(app: FastAPI, pool: asyncpg.Pool) -> None:
         ctx = app.state.web_context
-        ctx.signer = SIGNER
         ctx.authz = AUTHZ
         app.include_router(create_control_router(ctx, BACKEND, AUTHZ, "http://test"))
         app.include_router(
@@ -147,72 +133,38 @@ def harness(postgres_dsn: str) -> Iterator[tuple]:
         )
         ctx.token_store = ApiTokenStore(pool)
         app.include_router(create_token_router(ctx, ctx.token_store, "http://test"))
-        client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        )
-        return pool, client
 
-    pool, client = loop.run_until_complete(setup())
-    yield loop, client
-    loop.run_until_complete(client.aclose())
-    loop.run_until_complete(pool.close())
-    asyncio.set_event_loop(None)
-    loop.close()
+    with web_harness(postgres_dsn, configure=configure) as h:
+        yield h
 
 
-def post(
-    harness: tuple,
-    url: str,
-    user: User | None = None,
-    origin: str = "http://test",
-    data: dict[str, str] | None = None,
-) -> httpx.Response:
-    loop, client = harness
-    cookies = {}
-    if user is not None:
-        cookies["buildbot_nix_session"] = SIGNER.session_for(user)
-    headers = {"Origin": origin} if origin else {}
-    return loop.run_until_complete(
-        client.post(url, headers=headers | cookie_header(cookies), data=data)
-    )
-
-
-def get(harness: tuple, url: str, user: User | None = None) -> httpx.Response:
-    loop, client = harness
-    cookies = {}
-    if user is not None:
-        cookies["buildbot_nix_session"] = SIGNER.session_for(user)
-    return loop.run_until_complete(client.get(url, headers=cookie_header(cookies)))
-
-
-def test_control_buttons_hidden_without_permission(harness: tuple) -> None:
+def test_control_buttons_hidden_without_permission(harness: WebHarness) -> None:
     url = "/repos/github/acme/widget/builds/1"
-    assert "rebuild failed" not in get(harness, url).text
-    assert "rebuild failed" not in get(harness, url, MALLORY).text
-    assert "rebuild failed" in get(harness, url, ROOT).text
-    assert "rebuild failed" in get(harness, url, ALICE).text
+    assert "rebuild failed" not in harness.get(url).text
+    assert "rebuild failed" not in harness.get(url, MALLORY).text
+    assert "rebuild failed" in harness.get(url, ROOT).text
+    assert "rebuild failed" in harness.get(url, ALICE).text
 
 
-def test_anonymous_cannot_control(harness: tuple) -> None:
-    response = post(harness, "/repos/github/acme/widget/builds/1/restart")
+def test_anonymous_cannot_control(harness: WebHarness) -> None:
+    response = harness.post("/repos/github/acme/widget/builds/1/restart")
     assert response.status_code == 403
     assert BACKEND.restarted == []
 
 
-def test_admin_can_restart_and_cancel(harness: tuple) -> None:
+def test_admin_can_restart_and_cancel(harness: WebHarness) -> None:
     assert (
-        post(harness, "/repos/github/acme/widget/builds/1/restart", ROOT).status_code
+        harness.post("/repos/github/acme/widget/builds/1/restart", ROOT).status_code
         == 303
     )
     assert len(BACKEND.restarted) == 1
     assert (
-        post(harness, "/repos/github/acme/widget/builds/1/cancel", ROOT).status_code
+        harness.post("/repos/github/acme/widget/builds/1/cancel", ROOT).status_code
         == 303
     )
     assert len(BACKEND.cancelled) == 1
     assert (
-        post(
-            harness,
+        harness.post(
             "/repos/github/acme/widget/builds/1/attrs/x86_64-linux.ok/cancel",
             ROOT,
         ).status_code
@@ -221,21 +173,20 @@ def test_admin_can_restart_and_cancel(harness: tuple) -> None:
     assert BACKEND.attr_cancels == [(1, "x86_64-linux.ok")]
 
 
-def test_pr_author_can_control_own_pr(harness: tuple) -> None:
+def test_pr_author_can_control_own_pr(harness: WebHarness) -> None:
     assert (
-        post(harness, "/repos/github/acme/widget/builds/1/restart", ALICE).status_code
+        harness.post("/repos/github/acme/widget/builds/1/restart", ALICE).status_code
         == 303
     )
     # Same username on another forge: rejected.
     assert (
-        post(harness, "/repos/github/acme/widget/builds/1/restart", MALLORY).status_code
+        harness.post("/repos/github/acme/widget/builds/1/restart", MALLORY).status_code
         == 403
     )
 
 
-def test_csrf_cross_origin_rejected(harness: tuple) -> None:
-    response = post(
-        harness,
+def test_csrf_cross_origin_rejected(harness: WebHarness) -> None:
+    response = harness.post(
         "/repos/github/acme/widget/builds/1/restart",
         ROOT,
         origin="https://evil.example.com",
@@ -243,112 +194,109 @@ def test_csrf_cross_origin_rejected(harness: tuple) -> None:
     assert response.status_code == 403
 
 
-def test_restart_single_attribute(harness: tuple) -> None:
+def test_restart_single_attribute(harness: WebHarness) -> None:
     BACKEND.attr_restarts.clear()
     assert (
-        post(
-            harness, "/repos/github/acme/widget/builds/1/attrs/bad1/restart", ROOT
+        harness.post(
+            "/repos/github/acme/widget/builds/1/attrs/bad1/restart", ROOT
         ).status_code
         == 303
     )
     assert [a for _, a in BACKEND.attr_restarts] == ["bad1"]
 
 
-def test_rebuild_all_failed(harness: tuple) -> None:
+def test_rebuild_all_failed(harness: WebHarness) -> None:
     BACKEND.attr_restarts.clear()
     assert (
-        post(
-            harness, "/repos/github/acme/widget/builds/1/rebuild-failed", ROOT
+        harness.post(
+            "/repos/github/acme/widget/builds/1/rebuild-failed", ROOT
         ).status_code
         == 303
     )
     assert sorted(a for _, a in BACKEND.attr_restarts) == ["bad1", "bad2"]
 
 
-def project_enabled(harness: tuple) -> bool:
-    loop, client = harness
-    pool = client._transport.app.state.web_context.pool  # type: ignore[attr-defined]  # noqa: SLF001
-    return loop.run_until_complete(
+def project_enabled(harness: WebHarness) -> bool:
+    pool = harness.ctx.pool
+    return harness.run(
         pool.fetchval("SELECT enabled FROM projects WHERE forge_repo_id = 'ctl-1'")
     )
 
 
-def test_admin_project_toggle(harness: tuple) -> None:
+def test_admin_project_toggle(harness: WebHarness) -> None:
     # Non-admin rejected.
-    assert post(harness, "/admin/repos/1/toggle", ALICE).status_code == 403
+    assert harness.post("/admin/repos/1/toggle", ALICE).status_code == 403
 
     before = project_enabled(harness)
-    assert post(harness, "/admin/repos/1/toggle", ROOT).status_code == 303
+    assert harness.post("/admin/repos/1/toggle", ROOT).status_code == 303
     assert project_enabled(harness) != before
 
     # The dashboard filter survives a toggle.
-    response = post(harness, "/admin/repos/1/toggle", ROOT, data={"q": "wid get"})
+    response = harness.post("/admin/repos/1/toggle", ROOT, data={"q": "wid get"})
     assert response.status_code == 303
     assert response.headers["location"] == "/?q=wid%20get"
 
 
-def test_repo_refresh(harness: tuple) -> None:
+def test_repo_refresh(harness: WebHarness) -> None:
     # Anonymous rejected: discovery hits forge APIs.
-    assert post(harness, "/admin/repos/refresh").status_code == 403
+    assert harness.post("/admin/repos/refresh").status_code == 403
     assert BACKEND.refreshes == 0
 
     # Any logged-in user may refresh, not only admins.
-    response = post(harness, "/admin/repos/refresh", ALICE, data={"q": "wid get"})
+    response = harness.post("/admin/repos/refresh", ALICE, data={"q": "wid get"})
     assert response.status_code == 303
     assert response.headers["location"] == "/?q=wid%20get"
     assert BACKEND.refreshes == 1
 
     # Cross-origin rejected.
     assert (
-        post(harness, "/admin/repos/refresh", ROOT, origin="http://evil").status_code
+        harness.post("/admin/repos/refresh", ROOT, origin="http://evil").status_code
         == 403
     )
     assert BACKEND.refreshes == 1
 
 
-def test_api_enable_disable(harness: tuple) -> None:
+def test_api_enable_disable(harness: WebHarness) -> None:
     assert (
-        post(harness, "/api/repos/github/acme/widget/disable", ALICE).status_code == 403
+        harness.post("/api/repos/github/acme/widget/disable", ALICE).status_code == 403
     )
 
-    response = post(harness, "/api/repos/github/acme/widget/disable", ROOT)
+    response = harness.post("/api/repos/github/acme/widget/disable", ROOT)
     assert response.status_code == 200
     assert response.json() == {"owner": "acme", "name": "widget", "enabled": False}
     assert project_enabled(harness) is False
     # Idempotent: repeating is fine.
     assert (
-        post(harness, "/api/repos/github/acme/widget/disable", ROOT).status_code == 200
+        harness.post("/api/repos/github/acme/widget/disable", ROOT).status_code == 200
     )
-    assert (
-        post(harness, "/api/repos/github/acme/widget/enable", ROOT).status_code == 200
-    )
+    assert harness.post("/api/repos/github/acme/widget/enable", ROOT).status_code == 200
     assert project_enabled(harness) is True
-    assert post(harness, "/api/repos/github/acme/nope/enable", ROOT).status_code == 404
+    assert harness.post("/api/repos/github/acme/nope/enable", ROOT).status_code == 404
 
 
-def test_api_restart_and_cancel(harness: tuple) -> None:
+def test_api_restart_and_cancel(harness: WebHarness) -> None:
     BACKEND.restarted.clear()
     BACKEND.cancelled.clear()
 
     assert (
-        post(harness, "/api/repos/github/acme/widget/builds/1/restart").status_code
+        harness.post("/api/repos/github/acme/widget/builds/1/restart").status_code
         == 403
     )
     assert BACKEND.restarted == []
 
-    response = post(harness, "/api/repos/github/acme/widget/builds/1/restart", ROOT)
+    response = harness.post("/api/repos/github/acme/widget/builds/1/restart", ROOT)
     assert response.status_code == 200
     assert response.json() == {"number": 1, "action": "restart"}
     assert len(BACKEND.restarted) == 1
 
-    response = post(harness, "/api/repos/github/acme/widget/builds/1/cancel", ROOT)
+    response = harness.post("/api/repos/github/acme/widget/builds/1/cancel", ROOT)
     assert response.status_code == 200
     assert response.json() == {"number": 1, "action": "cancel"}
     assert len(BACKEND.cancelled) == 1
 
     assert (
-        post(
-            harness, "/api/repos/github/acme/widget/builds/99/restart", ROOT
+        harness.post(
+            "/api/repos/github/acme/widget/builds/99/restart", ROOT
         ).status_code
         == 404
     )
@@ -357,9 +305,8 @@ def test_api_restart_and_cancel(harness: tuple) -> None:
 # --- personal API tokens ---------------------------------------------
 
 
-def test_api_token_lifecycle(harness: tuple) -> None:
-    loop, client = harness
-    pool = client._transport.app.state.web_context.pool  # type: ignore[attr-defined]  # noqa: SLF001
+def test_api_token_lifecycle(harness: WebHarness) -> None:
+    pool = harness.ctx.pool
     store = ApiTokenStore(pool)
 
     async def run() -> None:
@@ -386,32 +333,35 @@ def test_api_token_lifecycle(harness: tuple) -> None:
         assert await store.revoke(ALICE, laptop.id)
         assert await store.authenticate(token) is None
 
-    loop.run_until_complete(run())
+    harness.run(run())
 
 
-def test_token_creation_with_expiry(harness: tuple) -> None:
-    loop, client = harness
+def test_token_creation_with_expiry(harness: WebHarness) -> None:
 
     def create(data: dict) -> httpx.Response:
-        return loop.run_until_complete(
-            client.post(
+        return harness.run(
+            harness.http.post(
                 "/settings/tokens",
                 data=data,
                 headers={"Origin": "http://test"}
-                | cookie_header({"buildbot_nix_session": SIGNER.session_for(ALICE)}),
+                | cookie_header(
+                    {"buildbot_nix_session": harness.signer.session_for(ALICE)}
+                ),
             )
         )
 
     assert create({"name": "ci", "expires_days": "7"}).status_code == 200
-    store = client._transport.app.state.web_context.token_store  # type: ignore[attr-defined]  # noqa: SLF001
-    tokens = loop.run_until_complete(store.list_for(ALICE))
+    store = harness.ctx.token_store
+    assert store is not None
+    tokens = harness.run(store.list_for(ALICE))
     ci = next(t for t in tokens if t.name == "ci")
+    assert ci.expires_at is not None
     delta = ci.expires_at - datetime.now(tz=UTC)
     assert timedelta(days=6) < delta <= timedelta(days=7)
 
     # Expiry stays optional.
     assert create({"name": "forever"}).status_code == 200
-    tokens = loop.run_until_complete(store.list_for(ALICE))
+    tokens = harness.run(store.list_for(ALICE))
     assert next(t for t in tokens if t.name == "forever").expires_at is None
 
     # Invalid values rejected.
@@ -420,29 +370,27 @@ def test_token_creation_with_expiry(harness: tuple) -> None:
     assert create({"name": "bad", "expires_days": "999999999999"}).status_code == 400
 
 
-def test_forge_token_store(harness: tuple) -> None:
-    loop, client = harness
-    pool = client._transport.app.state.web_context.pool  # type: ignore[attr-defined]  # noqa: SLF001
+def test_forge_token_store(harness: WebHarness) -> None:
+    pool = harness.ctx.pool
     store = ForgeTokenStore(pool)
-    loop.run_until_complete(store.save("sid-1", "tok", 3600))
-    assert loop.run_until_complete(store.get("sid-1")) == "tok"
-    loop.run_until_complete(store.delete("sid-1"))
-    assert loop.run_until_complete(store.get("sid-1")) is None
+    harness.run(store.save("sid-1", "tok", 3600))
+    assert harness.run(store.get("sid-1")) == "tok"
+    harness.run(store.delete("sid-1"))
+    assert harness.run(store.get("sid-1")) is None
     # Expired tokens are not returned.
-    loop.run_until_complete(store.save("sid-2", "tok2", -1))
-    assert loop.run_until_complete(store.get("sid-2")) is None
+    harness.run(store.save("sid-2", "tok2", -1))
+    assert harness.run(store.get("sid-2")) is None
 
 
-def test_api_token_controls_build(harness: tuple) -> None:
-    loop, client = harness
-    ctx = client._transport.app.state.web_context  # type: ignore[attr-defined]  # noqa: SLF001
+def test_api_token_controls_build(harness: WebHarness) -> None:
+    ctx = harness.ctx
     store = ApiTokenStore(ctx.pool)
     ctx.token_store = store
 
-    token = loop.run_until_complete(store.create(ALICE, "api"))
+    token = harness.run(store.create(ALICE, "api"))
     BACKEND.restarted.clear()
-    response = loop.run_until_complete(
-        client.post(
+    response = harness.run(
+        harness.http.post(
             "/repos/github/acme/widget/builds/1/restart",
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -450,8 +398,8 @@ def test_api_token_controls_build(harness: tuple) -> None:
     assert response.status_code == 303  # PR author via token
     assert len(BACKEND.restarted) == 1
 
-    bad = loop.run_until_complete(
-        client.post(
+    bad = harness.run(
+        harness.http.post(
             "/repos/github/acme/widget/builds/1/restart",
             headers={"Authorization": "Bearer bnix_invalid"},
         )
@@ -507,17 +455,9 @@ def test_restart_clears_failed_cache_and_guards_running(
         service, _app = await build_service(config)
         pool = service.pool
         try:
-            project_id = await pool.fetchval(
-                "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
-                "default_branch, enabled) VALUES "
-                "('github', '77', 'acme', 'widget', 'http://x', 'main', TRUE) "
-                "RETURNING id"
-            )
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "tree_hash, status) VALUES ($1, 1, 'main', 'c1', 't1', 'failed') "
-                "RETURNING id",
-                project_id,
+            project_id = await insert_project(pool, forge_repo_id="77", url="http://x")
+            build_id = await insert_build(
+                pool, project_id, commit_sha="c1", tree_hash="t1", status="failed"
             )
             await pool.execute(
                 "INSERT INTO build_attributes (build_id, attr, system, drv_path, "
@@ -561,19 +501,12 @@ def test_restart_clears_failed_cache_and_guards_running(
     asyncio.run(run())
 
 
-def test_webhook_setup_shown_to_admin_only(harness: tuple) -> None:
-    loop, _client = harness
+def test_webhook_setup_shown_to_admin_only(harness: WebHarness) -> None:
 
     async def seed() -> None:
-        ctx = _client._transport.app.state.web_context  # noqa: SLF001
-        project_id = await ctx.pool.fetchval(
-            """
-            INSERT INTO projects (forge, forge_repo_id, owner, name,
-                                  default_branch, url, enabled)
-            VALUES ('gitea', 'wh-1', 'acme', 'locked', 'main', 'u', TRUE)
-            ON CONFLICT (forge, forge_repo_id) DO UPDATE SET name = 'locked'
-            RETURNING id
-            """
+        ctx = harness.ctx
+        project_id = await insert_project(
+            ctx.pool, "locked", forge="gitea", forge_repo_id="wh-1"
         )
         await ctx.pool.execute(
             "INSERT INTO webhook_secrets (project_id, secret)"
@@ -582,43 +515,40 @@ def test_webhook_setup_shown_to_admin_only(harness: tuple) -> None:
         )
         ctx.webhook_base_url = "https://ci.example.com"
 
-    loop.run_until_complete(seed())
+    harness.run(seed())
     url = "/repos/gitea/acme/locked"
-    admin = get(harness, url, ROOT).text
+    admin = harness.get(url, ROOT).text
     assert "/webhooks/gitea" in admin
     # The secret is never readable, only rotated and shown once.
     assert "s3cret" not in admin
     assert "regenerate" in admin
-    anonymous = get(harness, url).text
+    anonymous = harness.get(url).text
     assert "/webhooks/gitea" not in anonymous
 
 
-def test_webhook_secret_regeneration(harness: tuple) -> None:
-    loop, _client = harness
+def test_webhook_secret_regeneration(harness: WebHarness) -> None:
 
     async def project_id() -> int:
-        ctx = _client._transport.app.state.web_context  # noqa: SLF001
+        ctx = harness.ctx
         return await ctx.pool.fetchval(
             "SELECT id FROM projects WHERE forge_repo_id = 'wh-1'"
         )
 
-    pid = loop.run_until_complete(project_id())
+    pid = harness.run(project_id())
     url = f"/admin/repos/{pid}/webhook-secret"
-    assert post(harness, url, ALICE).status_code == 403
-    assert (
-        post(harness, url, ROOT, origin="https://evil.example.com").status_code == 403
-    )
-    rotated = post(harness, url, ROOT)
+    assert harness.post(url, ALICE).status_code == 403
+    assert harness.post(url, ROOT, origin="https://evil.example.com").status_code == 403
+    rotated = harness.post(url, ROOT)
     assert rotated.status_code == 200
     assert "s3cret" not in rotated.text  # old secret replaced
 
     async def stored() -> str:
-        ctx = _client._transport.app.state.web_context  # noqa: SLF001
+        ctx = harness.ctx
         return await ctx.pool.fetchval(
             "SELECT secret FROM webhook_secrets WHERE project_id = $1", pid
         )
 
-    new_secret = loop.run_until_complete(stored())
+    new_secret = harness.run(stored())
     assert new_secret != "s3cret"  # noqa: S105 (seeded test value)
     assert new_secret in rotated.text  # shown exactly here, once
 
@@ -676,17 +606,9 @@ def test_report_retry(
         service, _app = await build_service(config)
         pool = service.pool
         try:
-            project_id = await pool.fetchval(
-                "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
-                "default_branch, enabled) VALUES "
-                "('github', '80', 'acme', 'widget', 'http://x', 'main', TRUE) "
-                "RETURNING id"
-            )
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "tree_hash, status) VALUES "
-                "($1, 1, 'main', 'c9', 't9', 'succeeded') RETURNING id",
-                project_id,
+            project_id = await insert_project(pool, forge_repo_id="80", url="http://x")
+            build_id = await insert_build(
+                pool, project_id, commit_sha="c9", tree_hash="t9", status="succeeded"
             )
             await pool.execute(
                 "INSERT INTO build_attributes (build_id, attr, status) "
@@ -765,17 +687,11 @@ def test_effect_item_setup_failure_settles_row(
         service, _app = await build_service(config)
         pool = service.pool
         try:
-            project_id = await pool.fetchval(
-                "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
-                "default_branch, enabled) VALUES "
-                "('github', '81', 'acme', 'gear', 'file:///nonexistent', 'main', "
-                "TRUE) RETURNING id"
+            project_id = await insert_project(
+                pool, "gear", forge_repo_id="81", url="file:///nonexistent"
             )
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "tree_hash, status) VALUES "
-                "($1, 1, 'main', 'c5', 't5', 'succeeded') RETURNING id",
-                project_id,
+            build_id = await insert_build(
+                pool, project_id, commit_sha="c5", tree_hash="t5", status="succeeded"
             )
             await pool.execute(
                 "INSERT INTO build_effects (build_id, name, status) "
@@ -863,17 +779,16 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
         service, _app = await build_service(config)
         pool = service.pool
         try:
-            project_id = await pool.fetchval(
-                "INSERT INTO projects (forge, forge_repo_id, owner, name, url, "
-                "default_branch, enabled) VALUES "
-                "('github', '79', 'acme', 'sprocket', 'http://x', 'main', TRUE) "
-                "RETURNING id"
+            project_id = await insert_project(
+                pool, "sprocket", forge_repo_id="79", url="http://x"
             )
-            build_id = await pool.fetchval(
-                "INSERT INTO builds (project_id, number, branch, commit_sha, "
-                "tree_hash, status, effects_started) VALUES "
-                "($1, 1, 'main', 'c1', 't1', 'failed', TRUE) RETURNING id",
+            build_id = await insert_build(
+                pool,
                 project_id,
+                commit_sha="c1",
+                tree_hash="t1",
+                status="failed",
+                effects_started=True,
             )
             await pool.execute(
                 "INSERT INTO build_effects (build_id, name, status, finished_at, "
@@ -914,8 +829,8 @@ def test_restart_resets_effects(postgres_dsn: str, tmp_path: Path) -> None:
     asyncio.run(run())
 
 
-def test_effects_restart_route(harness: tuple) -> None:
+def test_effects_restart_route(harness: WebHarness) -> None:
     url = "/repos/github/acme/widget/builds/1/effects/restart"
-    assert post(harness, url).status_code == 403
-    assert post(harness, url, ROOT).status_code == 303
+    assert harness.post(url).status_code == 403
+    assert harness.post(url, ROOT).status_code == 303
     assert BACKEND.effect_restarts == [1]
