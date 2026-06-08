@@ -265,8 +265,8 @@ def env_args(env: dict[str, str], clear_env: set[str]) -> list[str]:
 def secret_context(opts: EffectsOptions) -> SecretContext:
     branch = opts.branch or ""
     return SecretContext(
-        owner_name=(opts.repo or "").split("/")[0],
-        repo_name=(opts.repo or "").rsplit("/", 1)[-1],
+        owner_name=opts.repo.split("/")[0],
+        repo_name=opts.repo.rsplit("/", 1)[-1],
         is_default_branch=opts.default_branch is not None
         and branch == opts.default_branch,
         ref=f"refs/tags/{opts.tag}" if opts.tag else f"refs/heads/{branch}",

@@ -8,7 +8,7 @@ from pathlib import Path
 class EffectsOptions:
     secrets: Path | None = None
     path: Path = field(default_factory=Path.cwd)
-    repo: str | None = ""
+    repo: str = ""
     rev: str | None = None
     branch: str | None = None
     url: str | None = None
