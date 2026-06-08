@@ -436,6 +436,18 @@ def test_ansi_stream_state_across_chunks() -> None:
     assert stream.feed("qworld") == "world"
 
 
+def test_ansi_stream_flushes_oversized_unterminated_osc() -> None:
+    """An unterminated OSC must not buffer the rest of the stream
+    forever: past a sanity bound it is flushed as plain text."""
+    stream = AnsiHtmlStream()
+    # Small partial sequences stay buffered awaiting their terminator.
+    assert stream.feed("\x1b]8;;https://e.x") == ""
+    payload = "x" * 5000
+    out = stream.feed(payload)
+    assert payload in out
+    assert "after" in stream.feed("after")
+
+
 def seed_log(client: WebHarness, tmp_path: Path) -> None:
     async def run() -> None:
         ctx = client.ctx

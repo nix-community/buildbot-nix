@@ -146,6 +146,12 @@ def ansi_to_html(text: str) -> str:
     return _ansi_convert(text, _RESET)[0]
 
 
+# Real escape sequences are tiny; a held-back "partial" larger than
+# this is an unterminated OSC that would buffer the live stream
+# forever.
+_TAIL_MAX = 4096
+
+
 class AnsiHtmlStream:
     """Chunked variant for live streams: SGR state and escape
     sequences split across chunk boundaries survive."""
@@ -162,6 +168,11 @@ class AnsiHtmlStream:
             self._tail = text[partial.start() :]
             text = text[: partial.start()]
         rendered, self._style = _ansi_convert(text, self._style)
+        if len(self._tail) > _TAIL_MAX:
+            # Give up on the broken sequence: flush it as plain text
+            # (minus the ESC bytes) so the stream keeps moving.
+            rendered += _render_segment(self._tail.replace("\x1b", ""), self._style)
+            self._tail = ""
         return rendered
 
 
