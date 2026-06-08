@@ -65,8 +65,10 @@ def _back(forge: str, owner: str, name: str, number: int) -> RedirectResponse:
 def _back_to_attr(
     forge: str, owner: str, name: str, number: int, attr: str
 ) -> RedirectResponse:
+    # Percent-encode: raw attr names containing ? # % would corrupt
+    # the Location header (slashes are fine, the route uses :path).
     return RedirectResponse(
-        f"/repos/{forge}/{owner}/{name}/builds/{number}/logs/{attr}",
+        f"/repos/{forge}/{owner}/{name}/builds/{number}/logs/{quote(attr, safe='/')}",
         status_code=303,
     )
 
@@ -257,10 +259,11 @@ def create_control_router(
     routes = _ControlRoutes(ctx, backend, authz, own_url)
     base = "/repos/{forge}/{owner}/{name}/builds/{number}"
     router.post(f"{base}/restart")(routes.restart)
-    router.post(f"{base}/attrs/{{attr}}/restart")(routes.restart_attribute)
+    # :path — attribute names may contain slashes.
+    router.post(f"{base}/attrs/{{attr:path}}/restart")(routes.restart_attribute)
     router.post(f"{base}/rebuild-failed")(routes.rebuild_failed)
     router.post(f"{base}/effects/restart")(routes.restart_effects)
-    router.post(f"{base}/attrs/{{attr}}/cancel")(routes.cancel_attribute)
+    router.post(f"{base}/attrs/{{attr:path}}/cancel")(routes.cancel_attribute)
     router.post(f"{base}/cancel")(routes.cancel)
     router.post("/admin/repos/refresh")(routes.refresh_repos)
     router.post("/admin/repos/{project_id}/toggle")(routes.toggle_repo)

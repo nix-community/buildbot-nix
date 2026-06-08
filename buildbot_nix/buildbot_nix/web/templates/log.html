@@ -12,13 +12,13 @@
           <code>{{ attr }}</code>
           <small>
             <a href="{{ build_path(project, build.number) }}">build #{{ build.number }}</a>
-            · <a href="{{ build_path(project, build.number) }}/logs/raw/{{ attr }}">raw</a>
+            · <a href="{{ build_path(project, build.number) }}/logs/raw/{{ attr | urlencode }}">raw</a>
             {% if prev_number %}
-              · <a href="{{ build_path(project, prev_number) }}/logs/{{ attr }}"
+              · <a href="{{ build_path(project, prev_number) }}/logs/{{ attr | urlencode }}"
     rel="prev">‹ #{{ prev_number }}</a>
             {% endif %}
             {% if next_number %}
-              · <a href="{{ build_path(project, next_number) }}/logs/{{ attr }}"
+              · <a href="{{ build_path(project, next_number) }}/logs/{{ attr | urlencode }}"
     rel="next">#{{ next_number }} ›</a>
             {% endif %}
           </small>
@@ -26,12 +26,12 @@
         <div class="controls">
           {% if can_control and attr_status in ('pending', 'building') %}
             <form method="post"
-                  action="{{ build_path(project, build.number) }}/attrs/{{ attr }}/cancel">
+                  action="{{ build_path(project, build.number) }}/attrs/{{ attr | urlencode }}/cancel">
               <button>cancel</button>
             </form>
           {% elif can_control and attr_status %}
             <form method="post"
-                  action="{{ build_path(project, build.number) }}/attrs/{{ attr }}/restart">
+                  action="{{ build_path(project, build.number) }}/attrs/{{ attr | urlencode }}/restart">
               <button>restart</button>
             </form>
           {% endif %}
@@ -79,7 +79,7 @@
         log.scrollHeight - log.scrollTop - log.clientHeight < 4;
       log.addEventListener("scroll", () => { follow.checked = atBottom(); });
       const source = new EventSource(
-        "{{ build_path(project, build.number) }}/logs/{{ attr }}/stream");
+        "{{ build_path(project, build.number) }}/logs/{{ attr | urlencode }}/stream");
       /* The stream replays full history on every (re)connect. */
       let errors = 0;
       source.onopen = () => {

@@ -470,12 +470,16 @@ _BASE = "/repos/{forge}/{owner}/{name}/builds/{number}"
 def create_log_router(ctx: WebContext, registry: LogRegistry) -> APIRouter:
     router = APIRouter()
     routes = _LogRoutes(ctx, registry)
-    # /logs/raw/{attr} is the unambiguous raw route; the .txt suffix
-    # stays as a fallback for existing consumers.
-    router.get(f"{_BASE}/logs/raw/{{attr}}")(routes.log_raw_text)
+    # :path converters: attribute names may contain slashes. Route
+    # order matters — raw/stream/.txt are matched before the greedy
+    # viewer catch-all. /logs/raw/{attr} is the unambiguous raw route;
+    # the .txt suffix stays as a fallback for existing consumers.
+    router.get(f"{_BASE}/logs/raw/{{attr:path}}")(routes.log_raw_text)
     router.get(f"{_BASE}/logs/{{attr}}.txt")(routes.log_raw_text_legacy)
-    router.get(f"{_BASE}/logs/{{attr}}/stream")(routes.log_stream)
-    router.get(f"{_BASE}/logs/{{attr}}", response_class=HTMLResponse)(routes.log_viewer)
+    router.get(f"{_BASE}/logs/{{attr:path}}/stream")(routes.log_stream)
+    router.get(f"{_BASE}/logs/{{attr:path}}", response_class=HTMLResponse)(
+        routes.log_viewer
+    )
     router.get("/repos/{forge}/{owner}/{name}/schedules/runs/{run_id}.txt")(
         routes.scheduled_run_log
     )

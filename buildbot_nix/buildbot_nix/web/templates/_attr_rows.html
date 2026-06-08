@@ -4,7 +4,7 @@
     <td class="attr-status">{{ status_icon(a.status) }}</td>
     <td class="attr-name">
       {% if a.log_path or a.status in RUNNING_STATUSES %}
-        <a href="{{ build_path(project, build.number) }}/logs/{{ a.attr }}"><code>{{ a.attr }}</code></a>
+        <a href="{{ build_path(project, build.number) }}/logs/{{ a.attr | urlencode }}"><code>{{ a.attr }}</code></a>
       {% else %}
         <code>{{ a.attr }}</code>
       {% endif %}

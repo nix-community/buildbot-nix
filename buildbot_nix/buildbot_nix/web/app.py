@@ -516,7 +516,8 @@ def create_router(ctx: WebContext) -> APIRouter:
             "/repos/{forge}/{owner}/{name}/builds/{number}/attrs",
             pages.attribute_rows,
         ),
-        ("/repos/{forge}/{owner}/{name}/attrs/{attr}", pages.attribute_history),
+        # :path — attribute names may contain slashes.
+        ("/repos/{forge}/{owner}/{name}/attrs/{attr:path}", pages.attribute_history),
     ]
     for path, handler in html_pages:
         router.get(path, response_class=HTMLResponse)(handler)

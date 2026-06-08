@@ -106,7 +106,8 @@ async def seed(dsn: str) -> None:
             INSERT INTO build_attributes (build_id, attr, system, status) VALUES
               ($1, 'good', 'x', 'succeeded'),
               ($1, 'bad1', 'x', 'failed'),
-              ($1, 'bad2', 'x', 'dependency_failed')
+              ($1, 'bad2', 'x', 'dependency_failed'),
+              ($1, 'pkgs/o k?#100%', 'x', 'succeeded')
             """,
             build_id,
         )
@@ -207,6 +208,22 @@ def test_restart_unknown_attribute_is_404(harness: WebHarness) -> None:
     )
     assert response.status_code == 404
     assert BACKEND.attr_restarts == []
+
+
+def test_restart_attribute_with_special_chars_redirects_encoded(
+    harness: WebHarness,
+) -> None:
+    """Attrs containing / % ? # must match the route and come back
+    percent-encoded in the redirect Location header."""
+    BACKEND.attr_restarts.clear()
+    attr = "pkgs/o k?#100%"
+    encoded = "pkgs/o%20k%3F%23100%25"
+    response = harness.post(
+        f"/repos/github/acme/widget/builds/1/attrs/{encoded}/restart", ROOT
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(f"/logs/{encoded}")
+    assert [a for _, a in BACKEND.attr_restarts] == [attr]
 
 
 def test_rebuild_all_failed(harness: WebHarness) -> None:

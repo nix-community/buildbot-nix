@@ -548,6 +548,58 @@ def test_attr_named_dot_txt_not_shadowed_by_raw_route(
         )
 
 
+def test_attr_names_with_special_characters(
+    client: WebHarness, tmp_path: Path
+) -> None:
+    """Attrs containing / % ? # must round-trip through generated
+    links and route matching."""
+    ctx = client.ctx
+    ctx.state_dir = tmp_path
+    attr = "pkgs/o k?#100%"
+    encoded = "pkgs/o%20k%3F%23100%25"
+
+    async def setup() -> int:
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 2")
+        attr_id = await ctx.pool.fetchval(
+            "INSERT INTO build_attributes (build_id, attr, system, status)"
+            " VALUES ($1, $2, 'x86_64-linux', 'failed') RETURNING id",
+            build_id,
+            attr,
+        )
+        rel = "logs/2/weird.zst"
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(zstandard.ZstdCompressor().compress(b"weird log\n"))
+        await ctx.pool.execute(
+            "INSERT INTO logs (attribute_id, path, size_bytes) VALUES ($1, $2, $3)",
+            attr_id,
+            rel,
+            f.stat().st_size,
+        )
+        return build_id
+
+    build_id = client.loop.run_until_complete(setup())
+    try:
+        base = "/repos/github/acme/widget/builds/2"
+        page = client.get(f"{base}/attrs?group=failed")
+        assert f"logs/{encoded}" in page.text
+        viewer = client.get(f"{base}/logs/{encoded}")
+        assert viewer.status_code == 200
+        assert "weird log" in viewer.text
+        assert client.get(f"{base}/logs/raw/{encoded}").text == "weird log\n"
+        history = client.get(f"/api/repos/github/acme/widget/attrs/{encoded}")
+        assert history.status_code == 200
+        assert history.json()[0]["attr"] == attr
+    finally:
+        client.loop.run_until_complete(
+            ctx.pool.execute(
+                "DELETE FROM build_attributes WHERE build_id = $1 AND attr = $2",
+                build_id,
+                attr,
+            )
+        )
+
+
 def test_log_viewer_waits_for_queued_attribute(client: WebHarness) -> None:
     # The build page links queued attributes before any log exists.
     async def make_pending() -> None:

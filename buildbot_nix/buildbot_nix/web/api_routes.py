@@ -209,7 +209,8 @@ def create_api_router(ctx: WebContext) -> APIRouter:
         }
 
     @router.get(
-        "/repos/{forge}/{owner}/{name}/attrs/{attr}",
+        # :path — attribute names may contain slashes.
+        "/repos/{forge}/{owner}/{name}/attrs/{attr:path}",
         response_model=list[AttributeHistoryEntry],
     )
     async def get_attribute_history(
