@@ -981,12 +981,20 @@ class Orchestrator:
             return
         self.canceller.complete(build.id)
         if build.status == BuildStatus.SUCCEEDED:
-            await self._post_process_existing(event, build)
-            # A build that ran as a PR never started effects, so a
-            # default-branch push reusing it must still deploy; the
-            # effects_started flag prevents re-deploys.
-            await self._maybe_run_effects(event, build, worktree_path, credentials)
-            await self._refresh_schedules(event)
+            # Guarded like in-build post-processing: a gcroots/outputs
+            # failure must not strand this context without a status.
+            try:
+                await self._post_process_existing(event, build)
+                # A build that ran as a PR never started effects, so a
+                # default-branch push reusing it must still deploy; the
+                # effects_started flag prevents re-deploys.
+                await self._maybe_run_effects(event, build, worktree_path, credentials)
+                await self._refresh_schedules(event)
+            except Exception:
+                logger.exception(
+                    "post-processing reused build failed",
+                    extra={"build_id": build.id},
+                )
         await self._replay_terminal_status(event, build)
 
     async def _post_process_existing(

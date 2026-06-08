@@ -1968,3 +1968,46 @@ def test_effects_phase_error_keeps_succeeded_build(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_reuse_post_process_error_still_reports_status(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """A gcroot/outputs failure on the reuse path must not strand the
+    new context without a final status (same wedge as in-build
+    post-processing)."""
+
+    async def run() -> None:
+        add_commit(upstream, "reuse-pp-err")
+        sha = git(upstream, "rev-parse", "HEAD")
+        pool, orchestrator, reporter, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner([mk_job("a")]),
+            FakeExecutor(),
+            name="reuse-pp-err",
+        )
+        try:
+            build1 = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
+            )
+            assert build1 is not None
+
+            async def boom(gcroots_dir: Path, proj: str, attr: str, out: str) -> None:
+                msg = "disk full"
+                raise OSError(msg)
+
+            orchestrator.register_gcroot = boom
+            reporter.events.clear()
+            build2 = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
+            )
+            assert build2 is not None
+            finished = [e for e in reporter.events if e[0] == "finished"]
+            assert finished
+            assert finished[-1][2] == BuildStatus.SUCCEEDED
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
