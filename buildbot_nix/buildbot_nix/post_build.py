@@ -12,9 +12,11 @@ failing the attribute.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
+import signal
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -27,6 +29,10 @@ if TYPE_CHECKING:
     from .models import NixEvalJobSuccess
 
 logger = logging.getLogger(__name__)
+
+# Hard cap on one post-build step: a hung cachix/upload step must not
+# block the attribute forever.
+POST_BUILD_STEP_TIMEOUT = 60 * 60
 
 _PLACEHOLDER_RE = re.compile(r"%\((prop|secret):([^)]+)\)s")
 
@@ -97,6 +103,7 @@ async def run_post_build_step(
     step: PostBuildStep,
     props: Mapping[str, str],
     cwd: Path,
+    step_timeout: float = POST_BUILD_STEP_TIMEOUT,
 ) -> PostBuildStepResult:
     try:
         command = [interpolate(arg, props) for arg in step.command]
@@ -115,14 +122,45 @@ async def run_post_build_step(
             name=step.name, success=False, warn_only=step.warn_only, output=str(e)
         )
 
-    proc = await asyncio.create_subprocess_exec(
-        *command,
-        cwd=cwd,
-        env=env,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    stdout, _ = await proc.communicate()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=cwd,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,  # own process group for clean kill
+        )
+    except OSError as e:
+        # Missing/unexecutable step binary: a post-build failure, not
+        # an internal error.
+        return PostBuildStepResult(
+            name=step.name,
+            success=False,
+            warn_only=step.warn_only,
+            output=f"failed to start post-build step {command[0]!r}: {e}",
+        )
+
+    def kill() -> None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=step_timeout)
+    except TimeoutError:
+        kill()
+        await proc.wait()
+        return PostBuildStepResult(
+            name=step.name,
+            success=False,
+            warn_only=step.warn_only,
+            output=f"post-build step timed out after {step_timeout}s",
+        )
+    except asyncio.CancelledError:
+        # Build cancelled: do not leave the step's process tree running.
+        kill()
+        await proc.wait()
+        raise
     output = stdout.decode(errors="replace")
     success = proc.returncode == 0
     if not success:

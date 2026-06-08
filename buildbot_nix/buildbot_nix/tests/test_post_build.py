@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -14,6 +15,7 @@ from buildbot_nix.post_build import (
     InterpolationError,
     build_props,
     interpolate,
+    run_post_build_step,
     run_post_build_steps,
 )
 
@@ -146,3 +148,58 @@ def test_run_steps_inherit_service_environment(
     assert f"home={tmp_path}" in results[0].output
     assert "inherited=from-service" in results[0].output
     assert "extra=x" in results[0].output
+
+
+def test_run_step_timeout_kills_process(tmp_path: Path) -> None:
+    # A hung upload step must not block the attribute forever: the
+    # step is killed (whole process group) and reported as a failure.
+    pidfile = tmp_path / "pid"
+    step = PostBuildStep(
+        name="hang",
+        environment={},
+        command=["sh", "-c", f"echo $$ > {pidfile}; sleep 60"],
+    )
+    result = asyncio.run(run_post_build_step(step, PROPS, tmp_path, step_timeout=0.2))
+    assert not result.success
+    assert "timed out" in result.output
+    pid = int(pidfile.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_run_step_cancel_kills_process(tmp_path: Path) -> None:
+    # Build cancellation must kill the running step's process group.
+    pidfile = tmp_path / "pid"
+    step = PostBuildStep(
+        name="hang",
+        environment={},
+        command=["sh", "-c", f"echo $$ > {pidfile}; sleep 60"],
+    )
+
+    async def run() -> None:
+        task = asyncio.create_task(run_post_build_step(step, PROPS, tmp_path))
+        for _ in range(100):
+            if pidfile.exists() and pidfile.read_text().strip():
+                break
+            await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+    pid = int(pidfile.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_run_step_missing_binary_is_failure(tmp_path: Path) -> None:
+    # A nonexistent step binary is a post-build failure result, not an
+    # unhandled internal error.
+    step = PostBuildStep(
+        name="missing",
+        environment={},
+        command=["/nonexistent/upload-tool"],
+    )
+    result = asyncio.run(run_post_build_step(step, PROPS, tmp_path))
+    assert not result.success
+    assert "upload-tool" in result.output
