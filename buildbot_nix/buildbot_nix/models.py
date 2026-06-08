@@ -32,9 +32,6 @@ class NixEvalJobSuccess(BaseModel):
     needed_builds: list[str] = Field(validation_alias="neededBuilds")
     needed_substitutes: list[str] = Field(validation_alias="neededSubstitutes")
     drv_path: str = Field(validation_alias="drvPath")
-    input_drvs: dict[str, list[str]] | None = Field(
-        default=None, validation_alias="inputDrvs"
-    )
     name: str
     # nix-eval-jobs emits null output paths for impure and some
     # content-addressed derivations: it cannot know their store paths
@@ -47,15 +44,3 @@ class NixEvalJobSuccess(BaseModel):
 
 NixEvalJob = NixEvalJobError | NixEvalJobSuccess
 NixEvalJobModel: TypeAdapter[NixEvalJob] = TypeAdapter(NixEvalJob)
-
-
-class NixDerivation(BaseModel):
-    class InputDerivation(BaseModel):
-        model_config = ConfigDict(populate_by_name=True)
-
-        dynamic_outputs: dict[str, str] = Field(validation_alias="dynamicOutputs")
-        outputs: list[str]
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    input_drvs: dict[str, InputDerivation] = Field(validation_alias="inputDrvs")
