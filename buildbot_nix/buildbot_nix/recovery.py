@@ -205,12 +205,9 @@ async def settle_already_built(
     """Complete pending attributes whose out paths already exist in the
     store; return (jobs that still need building, settled (attr,
     out_path) pairs for gcroots/outputs post-processing)."""
-    out_paths = {
-        job.attr: job.outputs.get("out")
-        for job in build.pending_jobs
-        if job.outputs.get("out")
-    }
-    valid = await path_checker([p for p in out_paths.values() if p])
+    valid = await path_checker(
+        [p for job in build.pending_jobs if (p := job.outputs.get("out"))]
+    )
     remaining = []
     settled: list[tuple[str, str]] = []
     for job in build.pending_jobs:

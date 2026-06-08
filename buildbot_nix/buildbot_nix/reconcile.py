@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from .webhooks import ChangeRequest
@@ -46,18 +46,15 @@ async def github_heads(
     token = await client.installation_token(installation_id)
     repo_url = f"{client.api_url}/repos/{project.owner}/{project.name}"
     heads = []
-    branch: dict[str, Any] | None = None
     response = await client.http.get(
         f"{repo_url}/branches/{quote(project.default_branch, safe='')}",
         headers={"Authorization": f"Bearer {token}"},
     )
     if response.status_code < 400:  # noqa: PLR2004
-        branch = response.json()
-    if branch:
         heads.append(
             RemoteHead(
                 branch=project.default_branch,
-                commit_sha=branch["commit"]["sha"],
+                commit_sha=response.json()["commit"]["sha"],
             )
         )
     pulls = await client.paginated(f"{repo_url}/pulls?state=open&per_page=100", token)

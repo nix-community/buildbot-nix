@@ -571,27 +571,21 @@ class EvalRunner:
         jobs: list[NixEvalJob] = []
         parse_errors: list[str] = []
 
-        async def read_stderr() -> bytes:
-            assert proc.stderr is not None  # noqa: S101
-            return await _read_stderr_tail(proc.stderr)
-
         try:
             async with asyncio.timeout(settings.timeout):
                 _, stderr_bytes = await asyncio.gather(
                     _read_job_stream(proc.stdout, jobs, parse_errors, on_jobs),
-                    read_stderr(),
+                    _read_stderr_tail(proc.stderr),
                 )
                 returncode = await proc.wait()
-        except TimeoutError:
+        except BaseException as e:
+            # Timeout, cancellation, or a reader bug: kill the evaluator
+            # instead of leaking it (possibly blocked on a full pipe).
             _kill_process_tree(proc)
             await proc.wait()
-            msg = f"evaluation timed out after {settings.timeout:.0f} seconds"
-            raise EvalError(msg) from None
-        except BaseException:
-            # Cancellation or a reader bug: kill the evaluator instead
-            # of leaking it (possibly blocked on a full pipe) forever.
-            _kill_process_tree(proc)
-            await proc.wait()
+            if isinstance(e, TimeoutError):
+                msg = f"evaluation timed out after {settings.timeout:.0f} seconds"
+                raise EvalError(msg) from None
             raise
         stderr_text = stderr_bytes.decode(errors="replace")
         warnings = extract_eval_warnings(stderr_text)
