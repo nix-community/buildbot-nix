@@ -674,6 +674,42 @@ def test_live_log_history_before_completion(client: WebHarness, tmp_path: Path) 
     assert "event: done" in stream
 
 
+def test_log_sse_stream_neutralizes_carriage_returns(
+    client: WebHarness, tmp_path: Path
+) -> None:
+    """EventSource treats a bare CR as a line terminator: log content
+    after \r would escape the data: framing and could forge SSE
+    fields like a premature "event: done"."""
+    ctx = client.ctx
+    ctx.state_dir = tmp_path
+    registry = client.app.state.log_registry
+
+    async def run() -> str:
+        build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 3")
+        writer = LogWriter(path=tmp_path / "logs" / "live" / "cr.zst")
+        await writer.write(b"progress 1%\rprogress 2%\r\nevent: done\rtail\n")
+        registry.register(build_id, "x86_64-linux.ok", writer)
+        try:
+            stream_task = asyncio.ensure_future(
+                client.http.get(
+                    "/repos/github/acme/widget/builds/3/logs/x86_64-linux.ok/stream"
+                )
+            )
+            await asyncio.sleep(0.1)
+            await writer.close()
+            return (await stream_task).text
+        finally:
+            registry.unregister(build_id, "x86_64-linux.ok")
+
+    stream = client.loop.run_until_complete(run())
+    body_lines = stream.split("\n")
+    # The only event: line is the terminal done marker.
+    assert [li for li in body_lines if li.startswith("event:")] == ["event: done"]
+    # No raw CR may reach the wire inside a data: payload.
+    assert "\r" not in stream
+    assert "progress 2%" in stream
+
+
 def test_api_builds_commit_filter(client: WebHarness) -> None:
     hits = client.get("/api/repos/github/acme/widget/builds?commit=sha-2").json()
     assert [b["number"] for b in hits["items"]] == [2]

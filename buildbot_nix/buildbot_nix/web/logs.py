@@ -477,5 +477,9 @@ async def _stream_events(
 
 
 def _sse(text: str) -> str:
-    data = "\n".join(f"data: {line}" for line in text.split("\n"))
+    # EventSource accepts \r, \r\n and \n as line terminators: a bare
+    # CR inside a data: payload would end the line early and let log
+    # content forge SSE fields (e.g. a premature "event: done").
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    data = "\n".join(f"data: {line}" for line in lines)
     return f"{data}\n\n"
