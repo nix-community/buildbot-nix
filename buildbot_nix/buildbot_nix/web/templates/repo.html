@@ -80,17 +80,18 @@
             </tr>
           </thead>
           {% for s in schedules %}
+            {% set label = s.schedule if s.schedule == s.effect else s.schedule ~ " · " ~ s.effect %}
             <tr>
               <td class="status">{{ status_icon(s.run.status if s.run else "pending") }}</td>
               <td class="attr-name">
                 {% if s.run %}
-                  <a href="{{ repo_path(project) }}/schedules/runs/{{ s.run.id }}.txt">{{ s.schedule }} · {{ s.effect }}</a>
+                  <a href="{{ repo_path(project) }}/schedules/runs/{{ s.run.id }}.txt">{{ label }}</a>
                 {% else %}
-                  {{ s.schedule }} · {{ s.effect }}
+                  {{ label }}
                 {% endif %}
               </td>
-              <td class="muted">{{ s.when }}</td>
-              <td class="muted">
+              <td class="muted attr-status">{{ s.when }}</td>
+              <td class="muted attr-status">
                 {% if s.run %}
                   <time datetime="{{ s.run.started_at.isoformat() }}"
                         title="{{ s.run.started_at }}">{{ s.run.started_at | timeago }}</time>
