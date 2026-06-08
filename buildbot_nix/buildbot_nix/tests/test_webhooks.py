@@ -16,6 +16,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from buildbot_nix import webhooks
 from buildbot_nix.config import BranchConfig, BranchConfigDict
 from buildbot_nix.webhooks import (
     ChangeRequest,
@@ -447,6 +448,28 @@ def test_malformed_payloads_return_400() -> None:
             )
         assert github.status_code == 400
         assert gitea.status_code == 400
+        assert sink.events == []
+
+    asyncio.run(run())
+
+
+def test_oversized_payload_rejected() -> None:
+    """Bodies over the cap are rejected with 413 before any signature
+    or parsing work."""
+
+    async def run() -> None:
+        sink = FakeSink()
+        body = b"x" * (webhooks.MAX_BODY_SIZE + 1)
+        async with make_client(sink) as client:
+            response = await client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "X-Hub-Signature-256": sign_github(body),
+                    "X-GitHub-Event": "push",
+                },
+            )
+        assert response.status_code == 413
         assert sink.events == []
 
     asyncio.run(run())

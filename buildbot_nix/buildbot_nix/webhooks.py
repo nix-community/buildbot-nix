@@ -33,6 +33,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Unauthenticated endpoints must not buffer unbounded request bodies;
+# GitHub itself caps webhook payloads at 25 MB.
+MAX_BODY_SIZE = 25 * 1024 * 1024
+
 MERGE_QUEUE_PATTERNS = ("gh-readonly-queue/*", "gitea-mq/*", "staging", "trying")
 
 
@@ -325,6 +329,20 @@ def parse_webhook_body(request: Request, body: bytes) -> dict[str, Any]:
     return payload
 
 
+async def read_body(request: Request) -> bytes:
+    """Read the request body, rejecting oversized payloads with 413
+    before (Content-Length) or while (chunked) buffering."""
+    length = request.headers.get("Content-Length", "")
+    if length.isdigit() and int(length) > MAX_BODY_SIZE:
+        raise HTTPException(status_code=413, detail="payload too large")
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_BODY_SIZE:
+            raise HTTPException(status_code=413, detail="payload too large")
+    return bytes(body)
+
+
 class ChangeSink(Protocol):
     """Receives parsed webhook events; the orchestrator side implements
     this. Must raise on database outage (translated to 500)."""
@@ -354,7 +372,7 @@ class _WebhookHandlers:
     async def handle_github(self, request: Request) -> Response:
         if self.github_webhook_secret is None:
             raise HTTPException(status_code=404, detail="github not configured")
-        body = await request.body()
+        body = await read_body(request)
         if not verify_github_signature(
             self.github_webhook_secret,
             body,
@@ -372,7 +390,7 @@ class _WebhookHandlers:
     async def handle_gitea(self, request: Request) -> Response:
         if self.gitea_secrets is None:
             raise HTTPException(status_code=404, detail="gitea not configured")
-        body = await request.body()
+        body = await read_body(request)
         payload = parse_webhook_body(request, body)
         repo_id = str((payload.get("repository") or {}).get("id", ""))
         try:
@@ -392,7 +410,7 @@ class _WebhookHandlers:
     async def handle_gitlab(self, request: Request) -> Response:
         if self.gitlab_secrets is None:
             raise HTTPException(status_code=404, detail="gitlab not configured")
-        body = await request.body()
+        body = await read_body(request)
         payload = parse_webhook_body(request, body)
         repo_id = str((payload.get("project") or {}).get("id", ""))
         try:
