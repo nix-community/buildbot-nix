@@ -1223,7 +1223,9 @@ in
         }
         // lib.optionalAttrs (cfg.outputsPath != null) {
           "/nix-outputs/" = {
-            alias = cfg.outputsPath;
+            # alias on a "/"-terminated location must itself end in
+            # "/" or nginx mangles the mapped path.
+            alias = lib.removeSuffix "/" cfg.outputsPath + "/";
             extraConfig = ''
               charset utf-8;
               autoindex on;
