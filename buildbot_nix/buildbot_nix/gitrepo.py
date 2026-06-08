@@ -188,8 +188,18 @@ class Worktree:
                 cwd=self.path,
             )
         except GitError as e:
+            # Only a genuine content conflict (unmerged index entries)
+            # is a permanent MergeConflictError; everything else
+            # (index.lock contention, missing objects, disk full) must
+            # stay a GitError so callers treat it as transient/infra.
+            conflicted = False
+            with contextlib.suppress(GitError):
+                unmerged = await run_git(["ls-files", "--unmerged"], cwd=self.path)
+                conflicted = bool(unmerged.strip())
             with contextlib.suppress(GitError):
                 await run_git(["merge", "--abort"], cwd=self.path)
+            if not conflicted:
+                raise
             msg = f"merge of {head_sha} conflicts with base branch: {e.stderr}"
             raise MergeConflictError(msg) from e
 

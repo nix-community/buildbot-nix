@@ -258,3 +258,23 @@ def test_static_credentials_provider(tmp_path: Path) -> None:
 def test_run_git_error_includes_stderr(tmp_path: Path) -> None:
     with pytest.raises(Exception, match="failed"):
         asyncio.run(run_git(["rev-parse", "HEAD"], cwd=tmp_path))
+
+
+def test_merge_infra_failure_is_not_conflict(
+    manager: RepoManager, upstream: Path
+) -> None:
+    # A git failure that is not a content conflict (here: merging a
+    # nonexistent ref) must surface as GitError so callers treat it as
+    # transient/infra, not as a permanent merge conflict.
+    base = git(upstream, "rev-parse", "HEAD")
+    fetch(manager, upstream)
+
+    async def run() -> None:
+        wt = await manager.create_worktree(KEY, "b-infra", base)
+        try:
+            with pytest.raises(GitError):
+                await wt.merge("0" * 40)
+        finally:
+            await manager.remove_worktree(wt)
+
+    asyncio.run(run())
