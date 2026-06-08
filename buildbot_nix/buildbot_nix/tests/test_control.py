@@ -331,6 +331,26 @@ def test_api_token_lifecycle(harness: WebHarness) -> None:
     harness.run(run())
 
 
+def test_expired_api_tokens_pruned(harness: WebHarness) -> None:
+    """Expired tokens are deleted, not kept forever cluttering
+    /settings and the api_tokens table."""
+    pool = harness.ctx.pool
+    store = ApiTokenStore(pool)
+
+    async def run() -> None:
+        stale = await store.create(
+            ALICE, "stale", expires_at=datetime.now(tz=UTC) - timedelta(days=1)
+        )
+        assert await store.authenticate(stale) is None
+        assert all(t.name != "stale" for t in await store.list_for(ALICE))
+        count = await pool.fetchval(
+            "SELECT count(*) FROM api_tokens WHERE name = 'stale'"
+        )
+        assert count == 0
+
+    harness.run(run())
+
+
 def test_token_creation_with_expiry(harness: WebHarness) -> None:
     def create(data: dict[str, str]) -> httpx.Response:
         return harness.post("/settings/tokens", ALICE, data=data)

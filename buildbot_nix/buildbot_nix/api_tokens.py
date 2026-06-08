@@ -1,17 +1,15 @@
 """Personal API tokens.
 
 Tokens are generated in the UI after login, shown exactly once, and
-stored only as SHA-256 hashes (lookup by hash makes the comparison
-constant-time by construction; an additional hmac.compare_digest guards
-the final check). Optional expiry; revocation deletes the row and takes
-effect immediately. A valid token authenticates as its owner for both
+stored only as SHA-256 hashes. Optional expiry; revocation deletes the
+row and takes effect immediately; expired rows are pruned
+opportunistically. A valid token authenticates as its owner for both
 read and control API usage.
 """
 
 from __future__ import annotations
 
 import hashlib
-import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -60,18 +58,23 @@ class ApiTokenStore:
         )
         return token
 
+    async def _prune_expired(self) -> None:
+        await self.pool.execute("DELETE FROM api_tokens WHERE expires_at < now()")
+
     async def authenticate(self, token: str) -> User | None:
         if not token.startswith(TOKEN_PREFIX):
             return None
-        token_hash = _hash(token)
+        await self._prune_expired()
+        # No constant-time comparison needed: the row is looked up BY
+        # the hash of the presented token, so a timing side channel
+        # could only leak information about hashes the attacker already
+        # computed themselves.
         row = await self.pool.fetchrow(
-            "SELECT user_qualified, token_hash, expires_at, groups "
+            "SELECT user_qualified, expires_at, groups "
             "FROM api_tokens WHERE token_hash = $1",
-            token_hash,
+            _hash(token),
         )
         if row is None:
-            return None
-        if not hmac.compare_digest(row["token_hash"], token_hash):
             return None
         if row["expires_at"] is not None and row["expires_at"] < datetime.now(tz=UTC):
             return None
@@ -79,6 +82,8 @@ class ApiTokenStore:
         return User(provider=provider, username=username, groups=tuple(row["groups"]))
 
     async def list_for(self, user: User) -> list[TokenInfo]:
+        # Keeps /settings free of long-expired tokens.
+        await self._prune_expired()
         rows = await self.pool.fetch(
             "SELECT id, name, created_at, expires_at FROM api_tokens "
             "WHERE user_qualified = $1 ORDER BY id",
