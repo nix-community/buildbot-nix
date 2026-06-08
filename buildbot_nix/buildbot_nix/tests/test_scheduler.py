@@ -552,6 +552,31 @@ def test_streaming_pending_dependent_fails_when_late_dep_arrives_failed() -> Non
     asyncio.run(main())
 
 
+def test_local_store_skip_wins_over_failure_cache() -> None:
+    # An attribute whose output already exists in the local store is
+    # not a failure, even when the failed-build cache still carries a
+    # stale entry for its drv: skip it, do not fail its dependents.
+    a = mk_job("a", cache_status=CacheStatus.local)
+    b = mk_job("b", deps=["a"])
+    cache = FakeCache(
+        {
+            a.drv_path: CachedFailure(
+                drv_path=a.drv_path,
+                time=datetime(2024, 1, 1, tzinfo=UTC),
+                url="http://x",
+            )
+        }
+    )
+    executor = FakeExecutor()
+    result = run_scheduler(
+        JobScheduler(executor, [SYSTEM], failed_build_cache=cache), [a, b]
+    )
+    statuses = by_attr(result)
+    assert statuses["a"] == AttributeStatus.skipped_local
+    assert statuses["b"] == AttributeStatus.succeeded
+    assert executor.built == ["b"]
+
+
 def test_missing_cache_status_means_build() -> None:
     # nix-eval-jobs output without cacheStatus must not be treated as
     # "already in the local store": a whole eval would report success

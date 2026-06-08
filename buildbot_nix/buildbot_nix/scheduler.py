@@ -536,6 +536,13 @@ class JobScheduler:
 
     async def _classify(self, job: NixEvalJobSuccess, result: ScheduleResult) -> str:
         """Decide whether to run or skip a ready job, recording skip results."""
+        # An output already in the local store is not a failure: the
+        # local-store skip must win over a stale failed-build cache
+        # entry for the same drv.
+        if job.cache_status == CacheStatus.local and job.attr not in self.force_attrs:
+            result.results.append(_success_result(job, AttributeStatus.skipped_local))
+            return "skip"
+
         if self.failed_build_cache is not None:
             cached = await self.failed_build_cache.check(job.drv_path)
             if cached is not None:
@@ -556,16 +563,7 @@ class JobScheduler:
                 )
                 return "skip-failed"
 
-        if job.cache_status != CacheStatus.local:
-            # not_built: build it; cached: schedule so nix substitutes
-            # it; missing/unknown cacheStatus must mean "build it", not
-            # "already built".
-            return "run"
-
-        # Already in the local store.
-        if job.attr in self.force_attrs:
-            # Previously reported failed: run anyway so the normal
-            # completion flow flips the forge status to success.
-            return "run"
-        result.results.append(_success_result(job, AttributeStatus.skipped_local))
-        return "skip"
+        # Everything else builds: a missing/unknown cacheStatus must
+        # not pass as "already built", and a forced local job runs so
+        # the completion flow flips its forge status.
+        return "run"
