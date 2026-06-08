@@ -91,7 +91,10 @@ class GitHubAppClient:
         self.api_url = api_url
         self.http = http or httpx.AsyncClient()
         self._jwt: _CachedToken | None = None
-        self._installation_tokens: dict[int, _CachedToken] = {}
+        # Keyed by (installation id, repo scope); None = installation-wide.
+        self._installation_tokens: dict[
+            tuple[int, tuple[str, ...] | None], _CachedToken
+        ] = {}
         # owner/repo (lowercase) -> installation id; filled by discovery.
         self.repo_installations: dict[str, int] = {}
 
@@ -103,20 +106,27 @@ class GitHubAppClient:
             self._jwt = _CachedToken(token, expires)
         return self._jwt.token
 
-    async def installation_token(self, installation_id: int) -> str:
-        cached = self._installation_tokens.get(installation_id)
+    async def installation_token(
+        self, installation_id: int, repositories: tuple[str, ...] | None = None
+    ) -> str:
+        """Mint (or reuse) an installation token. `repositories` limits
+        the token to those repo names; pass it for any token that can
+        leak into PR-controlled paths (e.g. fetch credentials)."""
+        cache_key = (installation_id, repositories)
+        cached = self._installation_tokens.get(cache_key)
         if cached is not None and cached.expires > datetime.now(tz=UTC):
             return cached.token
         response = await self.http.post(
             f"{self.api_url}/app/installations/{installation_id}/access_tokens",
             headers={"Authorization": f"Bearer {await self._app_jwt()}"},
+            json={"repositories": list(repositories)} if repositories else None,
         )
         if response.status_code >= 400:  # noqa: PLR2004
             msg = f"failed to mint installation token: {response.status_code} {response.text}"
             raise ForgeError(msg, status_code=response.status_code)
         token = response.json()["token"]
         # GitHub installation tokens last 60 minutes; refresh at 80%.
-        self._installation_tokens[installation_id] = _CachedToken(
+        self._installation_tokens[cache_key] = _CachedToken(
             token, datetime.now(tz=UTC) + timedelta(minutes=48)
         )
         return token
@@ -224,15 +234,20 @@ class GitHubFetchCredentialsProvider:
 
     async def get(self, repo_url: str) -> FetchCredentials:
         name = _repo_name_from_url(repo_url)
-        installation_id = (
-            self.client.repo_installations.get(name.lower()) if name else None
-        )
+        if name is None:
+            return FetchCredentials()
+        installation_id = self.client.repo_installations.get(name.lower())
         if installation_id is None:
             return FetchCredentials()
-        token = await self.client.installation_token(installation_id)
+        # Fetch credentials reach PR-controlled paths (submodule
+        # fetches), so the token must not cover the whole installation.
+        repo_name = name.split("/")[-1]
+        token = await self.client.installation_token(
+            installation_id, repositories=(repo_name,)
+        )
         # GitHub Enterprise: match the host git actually fetches from.
         host = urlparse(repo_url).hostname or self.host
-        netrc = self._netrc_dir / f"{installation_id}.netrc"
+        netrc = self._netrc_dir / f"{installation_id}-{repo_name}.netrc"
         _write_netrc_atomic(
             netrc, f"machine {host} login x-access-token password {token}\n"
         )

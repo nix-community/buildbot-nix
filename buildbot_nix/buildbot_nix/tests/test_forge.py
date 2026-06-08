@@ -216,6 +216,34 @@ def test_github_fetch_credentials_enterprise_host(
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
+def test_github_fetch_credentials_repo_scoped(
+    github_client: GitHubAppClient,
+) -> None:
+    """Tokens handed to fetch paths must be scoped to the single repo
+    being fetched, not the whole installation."""
+    scoped_requests: list[list[str] | None] = []
+
+    base = github_transport()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/access_tokens"):
+            body = json.loads(request.content) if request.content else {}
+            scoped_requests.append(body.get("repositories"))
+        return base.handler(request)  # type: ignore[attr-defined]
+
+    github_client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async def run() -> None:
+        await github_client.discover_repos()
+        provider = GitHubFetchCredentialsProvider(github_client)
+        creds = await provider.get("https://github.com/acme/repo22.git")
+        assert creds.token is not None
+
+    asyncio.run(run())
+    assert scoped_requests[-1] == ["repo22"]
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
 def test_github_jwt_is_signed(github_client: GitHubAppClient) -> None:
     token = asyncio.run(github_client._app_jwt())  # noqa: SLF001
     header_b64, payload_b64, signature = token.split(".")
