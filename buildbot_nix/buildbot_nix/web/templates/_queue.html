@@ -14,7 +14,7 @@
       {% for b in queue %}
         <tr>
           <td>
-            <span class="queue-pos">{{ b.queue_position }}</span>
+            <span class="queue-pos">{{ b.queue_position or "–" }}</span>
           </td>
           <td>{{ repo_name(b.owner, b.project_name) }}</td>
           <td>

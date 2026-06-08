@@ -857,6 +857,47 @@ def test_queue_sorts_active_before_pending(client: WebHarness) -> None:
     assert client.get("/api/repos/github/acme/nope").status_code == 404
 
 
+def test_queue_position_is_global_and_skips_running(client: WebHarness) -> None:
+    """Positions number the global FIFO of queued builds: they must
+    not be renumbered per viewer over the visibility-filtered subset,
+    and running builds have no queue position."""
+    ctx = client.ctx
+
+    async def run() -> tuple[list, list]:
+        widget_id = await ctx.pool.fetchval(
+            "SELECT id FROM projects WHERE name = 'widget'"
+        )
+        gadget_id = await insert_project(ctx.pool, "gadget", forge_repo_id="web-g1")
+        await ctx.pool.execute(
+            """
+            INSERT INTO builds (project_id, number, commit_sha, branch, status)
+            VALUES ($1, 95, 'g1', 'main', 'pending'),
+                   ($2, 1, 'g2', 'main', 'pending'),
+                   ($1, 96, 'g3', 'main', 'pending')
+            """,
+            widget_id,
+            gadget_id,
+        )
+        try:
+            full = await ctx.queries.queue()
+            filtered = await ctx.queries.queue([widget_id])
+        finally:
+            await ctx.pool.execute(
+                "DELETE FROM builds WHERE project_id = $1", gadget_id
+            )
+            await ctx.pool.execute("DELETE FROM projects WHERE id = $1", gadget_id)
+            await ctx.pool.execute("DELETE FROM builds WHERE number IN (95, 96)")
+        return full, filtered
+
+    full, filtered = client.loop.run_until_complete(run())
+    # Running builds (build 3 is building) carry no queue position.
+    assert [b["queue_position"] for b in full if b["status"] != "pending"] == [None]
+    assert [b["queue_position"] for b in full if b["status"] == "pending"] == [1, 2, 3]
+    # The filtered view keeps the GLOBAL positions: gadget's build
+    # still occupies slot 2 even though this viewer cannot see it.
+    assert [b["queue_position"] for b in filtered if b["status"] == "pending"] == [1, 3]
+
+
 def test_openapi_docs(client: WebHarness) -> None:
     spec = client.get("/api/openapi.json").json()
     assert "/api/repos" in spec["paths"]

@@ -391,15 +391,24 @@ class WebQueries:
         return prev_number, next_number
 
     async def queue(self, project_ids: list[int] | None = None) -> list[dict[str, Any]]:
-        """Pending (FIFO position by id) and running builds."""
+        """Pending (FIFO position by id) and running builds.
+
+        queue_position numbers the GLOBAL queue of pending builds:
+        computed before any visibility filter so every viewer sees the
+        same position, and NULL for already-running builds."""
         project_filter = "" if project_ids is None else "AND p.id = ANY($1::bigint[])"
         args = [] if project_ids is None else [project_ids]
         return _rows(
             await self.pool.fetch(
                 f"""
                 SELECT b.*, p.owner, p.name AS project_name, p.forge, p.url,
-                       row_number() OVER (ORDER BY b.id) AS queue_position
-                FROM builds b JOIN projects p ON p.id = b.project_id
+                       q.queue_position
+                FROM builds b
+                JOIN projects p ON p.id = b.project_id
+                LEFT JOIN (
+                    SELECT id, row_number() OVER (ORDER BY id) AS queue_position
+                    FROM builds WHERE status = 'pending'
+                ) q ON q.id = b.id
                 WHERE b.status IN ('pending', 'evaluating', 'building')
                 {project_filter}
                 -- Active builds first; queue_position stays FIFO.

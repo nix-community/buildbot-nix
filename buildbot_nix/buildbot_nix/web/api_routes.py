@@ -124,7 +124,7 @@ class QueueEntry(Build):
     project_name: str
     forge: str
     url: str
-    queue_position: int
+    queue_position: int | None  # None while already running
 
 
 def clean_row(row: dict[str, Any]) -> dict[str, Any]:
