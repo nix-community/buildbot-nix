@@ -600,6 +600,8 @@ def create_app(
     )
     ctx = WebContext(pool, state_dir)
     app.state.web_context = ctx
+    # Exposed so tests can inject NOTIFY payloads.
+    app.state.event_broker = broker
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> Response:

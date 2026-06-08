@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +20,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     import asyncpg
 
@@ -30,6 +31,9 @@ logger = logging.getLogger(__name__)
 CHANNEL = "build_events"
 KEEPALIVE_SECONDS = 30.0
 RECONNECT_SECONDS = 5.0
+# Long-lived streams must not keep a revoked viewer's visibility
+# snapshot forever; re-resolve it periodically.
+VISIBILITY_REFRESH_SECONDS = 300.0
 # A slow client just loses events; each one only triggers a refetch
 # of current state.
 QUEUE_SIZE = 64
@@ -131,6 +135,37 @@ class EventBroker:
         self._subscriptions.discard(sub)
 
 
+async def event_stream(
+    ctx: WebContext, request: Request, broker: EventBroker, sub: Subscription
+) -> AsyncGenerator[str, None]:
+    next_refresh = time.monotonic() + VISIBILITY_REFRESH_SECONDS
+    try:
+        yield "retry: 3000\n\n"
+        while True:
+            try:
+                payload = await asyncio.wait_for(sub.queue.get(), KEEPALIVE_SECONDS)
+            except TimeoutError:
+                payload = None
+            if time.monotonic() >= next_refresh:
+                # Access can be revoked mid-stream: a stale snapshot
+                # would leak private-project events for as long as
+                # the connection lives. Drop the per-request auth
+                # caches too, so logout/session revocation and forge
+                # token expiry are also re-checked.
+                for cache in ("bn_user", "bn_forge_token"):
+                    if hasattr(request.state, cache):
+                        delattr(request.state, cache)
+                refreshed = await ctx.visible_repo_ids(request)
+                sub.visible = set(refreshed) if refreshed is not None else None
+                next_refresh = time.monotonic() + VISIBILITY_REFRESH_SECONDS
+            if payload is None:
+                yield ": keepalive\n\n"
+                continue
+            yield f"data: {payload}\n\n"
+    finally:
+        broker.unsubscribe(sub)
+
+
 def create_events_router(ctx: WebContext, broker: EventBroker) -> APIRouter:
     router = APIRouter()
 
@@ -146,22 +181,8 @@ def create_events_router(ctx: WebContext, broker: EventBroker) -> APIRouter:
             project_id=project,
             visible=set(visible) if visible is not None else None,
         )
-
-        async def gen() -> AsyncIterator[str]:
-            try:
-                yield "retry: 3000\n\n"
-                while True:
-                    try:
-                        payload = await asyncio.wait_for(
-                            sub.queue.get(), KEEPALIVE_SECONDS
-                        )
-                    except TimeoutError:
-                        yield ": keepalive\n\n"
-                        continue
-                    yield f"data: {payload}\n\n"
-            finally:
-                broker.unsubscribe(sub)
-
-        return StreamingResponse(gen(), media_type="text/event-stream")
+        return StreamingResponse(
+            event_stream(ctx, request, broker, sub), media_type="text/event-stream"
+        )
 
     return router

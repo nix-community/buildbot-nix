@@ -10,22 +10,23 @@ import json
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import asyncpg
 import pytest
 import zstandard
-from fastapi import Request  # noqa: TC002 (FastAPI resolves annotations at runtime)
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from buildbot_nix.api_tokens import ApiTokenStore
 from buildbot_nix.auth import AuthzConfig, User
-from buildbot_nix.visibility import VisibilityService
 from buildbot_nix.db import BuildStatus
 from buildbot_nix.effects_state import TaskTokens
 from buildbot_nix.executor import LogWriter
 from buildbot_nix.forge_tokens import ForgeTokenStore
 from buildbot_nix.scheduler import AttributeStatus
+from buildbot_nix.visibility import VisibilityService
+from buildbot_nix.web import events as events_module
 from buildbot_nix.web.auth_routes import SESSION_COOKIE, create_auth_router
 from buildbot_nix.web.events import EventBroker
 from buildbot_nix.web.logs import (
@@ -347,12 +348,14 @@ def test_legacy_project_urls_redirect(client: WebHarness) -> None:
 class _StubVisibility:
     def __init__(self, visible: list[int]) -> None:
         self.visible = visible
+        self.seen_users: list[object] = []
 
     async def visible_repo_ids(
         self,
-        user: object,  # noqa: ARG002
+        user: object,
         token: object = None,  # noqa: ARG002
     ) -> list[int]:
+        self.seen_users.append(user)
         return self.visible
 
 
@@ -696,9 +699,7 @@ def test_attr_named_dot_txt_not_shadowed_by_raw_route(
         )
 
 
-def test_attr_names_with_special_characters(
-    client: WebHarness, tmp_path: Path
-) -> None:
+def test_attr_names_with_special_characters(client: WebHarness, tmp_path: Path) -> None:
     """Attrs containing / % ? # must round-trip through generated
     links and route matching."""
     ctx = client.ctx
@@ -992,9 +993,7 @@ def test_log_sse_stream_caps_history_backlog(
     async def run() -> str:
         build_id = await ctx.pool.fetchval("SELECT id FROM builds WHERE number = 3")
         writer = LogWriter(path=tmp_path / "logs" / "live" / "big.zst")
-        await writer.write(
-            "".join(f"line{i:05d}\n" for i in range(3000)).encode()
-        )
+        await writer.write("".join(f"line{i:05d}\n" for i in range(3000)).encode())
         registry.register(build_id, "x86_64-linux.ok", writer)
         try:
             stream_task = asyncio.ensure_future(
@@ -1144,6 +1143,74 @@ def test_event_broker_pushes_status_changes(
     assert attr_event["status"] == "failed"
     assert "attr" not in build_event
     assert build_event["status"] == "failed"
+
+
+def test_events_stream_refreshes_visibility(
+    client: WebHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long-lived /events stream must re-resolve the viewer's
+    visibility set instead of keeping the subscribe-time snapshot:
+    revoking access must stop private events mid-stream (and granting
+    it must start them, which is what this test observes)."""
+    monkeypatch.setattr(events_module, "KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(events_module, "VISIBILITY_REFRESH_SECONDS", 0.0)
+    ctx = client.ctx
+    broker = client.app.state.event_broker
+    stub = _StubVisibility([])
+    ctx.visibility = cast("VisibilityService", stub)
+
+    async def run() -> list[str]:
+        widget_id = await ctx.pool.fetchval(
+            "SELECT id FROM projects WHERE name = 'widget'"
+        )
+        cookie = client.signer.session_for(
+            User(provider="github", username="alice"), "sse-session"
+        )
+        request = Request(
+            {
+                "type": "http",
+                "headers": [(b"cookie", f"{SESSION_COOKIE}={cookie}".encode())],
+                "query_string": b"",
+            }
+        )
+        sub = broker.subscribe(visible=set())
+        gen = events_module.event_stream(ctx, request, broker, sub)
+        assert (await anext(gen)).startswith("retry:")
+        # Invisible at notify time: filtered out before the queue.
+        broker._on_notify(  # noqa: SLF001
+            None, None, None, json.dumps({"project_id": widget_id, "mark": "one"})
+        )
+        stub.visible = [widget_id]
+        # The next iteration re-resolves visibility before keepalive.
+        async with asyncio.timeout(5):
+            assert "keepalive" in await anext(gen)
+        broker._on_notify(  # noqa: SLF001
+            None, None, None, json.dumps({"project_id": widget_id, "mark": "two"})
+        )
+        received = []
+        async with asyncio.timeout(5):
+            async for line in gen:
+                if line.startswith("data:"):
+                    received.append(line)
+                    break
+        # Refreshes re-authenticate instead of reusing the request's
+        # cached user: a logout mid-stream must be picked up.
+        assert stub.seen_users[-1].qualified == "github:alice"  # type: ignore[attr-defined]
+        assert ctx.revoked_sessions is not None
+        await ctx.revoked_sessions.revoke("sse-session", 60)
+        async with asyncio.timeout(5):
+            assert "keepalive" in await anext(gen)
+        assert stub.seen_users[-1] is None
+        await gen.aclose()
+        return received
+
+    try:
+        received = client.loop.run_until_complete(run())
+    finally:
+        ctx.visibility = None
+    assert len(received) == 1
+    assert "two" in received[0]
+    assert "one" not in received[0]
 
 
 def test_attribute_search(client: WebHarness) -> None:
