@@ -1,6 +1,4 @@
-"""Tests for crash recovery, DB-retry policy, and retention cleanup."""
-
-# ruff: noqa: PLR2004 (literal values in test assertions are fine)
+"""Tests for crash recovery and retention cleanup."""
 
 from __future__ import annotations
 
@@ -11,15 +9,12 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import asyncpg
-import pytest
 
 from buildbot_nix.db import BuildDB
 from buildbot_nix.recovery import (
-    DatabaseUnavailableError,
     check_store_paths,
     cleanup_old_builds,
     cleanup_orphan_log_dirs,
-    db_retry,
     fail_interrupted_effects,
     find_unfinished_builds,
     settle_already_built,
@@ -107,38 +102,6 @@ def test_settle_already_built(postgres_dsn: str) -> None:
             await pool.close()
 
     asyncio.run(run())
-
-
-def test_db_retry_gives_up() -> None:
-    async def run() -> None:
-        calls = 0
-
-        async def failing() -> None:
-            nonlocal calls
-            calls += 1
-            raise ConnectionRefusedError
-
-        with pytest.raises(DatabaseUnavailableError):
-            await db_retry(failing, attempts=3, base_delay=0.01)
-        assert calls == 3
-
-    asyncio.run(run())
-
-
-def test_db_retry_recovers() -> None:
-    async def run() -> str:
-        calls = 0
-
-        async def flaky() -> str:
-            nonlocal calls
-            calls += 1
-            if calls < 2:
-                raise ConnectionResetError
-            return "ok"
-
-        return await db_retry(flaky, attempts=3, base_delay=0.01)
-
-    assert asyncio.run(run()) == "ok"
 
 
 def test_retention_cleanup(postgres_dsn: str, tmp_path: Path) -> None:

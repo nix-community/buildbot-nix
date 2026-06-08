@@ -8,9 +8,8 @@ out paths complete without a rebuild — and only the rest re-run.
 Effects are guarded by the build's started-flag and never re-run
 automatically.
 
-DB outage policy: state writes from running builds go through
-db_retry() (bounded retries with backoff); when the database stays
-unreachable the service raises so systemd restarts it. Webhook
+DB outage policy: when the database is unreachable the affected
+operation raises and the service restarts via systemd. Webhook
 fail-fast lives in ingestion; the health check backs the
 HTTP health endpoint.
 
@@ -45,33 +44,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 UNFINISHED_STATUSES = ("pending", "evaluating", "building")
-
-
-class DatabaseUnavailableError(Exception):
-    """Raised after bounded retries; the service exits for systemd."""
-
-
-async def db_retry[T](
-    fn: Callable[[], Awaitable[T]],
-    *,
-    attempts: int = 5,
-    base_delay: float = 0.5,
-) -> T:
-    """Run a DB operation with bounded exponential-backoff retries."""
-    last_error: Exception | None = None
-    for attempt in range(attempts):
-        try:
-            return await fn()
-        except (asyncpg.PostgresConnectionError, OSError) as e:
-            last_error = e
-            delay = base_delay * 2**attempt
-            logger.warning(
-                "database operation failed, retrying",
-                extra={"attempt": attempt + 1, "delay": delay},
-            )
-            await asyncio.sleep(delay)
-    msg = f"database unavailable after {attempts} attempts: {last_error}"
-    raise DatabaseUnavailableError(msg) from last_error
 
 
 async def check_db_health(pool: asyncpg.Pool) -> bool:
