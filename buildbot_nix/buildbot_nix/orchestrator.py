@@ -17,7 +17,7 @@ import logging
 import shutil
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -190,6 +190,15 @@ class Orchestrator:
         in-flight build, or run it."""
         repo = event.repo
         key = branch_key(event.branch, event.pr_number)
+        if not created and event.pr_number is None and build.pr_number is not None:
+            # A default-branch push reusing a PR build sheds the PR
+            # identity, or the pr_number guards skip it forever.
+            await self.db.pool.execute(
+                "UPDATE builds SET pr_number = NULL, branch = $2 WHERE id = $1",
+                build.id,
+                event.branch,
+            )
+            build = replace(build, pr_number=None, branch=event.branch)
         if not created and build.status in (
             BuildStatus.SUCCEEDED,
             BuildStatus.FAILED,
@@ -803,6 +812,7 @@ class Orchestrator:
         self.canceller.complete(build.id)
         if build.status == BuildStatus.SUCCEEDED:
             await self._post_process_existing(event, build)
+            await self._refresh_schedules(event)
         # Post the eval context too, or a required nix-eval check on
         # this commit stays "Expected" forever.
         has_attrs = bool(await self.db.get_attribute_statuses(build.id))

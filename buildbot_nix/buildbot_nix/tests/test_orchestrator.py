@@ -372,6 +372,44 @@ def test_tree_hash_reuse(postgres_dsn: str, tmp_path: Path, upstream: Path) -> N
     asyncio.run(run())
 
 
+def test_main_push_promotes_reused_pr_build(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """A main push reusing a PR build (identical tree) must shed the
+    PR identity and refresh schedules."""
+
+    async def run() -> None:
+        add_commit(upstream, "promote")
+        sha = git(upstream, "rev-parse", "HEAD")
+        eval_runner = FakeEvalRunner([mk_job("a")])
+        executor = FakeExecutor()
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn, tmp_path, upstream, eval_runner, executor, name="promote"
+        )
+        try:
+            pr_build = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha, pr_number=7)
+            )
+            assert pr_build is not None
+            assert pr_build.pr_number == 7
+            main_build = await orchestrator.handle_change_event(
+                ChangeEvent(repo=project, branch="main", commit_sha=sha)
+            )
+            assert main_build is not None
+            assert main_build.id == pr_build.id
+            row = await pool.fetchrow(
+                "SELECT branch, pr_number FROM builds WHERE id = $1", pr_build.id
+            )
+            assert dict(row) == {"branch": "main", "pr_number": None}
+            assert await pool.fetchval(
+                "SELECT count(*) FROM work_queue WHERE kind = 'refresh-schedules'"
+            )
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_merge_conflict_fails_build(
     postgres_dsn: str, tmp_path: Path, upstream: Path
 ) -> None:
