@@ -35,6 +35,7 @@ from .gitrepo import (
     StaticCredentialsProvider,
 )
 from .hook_secrets import WebhookSecrets
+from .orchestrator import pr_refspec
 from .reconcile import gitea_heads, github_heads, gitlab_heads, reconcile_repo
 from .recovery import (
     cleanup_old_builds,
@@ -597,11 +598,11 @@ class CIService:
             commit_sha=build.commit_sha,
             pr_number=build.pr_number,
         )
+        refspecs = ["+refs/heads/*:refs/heads/*"]
+        if build.pr_number is not None:
+            refspecs.append(pr_refspec(info.forge, build.pr_number))
         await self.orchestrator.repos.fetch(
-            info.key,
-            info.clone_url,
-            ["+refs/heads/*:refs/heads/*", "+refs/pull/*:refs/pull/*"],
-            credentials,
+            info.key, info.clone_url, refspecs, credentials
         )
         worktree = await self.orchestrator.repos.checkout_for_build(
             info.key, f"rerun-{build.id}", base_commit=build.commit_sha

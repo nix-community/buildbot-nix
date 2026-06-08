@@ -72,6 +72,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def pr_refspec(forge: str, pr_number: int) -> str:
+    """GitLab serves MR heads under refs/merge-requests/<iid>/*;
+    GitHub and Gitea use refs/pull/<number>/*."""
+    ref = (
+        f"refs/merge-requests/{pr_number}"
+        if forge == "gitlab"
+        else f"refs/pull/{pr_number}"
+    )
+    return f"+{ref}/*:{ref}/*"
+
+
 class EvalRunnerLike(Protocol):
     """What the orchestrator needs from nix_eval.EvalRunner."""
 
@@ -146,12 +157,10 @@ class Orchestrator:
 
         # Fetch and create the per-build worktree; PR head is merged
         # into the base branch locally. PR refs are fetched per PR:
-        # fetching all of refs/pull/* is unbounded on PR-heavy repos.
+        # fetching all of them is unbounded on PR-heavy repos.
         refspecs = ["+refs/heads/*:refs/heads/*"]
         if event.pr_number is not None:
-            refspecs.append(
-                f"+refs/pull/{event.pr_number}/*:refs/pull/{event.pr_number}/*"
-            )
+            refspecs.append(pr_refspec(repo.forge, event.pr_number))
         await self.repos.fetch(repo.key, repo.clone_url, refspecs, credentials)
         try:
             # Unique token: concurrent events for the same commit must
@@ -517,12 +526,10 @@ class Orchestrator:
             commit_sha=build.commit_sha,
             pr_number=build.pr_number,
         )
-        # PR head commits are only reachable via refs/pull/*.
+        # PR head commits are only reachable via the PR refs.
         refspecs = ["+refs/heads/*:refs/heads/*"]
         if build.pr_number is not None:
-            refspecs.append(
-                f"+refs/pull/{build.pr_number}/*:refs/pull/{build.pr_number}/*"
-            )
+            refspecs.append(pr_refspec(info.forge, build.pr_number))
         await self.repos.fetch(info.key, info.clone_url, refspecs, credentials)
         worktree = await self.repos.checkout_for_build(
             info.key,

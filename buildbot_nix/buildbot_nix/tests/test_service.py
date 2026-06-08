@@ -165,6 +165,72 @@ def test_pr_close_discards_queued_changes(postgres_dsn: str, tmp_path: Path) -> 
     asyncio.run(run())
 
 
+def test_restart_gitlab_mr_build_fetches_mr_refs(
+    postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
+) -> None:
+    """The re-eval restart path must fetch GitLab MR heads via
+    refs/merge-requests/*, not refs/pull/*."""
+    repo, _sha = git_repo
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await insert_project(
+                pool,
+                forge="gitlab",
+                forge_repo_id=f"svc-{time.monotonic_ns()}",
+                url=f"file://{repo}",
+            )
+            # file:// forces the full transfer protocol; clone before
+            # the MR ref exists so only the fetch refspec can bring it
+            # in (see test_orchestrator.make_gitlab_mr_env).
+            await service.orchestrator.repos.fetch(
+                "gitlab/acme/widget", f"file://{repo}", ["+refs/heads/*:refs/heads/*"]
+            )
+            git(repo, "checkout", "-b", "mrsrc")
+            (repo / "mr").write_text("x")
+            git(repo, "add", ".")
+            git(repo, "commit", "-m", "mr")
+            mr_sha = git(repo, "rev-parse", "HEAD")
+            git(repo, "update-ref", "refs/merge-requests/9/head", mr_sha)
+            git(repo, "checkout", "main")
+            git(repo, "branch", "-D", "mrsrc")
+            build_id = await insert_build(
+                pool,
+                project_id,
+                commit_sha=mr_sha,
+                status="failed",
+                pr_number=9,
+                error="eval boom",
+            )
+
+            reevals: list[int] = []
+
+            async def fake_run_build(
+                event: Any,
+                build: Any,
+                worktree_path: Path,
+                credentials: Any = None,
+            ) -> None:
+                reevals.append(build.id)
+
+            service.orchestrator.run_build = fake_run_build  # type: ignore[method-assign]
+            await service.restart_build(build_id)
+            await service.drain_work()
+            await asyncio.gather(*service._tasks)  # noqa: SLF001
+            assert reevals == [build_id]
+        finally:
+            # Module-shared database: an enabled gitlab project would
+            # leak into the discovery/hook-registration tests.
+            await pool.execute("DELETE FROM projects WHERE id = $1", project_id)
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_restart_eval_failed_build_reevaluates(
     postgres_dsn: str, tmp_path: Path, git_repo: tuple[Path, str]
 ) -> None:

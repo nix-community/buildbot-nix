@@ -782,6 +782,84 @@ def test_rerun_fetches_pr_refs(
     asyncio.run(run())
 
 
+async def make_gitlab_mr_env(
+    dsn: str,
+    tmp_path: Path,
+    upstream: Path,
+    eval_runner: EvalRunnerLike,
+    name: str,
+) -> tuple[asyncpg.Pool, Orchestrator, RepoInfo, str]:
+    """GitLab project whose MR head is only reachable via
+    refs/merge-requests/7/head. The file:// URL forces the full
+    transfer protocol, and the bare clone is created before the MR ref
+    exists: a local-path clone would copy all objects regardless of
+    the fetch refspec, masking a wrong refspec."""
+    pool, orchestrator, _, project = await make_env(
+        dsn, tmp_path, upstream, eval_runner, FakeExecutor(), name
+    )
+    project = RepoInfo(
+        **{**project.__dict__, "forge": "gitlab", "clone_url": f"file://{upstream}"}
+    )
+    await orchestrator.repos.fetch(
+        project.key, project.clone_url, ["+refs/heads/*:refs/heads/*"]
+    )
+    git(upstream, "checkout", "-b", "mrsrc")
+    mr_sha = add_commit(upstream, "mr")
+    git(upstream, "update-ref", "refs/merge-requests/7/head", mr_sha)
+    git(upstream, "checkout", "main")
+    git(upstream, "branch", "-D", "mrsrc")
+    return pool, orchestrator, project, mr_sha
+
+
+def test_gitlab_mr_fetches_merge_request_refs(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """GitLab serves MR heads under refs/merge-requests/*, not the
+    GitHub-style refs/pull/*."""
+
+    async def run() -> None:
+        pool, orchestrator, project, mr_sha = await make_gitlab_mr_env(
+            postgres_dsn, tmp_path, upstream, FakeEvalRunner([mk_job("a")]), "glmr"
+        )
+        event = ChangeEvent(
+            repo=project,
+            branch="main",
+            commit_sha=mr_sha,
+            pr_number=7,
+            base_sha="refs/heads/main",
+        )
+        try:
+            build = await orchestrator.handle_change_event(event)
+            assert build is not None
+            assert await build_status(pool, build.id) == BuildStatus.SUCCEEDED
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_gitlab_rerun_fetches_merge_request_refs(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """The rerun path must use the GitLab MR refspec too."""
+
+    async def run() -> None:
+        pool, orchestrator, project, mr_sha = await make_gitlab_mr_env(
+            postgres_dsn, tmp_path, upstream, FakeEvalRunner([]), "glmrrerun"
+        )
+        db = BuildDB(pool)
+        build, _ = await db.get_or_create_build(
+            project.id, "mr-tree", mr_sha, "main", pr_number=7
+        )
+        try:
+            await orchestrator.rerun_pending_attributes(project, build, [mk_job("a")])
+            assert await db.get_attribute_statuses(build.id) == {"a": "succeeded"}
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_cancelled_build_reuse_rebuilds(
     postgres_dsn: str, tmp_path: Path, upstream: Path
 ) -> None:
