@@ -371,10 +371,15 @@ class OAuthProvider:
             raise OAuthError(msg)
         try:
             info = userinfo.json()
-            username = str(info[self.username_field])
-        except (ValueError, KeyError) as exc:
-            msg = f"userinfo response is missing {self.username_field!r}"
+        except ValueError as exc:
+            msg = "userinfo endpoint returned a non-JSON body"
             raise OAuthError(msg) from exc
+        username = info.get(self.username_field) if isinstance(info, dict) else None
+        # A null/empty/non-string claim must not collapse every such
+        # user into the shared identity "None" or "".
+        if not isinstance(username, str) or not username:
+            msg = f"userinfo response has no usable username in {self.username_field!r}"
+            raise OAuthError(msg)
         avatar = info.get(self.avatar_field)
         groups: tuple[str, ...] = ()
         if self.groups_field is not None:

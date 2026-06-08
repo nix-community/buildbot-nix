@@ -9,10 +9,12 @@ import base64
 from typing import TYPE_CHECKING
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
 from buildbot_nix.auth import (
     AuthzConfig,
+    OAuthError,
     OAuthProvider,
     SessionSigner,
     User,
@@ -37,8 +39,6 @@ from .support import cookie_header
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 ALICE = User(provider="github", username="alice")
 BOB = User(provider="gitea", username="alice")  # same name, other forge
@@ -287,6 +287,27 @@ def test_oauth_callback_handles_token_exchange_errors() -> None:
             assert "userinfo" in response.json()["detail"]
 
     asyncio.run(run())
+
+
+def test_userinfo_rejects_null_or_empty_username() -> None:
+    """A userinfo body with "login": null (or "") must not authenticate
+    as the literal user "None"/"" shared by everyone."""
+    provider = github_oauth("cid", "cs")
+
+    def handler_for(login: object) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/login/oauth/access_token":
+                return httpx.Response(200, json={"access_token": "at"})
+            if request.url.path == "/user":
+                return httpx.Response(200, json={"login": login})
+            return httpx.Response(404)
+
+        return httpx.MockTransport(handler)
+
+    for bad_login in (None, "", 42):
+        client = httpx.AsyncClient(transport=handler_for(bad_login))
+        with pytest.raises(OAuthError, match="username"):
+            asyncio.run(provider.exchange_code(client, "c", "https://ci/cb"))
 
 
 def test_github_oauth_scope_and_enterprise_urls() -> None:
