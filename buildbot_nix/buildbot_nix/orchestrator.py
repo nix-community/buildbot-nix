@@ -1104,9 +1104,12 @@ class _OrchestratorExecutor:
             return BuildOutcome.failure_no_cache
 
     async def _build_inner(self, job: NixEvalJobSuccess) -> BuildOutcome:
-        await self.o.db.mark_attribute_building(
+        if not await self.o.db.mark_attribute_building(
             self.build_record.id, job.attr, job.system, job.drv_path
-        )
+        ):
+            # Cancelled externally while waiting on dependencies: do
+            # not resurrect the row by building it anyway.
+            return BuildOutcome.cancelled
         # Per-attribute cancellation: the executor watches one event, so
         # mirror the build-level cancel into the attribute's own event.
         attr_cancel = asyncio.Event()

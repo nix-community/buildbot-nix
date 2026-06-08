@@ -707,7 +707,7 @@ class CIService:
             return
         # Not queued or running (e.g. leftover from an interrupted
         # build): mark it cancelled directly.
-        await self.pool.execute(
+        result = await self.pool.execute(
             "UPDATE build_attributes SET status = 'cancelled', "
             "finished_at = now() "
             "WHERE build_id = $1 AND attr = $2 "
@@ -715,6 +715,13 @@ class CIService:
             build_id,
             attr,
         )
+        if result != "UPDATE 1":
+            return
+        # No running pipeline re-aggregates for us; without this the
+        # build stays non-terminal forever once all rows are settled.
+        status, generation = await self.orchestrator.db.aggregate_build(build_id)
+        if status in BuildStatus.TERMINAL:
+            await self._report_direct_finish(build_id, status, generation)
 
     async def cancel_build(self, build_id: int) -> None:
         event = self.orchestrator.cancel_events.get(build_id)
@@ -722,16 +729,25 @@ class CIService:
             event.set()
             return
         # Not running: mark cancelled directly.
-        result = await self.pool.execute(
+        generation = await self.pool.fetchval(
             "UPDATE builds SET status = 'cancelled', finished_at = now(), "
             "status_generation = status_generation + 1 "
-            "WHERE id = $1 AND status IN ('pending', 'evaluating', 'building')",
+            "WHERE id = $1 AND status IN ('pending', 'evaluating', 'building') "
+            "RETURNING status_generation",
             build_id,
         )
-        if result != "UPDATE 1":
+        if generation is None:
             return
-        # Without a running pipeline nothing else reports the final
-        # state; post the forge status here or the commit stays pending.
+        # Leftover pending/building rows would look running forever.
+        await self.orchestrator.db.settle_unfinished_attributes(build_id)
+        await self._report_direct_finish(build_id, BuildStatus.CANCELLED, generation)
+
+    async def _report_direct_finish(
+        self, build_id: int, status: str, generation: int
+    ) -> None:
+        """Post the terminal forge status for a build settled outside a
+        running pipeline; otherwise the commit status stays pending
+        forever."""
         build = await self.orchestrator.db.get_build(build_id)
         if build is None:
             return
@@ -745,7 +761,7 @@ class CIService:
             pr_number=build.pr_number,
         )
         await self.orchestrator.reporter.build_finished(
-            change, build, BuildStatus.CANCELLED, build.status_generation, []
+            change, build, status, generation, []
         )
 
     # -- background loops ---------------------------------------------------

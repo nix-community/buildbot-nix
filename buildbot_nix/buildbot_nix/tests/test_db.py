@@ -648,6 +648,49 @@ def test_record_attributes_persists_pending_rows_with_outputs(
     asyncio.run(run())
 
 
+def test_mark_attribute_building_does_not_resurrect_cancelled_rows(
+    postgres_dsn: str,
+) -> None:
+    """An externally cancelled attribute must stay cancelled when the
+    scheduler later dispatches it."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            project_id = await insert_project(pool, "no-resurrect")
+            db = BuildDB(pool)
+            build, _ = await db.get_or_create_build(project_id, "tree-c", "sha", "main")
+            job = mk_job("foo")
+            await db.record_attributes(build.id, [job])
+            assert (
+                await db.mark_attribute_building(
+                    build.id, "foo", job.system, job.drv_path
+                )
+                is True
+            )
+            await pool.execute(
+                "UPDATE build_attributes SET status = 'cancelled', "
+                "finished_at = now() WHERE build_id = $1 AND attr = 'foo'",
+                build.id,
+            )
+            assert (
+                await db.mark_attribute_building(
+                    build.id, "foo", job.system, job.drv_path
+                )
+                is False
+            )
+            status = await pool.fetchval(
+                "SELECT status FROM build_attributes "
+                "WHERE build_id = $1 AND attr = 'foo'",
+                build.id,
+            )
+            assert status == "cancelled"
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_mark_attribute_building_sets_status_and_started_at(
     postgres_dsn: str,
 ) -> None:

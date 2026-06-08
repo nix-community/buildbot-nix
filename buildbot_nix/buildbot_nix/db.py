@@ -304,23 +304,30 @@ class BuildDB:
 
     async def mark_attribute_building(
         self, build_id: int, attr: str, system: str | None, drv_path: str | None
-    ) -> None:
+    ) -> bool:
         """Flip an attribute to 'building' and stamp started_at so the
-        web UI can distinguish running attributes from queued ones."""
-        await self.pool.execute(
-            """
-            INSERT INTO build_attributes
-                (build_id, attr, system, drv_path, status, started_at)
-            VALUES ($1, $2, $3, $4, 'building', now())
-            ON CONFLICT (build_id, attr) DO UPDATE SET
-                status = 'building',
-                started_at = now(),
-                finished_at = NULL
-            """,
-            build_id,
-            attr,
-            system,
-            drv_path,
+        web UI can distinguish running attributes from queued ones.
+        Returns False when the row is already terminal (e.g. cancelled
+        externally while queued): the caller must not build it."""
+        return (
+            await self.pool.fetchval(
+                """
+                INSERT INTO build_attributes
+                    (build_id, attr, system, drv_path, status, started_at)
+                VALUES ($1, $2, $3, $4, 'building', now())
+                ON CONFLICT (build_id, attr) DO UPDATE SET
+                    status = 'building',
+                    started_at = now(),
+                    finished_at = NULL
+                WHERE build_attributes.status IN ('pending', 'building')
+                RETURNING attr
+                """,
+                build_id,
+                attr,
+                system,
+                drv_path,
+            )
+            is not None
         )
 
     async def complete_attribute(  # noqa: PLR0913

@@ -495,6 +495,91 @@ def test_cancel_not_running_posts_forge_status(
     asyncio.run(run())
 
 
+def test_cancel_not_running_settles_attribute_rows(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    """Direct cancel (no running task) must not leave pending/building
+    attribute rows non-terminal forever."""
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, "http://example/repo")
+            build_id = await insert_build(
+                pool, project_id, commit_sha="c2", status="building"
+            )
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, system, status) "
+                "VALUES ($1, 'p', 'x', 'pending'), ($1, 'b', 'x', 'building'), "
+                "($1, 'ok', 'x', 'succeeded')",
+                build_id,
+            )
+            service.orchestrator.reporter = RecordingReporter()
+
+            await service.cancel_build(build_id)
+
+            rows = await pool.fetch(
+                "SELECT attr, status FROM build_attributes WHERE build_id = $1",
+                build_id,
+            )
+            statuses = {row["attr"]: row["status"] for row in rows}
+            assert statuses == {
+                "p": "cancelled",
+                "b": "cancelled",
+                "ok": "succeeded",
+            }
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
+def test_cancel_attribute_not_running_reaggregates_build(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    """Direct attribute cancel must re-aggregate the build; otherwise
+    the build stays 'building' forever with all rows terminal."""
+
+    async def run() -> None:
+        service, _app = await build_service(
+            make_config(postgres_dsn, tmp_path / "state")
+        )
+        pool = service.pool
+        try:
+            project_id = await seed_project(pool, "http://example/repo")
+            build_id = await insert_build(
+                pool, project_id, commit_sha="c3", status="building"
+            )
+            await pool.execute(
+                "INSERT INTO build_attributes (build_id, attr, system, status) "
+                "VALUES ($1, 'only', 'x', 'pending')",
+                build_id,
+            )
+            service.orchestrator.reporter = RecordingReporter()
+
+            await service.cancel_attribute(build_id, "only")
+
+            assert (
+                await pool.fetchval(
+                    "SELECT status FROM build_attributes "
+                    "WHERE build_id = $1 AND attr = 'only'",
+                    build_id,
+                )
+                == "cancelled"
+            )
+            assert (
+                await pool.fetchval("SELECT status FROM builds WHERE id = $1", build_id)
+                == "cancelled"
+            )
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 # --- pull-based projects --------------------------------------------------
 
 
