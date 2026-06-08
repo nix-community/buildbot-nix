@@ -87,6 +87,8 @@ def duration_secs(value: float | None) -> str:
 
 def commit_url(project: dict[str, Any], sha: str) -> str:
     base = project["url"].removesuffix(".git")
+    if project["forge"] == "gitlab":
+        return f"{base}/-/commit/{sha}"
     # GitHub and Gitea share the commit URL scheme.
     return f"{base}/commit/{sha}"
 
@@ -106,6 +108,8 @@ def pr_url(project: dict[str, Any], pr_number: int) -> str:
     base = project["url"].removesuffix(".git")
     if project["forge"] == "github":
         return f"{base}/pull/{pr_number}"
+    if project["forge"] == "gitlab":
+        return f"{base}/-/merge_requests/{pr_number}"
     return f"{base}/pulls/{pr_number}"
 
 
@@ -113,6 +117,8 @@ def branch_url(project: dict[str, Any], branch: str) -> str:
     base = project["url"].removesuffix(".git")
     if project["forge"] == "github":
         return f"{base}/tree/{quote(branch)}"
+    if project["forge"] == "gitlab":
+        return f"{base}/-/tree/{quote(branch)}"
     return f"{base}/src/branch/{quote(branch)}"
 
 

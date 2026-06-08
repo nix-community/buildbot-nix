@@ -28,7 +28,7 @@ from buildbot_nix.web.logs import (
     strip_ansi,
 )
 from buildbot_nix.web.state_routes import create_state_router
-from buildbot_nix.web.templating import timeago
+from buildbot_nix.web.templating import branch_url, commit_url, pr_url, timeago
 
 from .e2e.support import seed
 from .support import WebHarness, web_harness
@@ -292,6 +292,39 @@ def test_timeago() -> None:
     assert timeago(None) == "—"
     assert timeago(now - timedelta(days=2)) == "2d ago"
     assert timeago(now - timedelta(minutes=5)).endswith("m ago")
+
+
+def test_forge_urls() -> None:
+    """Each forge has its own web URL scheme; GitLab notably nests
+    everything under /-/."""
+    github = {"forge": "github", "url": "https://github.com/acme/widget.git"}
+    gitea = {"forge": "gitea", "url": "https://gitea.example.com/acme/widget.git"}
+    gitlab = {"forge": "gitlab", "url": "https://gitlab.example.com/acme/widget.git"}
+
+    assert pr_url(github, 7) == "https://github.com/acme/widget/pull/7"
+    assert pr_url(gitea, 7) == "https://gitea.example.com/acme/widget/pulls/7"
+    assert (
+        pr_url(gitlab, 7) == "https://gitlab.example.com/acme/widget/-/merge_requests/7"
+    )
+
+    assert branch_url(github, "main") == "https://github.com/acme/widget/tree/main"
+    assert (
+        branch_url(gitea, "main")
+        == "https://gitea.example.com/acme/widget/src/branch/main"
+    )
+    assert (
+        branch_url(gitlab, "main")
+        == "https://gitlab.example.com/acme/widget/-/tree/main"
+    )
+
+    assert commit_url(github, "abc") == "https://github.com/acme/widget/commit/abc"
+    assert (
+        commit_url(gitea, "abc") == "https://gitea.example.com/acme/widget/commit/abc"
+    )
+    assert (
+        commit_url(gitlab, "abc")
+        == "https://gitlab.example.com/acme/widget/-/commit/abc"
+    )
 
 
 # --- log viewer / streaming / raw download ---------------------------
