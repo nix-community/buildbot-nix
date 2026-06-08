@@ -3,8 +3,9 @@
 Recovery resumes rather than restarts: attributes already terminal in
 the database are skipped (attribute completion is one transactional
 write, so the database is trustworthy); pending attributes are first
-re-checked against the nix store via `nix path-info` — already-valid
-out paths complete without a rebuild — and only the rest re-run.
+re-checked against the nix store by reading its sqlite database
+directly (see check_store_paths) — already-valid out paths complete
+without a rebuild — and only the rest re-run.
 Effects are guarded by the build's started-flag and never re-run
 automatically.
 
