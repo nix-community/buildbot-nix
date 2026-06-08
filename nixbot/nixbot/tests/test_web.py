@@ -196,39 +196,44 @@ def test_attribute_rows_fragment_paginates(client: WebHarness) -> None:
     assert client.get(f"{base}?group=nonsense").status_code == 404
 
 
-def test_build_page_shows_eval_warnings_as_text(client: WebHarness) -> None:
+def test_build_page_shows_eval_warning_groups(client: WebHarness) -> None:
     async def seed() -> None:
         ctx = client.ctx
         await ctx.pool.execute(
             "UPDATE builds SET eval_warnings = $1::jsonb WHERE number = 2",
-            json.dumps(["evaluation warning: foo is deprecated", "trace: bar"]),
+            json.dumps(
+                [
+                    {"level": "error", "message": "download failed", "count": 24},
+                    {"level": "warning", "message": "foo is deprecated", "count": 1},
+                ]
+            ),
         )
 
     client.loop.run_until_complete(seed())
     text = client.get("/repos/github/acme/widget/builds/2").text
-    assert "evaluation warning: foo is deprecated" in text
-    assert "trace: bar" in text
+    assert "foo is deprecated" in text
+    assert "download failed" in text
+    assert "\u00d724" in text
+    assert "2 kinds" in text
+    assert "25 occurrences" in text
     # Decoded, not the raw jsonb string.
     assert "[&#34;" not in text
-    assert '["' not in text
 
 
-def test_build_page_renders_ansi_in_error_and_warnings(client: WebHarness) -> None:
+def test_build_page_renders_ansi_in_error(client: WebHarness) -> None:
     """Eval failures carry nix's colored output; raw escape codes must
     not reach the HTML (the API already strips them)."""
 
     async def seed() -> None:
         await client.ctx.pool.execute(
-            "UPDATE builds SET error = $1, eval_warnings = $2::jsonb WHERE number = 2",
+            "UPDATE builds SET error = $1 WHERE number = 2",
             "evaluation failed: \x1b[31mred error\x1b[0m",
-            json.dumps(["\x1b[33myellow warning\x1b[0m"]),
         )
 
     client.loop.run_until_complete(seed())
     text = client.get("/repos/github/acme/widget/builds/2").text
     assert "\x1b" not in text
     assert "red error" in text
-    assert "yellow warning" in text
 
 
 def test_running_build_shows_progress(client: WebHarness) -> None:

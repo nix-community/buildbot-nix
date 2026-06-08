@@ -42,6 +42,14 @@ class Repo(BaseModel):
     updated_at: datetime
 
 
+class EvalWarningGroup(BaseModel):
+    """Deduplicated evaluator warning streamed during the eval."""
+
+    level: str  # warning | error
+    message: str
+    count: int
+
+
 class Build(BaseModel):
     """One CI run of a commit."""
 
@@ -54,7 +62,7 @@ class Build(BaseModel):
     pr_number: int | None
     pr_author: str | None
     status: str  # pending | evaluating | building | succeeded | failed | cancelled
-    eval_warnings: list[str] | None
+    eval_warnings: list[EvalWarningGroup] | None
     error: str | None
     created_at: datetime
     started_at: datetime | None
@@ -113,7 +121,7 @@ class FailureSummary(BaseModel):
 
     status: str
     error: str | None
-    eval_warnings: list[str] | None
+    eval_warnings: list[EvalWarningGroup] | None
     failures: list[AttributeFailure]
 
 

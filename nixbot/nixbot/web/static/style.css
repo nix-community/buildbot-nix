@@ -323,6 +323,64 @@ pre.warning {
 details summary {
 	cursor: pointer;
 }
+/* Live (deduplicated) eval warnings streamed during evaluation. */
+.live-warnings {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	margin: 0.5rem 0;
+	overflow: hidden;
+}
+.live-warnings .lw-head {
+	background: var(--card);
+	padding: 0.35rem 0.6rem;
+	font-size: 0.85rem;
+}
+.live-warnings .lw-muted {
+	color: var(--muted);
+}
+.live-warnings .lw-badge {
+	background: var(--warn);
+	color: var(--bg);
+	border-radius: 999px;
+	font-size: 0.75rem;
+	padding: 0 0.55em;
+	font-weight: 600;
+}
+.live-warnings ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	font-family: var(--mono);
+	font-size: 0.8125rem;
+}
+.live-warnings li {
+	display: flex;
+	gap: 0.7em;
+	align-items: baseline;
+	padding: 0.25rem 0.6rem;
+	border-top: 1px solid var(--border);
+}
+.live-warnings li .lw-level {
+	color: var(--warn);
+}
+.live-warnings li.error .lw-level {
+	color: var(--bad);
+}
+.live-warnings li .lw-msg {
+	flex: 1;
+	overflow-wrap: anywhere;
+}
+.live-warnings li .lw-count {
+	font-size: 0.75rem;
+	color: var(--bg);
+	background: var(--muted);
+	border-radius: 999px;
+	padding: 0 0.5em;
+	white-space: nowrap;
+}
+.live-warnings li .lw-count.hot {
+	background: var(--warn);
+}
 /* Groups scroll internally: an expanding group must not push the
    summaries below it out of reach (infinite-scroll footer problem). */
 .attr-scroll {

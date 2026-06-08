@@ -15,6 +15,7 @@ import contextlib
 import json
 import logging
 import shutil
+import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -41,6 +42,7 @@ from .effects_state import TaskTokens
 from .events import ChangeEvent, NullStatusReporter, RepoInfo, StatusReporter
 from .executor import LogWriter, failure_excerpt
 from .gitrepo import GitError, MergeConflictError, run_git
+from .live_warnings import LiveWarningAggregator
 from .memory import calculate_eval_workers
 from .models import NixEvalJobSuccess
 from .nix_eval import EvalError, EvalSettings
@@ -63,13 +65,15 @@ if TYPE_CHECKING:
     from .db import BuildDB, BuildRecord
     from .gitrepo import FetchCredentials, RepoManager
     from .models import NixEvalJob
-    from .nix_eval import EvalResult, JobBatchCallback
+    from .nix_eval import EvalResult, JobBatchCallback, StderrLineCallback
     from .scheduler import CachedFailure, FailedBuildCache
 
     GcrootRegistrar = Callable[[Path, str, str, str], Awaitable[None]]
     OutputWriter = Callable[[Path, str, str, str, str, str, str], Path]
 
 logger = logging.getLogger(__name__)
+
+LIVE_WARNINGS_FLUSH_INTERVAL = 2.0
 
 
 def pr_refspec(forge: str, pr_number: int) -> str:
@@ -92,6 +96,7 @@ class EvalRunnerLike(Protocol):
         branch_config: BranchConfig,
         settings: EvalSettings,
         on_jobs: JobBatchCallback | None = None,
+        on_stderr_line: StderrLineCallback | None = None,
     ) -> EvalResult: ...
 
 
@@ -431,9 +436,30 @@ class Orchestrator:
             )
             await jobs_queue.put(jobs)
 
+        # Deduplicated warnings appear on the build page while the eval
+        # runs; DB writes are throttled since retry storms emit one
+        # line per narinfo.
+        live_warnings = LiveWarningAggregator()
+        last_flush = 0.0
+
+        async def record_stderr_line(line: str) -> None:
+            nonlocal last_flush
+            if not live_warnings.add(line):
+                return
+            now = time.monotonic()
+            if now - last_flush >= LIVE_WARNINGS_FLUSH_INTERVAL:
+                last_flush = now
+                await self.db.set_eval_warnings(
+                    build.id, json.dumps(live_warnings.snapshot())
+                )
+
         eval_task = asyncio.ensure_future(
             self.eval_runner.run(
-                worktree_path, branch_config, eval_settings, on_jobs=record_job_batch
+                worktree_path,
+                branch_config,
+                eval_settings,
+                on_jobs=record_job_batch,
+                on_stderr_line=record_stderr_line,
             )
         )
         # Builds start as soon as the first eval batch arrives.
@@ -453,15 +479,16 @@ class Orchestrator:
                 await self._settle_aborted(event, build, BuildStatus.CANCELLED)
                 return
             # EvalError and anything else propagate to run_build,
-            # which settles the build as failed.
-            eval_result = await eval_task
-            await self.db.set_build_status(
-                build.id,
-                BuildStatus.BUILDING,
-                eval_warnings=(
-                    json.dumps(eval_result.warnings) if eval_result.warnings else None
-                ),
-            )
+            # which settles the build as failed. Flush warnings dropped
+            # by the throttle either way (run_build settles failures).
+            try:
+                eval_result = await eval_task
+            finally:
+                if live_warnings:
+                    await self.db.set_eval_warnings(
+                        build.id, json.dumps(live_warnings.snapshot())
+                    )
+            await self.db.set_build_status(build.id, BuildStatus.BUILDING)
             # Idempotent backstop for the streaming inserts above;
             # pending rows are what crash recovery resumes from. The
             # scheduler drops unsupported systems; their pending rows
@@ -476,7 +503,10 @@ class Orchestrator:
                 ],
             )
             await self.reporter.eval_finished(
-                event, build, success=True, warnings=eval_result.warnings
+                event,
+                build,
+                success=True,
+                warnings=[str(g["message"]) for g in live_warnings.snapshot()],
             )
 
             # Re-send the complete eval result: the scheduler dedupes

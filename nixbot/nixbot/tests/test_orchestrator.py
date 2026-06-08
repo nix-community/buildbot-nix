@@ -52,6 +52,7 @@ pytestmark = [
 @dataclass
 class FakeEvalRunner:
     jobs: list[NixEvalJobSuccess]
+    # Emitted as stderr warning lines through on_stderr_line.
     warnings: list[str] = field(default_factory=list)
     calls: int = 0
     last_settings: EvalSettings | None = None
@@ -64,6 +65,7 @@ class FakeEvalRunner:
         branch_config: object,
         settings: EvalSettings,
         on_jobs: object = None,
+        on_stderr_line: object = None,
     ) -> EvalResult:
         self.calls += 1
         self.started.set()
@@ -71,7 +73,10 @@ class FakeEvalRunner:
         settings.gc_roots_dir.mkdir(parents=True, exist_ok=True)
         if self.block is not None:
             await self.block.wait()
-        return EvalResult(jobs=list(self.jobs), warnings=list(self.warnings))
+        if callable(on_stderr_line):
+            for warning in self.warnings:
+                await on_stderr_line(f"warning: {warning}")
+        return EvalResult(jobs=list(self.jobs))
 
 
 @dataclass
@@ -1608,6 +1613,7 @@ def test_unexpected_eval_path_error_settles_build(
             branch_config: object,
             settings: EvalSettings,
             on_jobs: object = None,
+            on_stderr_line: object = None,
         ) -> EvalResult:
             msg = "db outage"
             raise RuntimeError(msg)

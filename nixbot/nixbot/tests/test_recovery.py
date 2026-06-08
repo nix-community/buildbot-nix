@@ -324,6 +324,34 @@ def test_failed_rebuild_settles_pending_effects(postgres_dsn: str) -> None:
     asyncio.run(run())
 
 
+def test_eval_start_clears_stale_eval_warnings(postgres_dsn: str) -> None:
+    """A re-run build must not show the previous attempt's warnings."""
+
+    async def run() -> None:
+        pool = await asyncpg.create_pool(postgres_dsn)
+        try:
+            build_id = await make_build(pool, "lw-rerun")
+            db = BuildDB(pool)
+            await db.set_eval_warnings(
+                build_id, '[{"level": "warning", "message": "old", "count": 3}]'
+            )
+            await db.set_build_status(build_id, "failed")
+            assert await pool.fetchval(
+                "SELECT eval_warnings FROM builds WHERE id = $1", build_id
+            )
+            await db.set_build_status(build_id, "evaluating")
+            assert (
+                await pool.fetchval(
+                    "SELECT eval_warnings FROM builds WHERE id = $1", build_id
+                )
+                is None
+            )
+        finally:
+            await pool.close()
+
+    asyncio.run(run())
+
+
 def test_interrupted_effects_fail_on_recovery(postgres_dsn: str) -> None:
     """Effects never auto-re-run, so rows left running by a crash
     would spin forever without the startup sweep."""

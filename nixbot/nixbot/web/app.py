@@ -416,8 +416,8 @@ class _PageRoutes:
         if build is None:
             raise HTTPException(status_code=404)
         if isinstance(build.get("eval_warnings"), str):
-            # asyncpg returns jsonb as a string; render plain text.
-            build["eval_warnings"] = "\n\n".join(json.loads(build["eval_warnings"]))
+            # asyncpg returns jsonb as a string.
+            build["eval_warnings"] = json.loads(build["eval_warnings"])
         prev_number, next_number = await ctx.queries.neighbor_numbers(
             project["id"], number
         )

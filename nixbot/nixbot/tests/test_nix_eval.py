@@ -28,7 +28,6 @@ from nixbot.nix_eval import (
     build_eval_command,
     build_full_command,
     build_sandbox_command,
-    extract_eval_warnings,
 )
 from nixbot.repo_config import BranchConfig
 
@@ -141,27 +140,6 @@ def test_full_command_composition(tmp_path: Path) -> None:
     assert cmd[0] == "nix-eval-jobs"
 
 
-def test_extract_eval_warnings() -> None:
-    stderr = (
-        "warning: unknown setting 'foo'\n"
-        "evaluation warning: first warning\n"
-        "  with indented detail\n"
-        "\n"
-        "  more detail after blank\n"
-        "evaluation warning: second warning\n"
-        "some other output\n"
-    )
-    warnings = extract_eval_warnings(stderr)
-    assert len(warnings) == 2
-    assert warnings[0].startswith("first warning")
-    assert "with indented detail" in warnings[0]
-    assert "more detail after blank" in warnings[0]
-    assert warnings[1] == "second warning"
-    # Nix configuration warnings are not eval warnings.
-    assert extract_eval_warnings("warning: unknown setting 'bar'\n") == []
-    assert extract_eval_warnings("") == []
-
-
 def test_memory_info_zfs_arc(tmp_path: Path) -> None:
     arcstats = tmp_path / "arcstats"
     arcstats.write_text("name type data\nsize 4 2147483648\n")
@@ -234,11 +212,57 @@ def test_eval_runner_integration(tmp_path: Path) -> None:
         sandbox=False,
         systemd_scope=False,
     )
-    result = asyncio.run(EvalRunner().run(flake, BranchConfig(), settings))
+    seen: list[str] = []
+
+    async def on_line(line: str) -> None:
+        seen.append(line)
+
+    result = asyncio.run(
+        EvalRunner().run(flake, BranchConfig(), settings, on_stderr_line=on_line)
+    )
     assert len(result.jobs) == 1
     job = result.jobs[0]
     assert job.attr == "x86_64-linux.ok"  # type: ignore[union-attr]
-    assert any("eval warning here" in w for w in result.warnings)
+    assert any("eval warning here" in line for line in seen)
+
+
+def test_stderr_noise_filtered_and_warnings_reach_callback(tmp_path: Path) -> None:
+    """Noise stays out of both the tail and the callback; warning and
+    error lines reach the callback ANSI-stripped, progress output does
+    not."""
+    script = tmp_path / "warn.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        "printf '\\033[35;1mwarning:\\033[0m unable to download foo\\n' >&2\n"
+        "echo 'plain progress output' >&2\n"
+        "echo \"warning: unknown setting 'allowed-users'\" >&2\n"
+        "echo \"warning: SQLite database '/nix/var/nix/db/db.sqlite' is busy\" >&2\n"
+        "echo 'error: something broke' >&2\n"
+    )
+    script.chmod(0o755)
+    seen: list[str] = []
+
+    async def on_line(line: str) -> None:
+        seen.append(line)
+
+    async def run() -> bytes:
+        proc = await asyncio.create_subprocess_exec(
+            str(script), stderr=asyncio.subprocess.PIPE
+        )
+        assert proc.stderr is not None
+        tail = await nix_eval._read_stderr_tail(proc.stderr, on_line=on_line)  # noqa: SLF001
+        await proc.wait()
+        return tail
+
+    tail = asyncio.run(run())
+    assert seen == [
+        "warning: unable to download foo",
+        "error: something broke",
+    ]
+    assert b"unknown setting" not in tail
+    assert b"is busy" not in tail
+    assert b"plain progress output" in tail
+    assert b"error: something broke" in tail
 
 
 def test_stderr_tail_is_bounded(tmp_path: Path) -> None:

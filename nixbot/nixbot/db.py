@@ -204,20 +204,33 @@ class BuildDB:
             )
             return _build_record(row)
 
+    async def set_eval_warnings(self, build_id: int, warnings_json: str) -> None:
+        """Streamed, deduplicated eval warnings; updated while the eval
+        is still running (the trigger pushes a build_events notify)."""
+        await self.pool.execute(
+            "UPDATE builds SET eval_warnings = $2::jsonb WHERE id = $1",
+            build_id,
+            warnings_json,
+        )
+
     async def set_build_status(
         self,
         build_id: int,
         status: str,
         *,
         error: str | None = None,
-        eval_warnings: str | None = None,
     ) -> None:
         await self.pool.execute(
             """
             UPDATE builds
             SET status = $2,
                 error = COALESCE($3, error),
-                eval_warnings = COALESCE($4::jsonb, eval_warnings),
+                -- A fresh eval must not show the previous attempt's
+                -- streamed warnings.
+                eval_warnings = CASE
+                    WHEN $2 = 'evaluating' THEN NULL
+                    ELSE eval_warnings
+                END,
                 started_at = CASE
                     WHEN started_at IS NULL AND $2 <> 'pending' THEN now()
                     ELSE started_at
@@ -225,7 +238,7 @@ class BuildDB:
                 -- Invariant: non-terminal states never carry finished_at,
                 -- else reruns show negative durations.
                 finished_at = CASE
-                    WHEN $2 = ANY($5::text[]) THEN now()
+                    WHEN $2 = ANY($4::text[]) THEN now()
                     ELSE NULL
                 END
             WHERE id = $1
@@ -233,7 +246,6 @@ class BuildDB:
             build_id,
             status,
             error,
-            eval_warnings,
             list(BuildStatus.TERMINAL),
         )
         if status in (BuildStatus.FAILED, BuildStatus.CANCELLED):

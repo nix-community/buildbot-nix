@@ -2,8 +2,8 @@
 
 Ported from the buildbot step in nixbot/nix_eval.py: streams
 nix-eval-jobs JSON lines, honors the repo's `nixbot.toml`
-(flake_dir/lock_file/attribute), extracts evaluation warnings from
-stderr, and sizes workers/memory dynamically (memory.py).
+(flake_dir/lock_file/attribute), streams warnings/errors from stderr,
+and sizes workers/memory dynamically (memory.py).
 
 The evaluator runs inside a bubblewrap sandbox as defense in depth:
 only the worktree, the nix store, the gc-roots dir, the nix daemon
@@ -27,6 +27,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .ansi import strip_ansi
 from .environ import passthrough_env
 from .models import NixEvalJob, NixEvalJobModel
 
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from .repo_config import BranchConfig
 
     JobBatchCallback = Callable[[list[NixEvalJob]], Awaitable[None]]
+    StderrLineCallback = Callable[[str], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +92,6 @@ class EvalSettings:
 @dataclass
 class EvalResult:
     jobs: list[NixEvalJob]
-    warnings: list[str]
 
 
 def build_eval_command(
@@ -341,57 +342,56 @@ def build_full_command(
     return cmd
 
 
-def extract_eval_warnings(stderr_output: str) -> list[str]:
-    """Extract `evaluation warning:` blocks from nix-eval-jobs stderr,
-    filtering out Nix configuration warnings. Ported from
-    NixEvalCommand._format_warnings."""
-    warning_lines = stderr_output.strip().split("\n") if stderr_output else []
-    eval_warnings: list[str] = []
-    i = 0
-    while i < len(warning_lines):
-        line = warning_lines[i]
-        if "evaluation warning:" in line:
-            first_line = line.replace("evaluation warning:", "").strip()
-            warning_block = [first_line] if first_line else []
-            i += 1
-            # Collect continuation lines (indented, or empty lines
-            # followed by an indented line).
-            while i < len(warning_lines):
-                next_line = warning_lines[i]
-                if next_line.startswith((" ", "\t")):
-                    warning_block.append(next_line.strip())
-                    i += 1
-                elif not next_line.strip():
-                    if i + 1 < len(warning_lines) and warning_lines[i + 1].startswith(
-                        (" ", "\t")
-                    ):
-                        warning_block.append("")
-                        i += 1
-                    else:
-                        break
-                else:
-                    break
-            if warning_block:
-                eval_warnings.append("\n".join(warning_block))
-        else:
-            i += 1
-    return eval_warnings
-
-
 async def _drain(stream: asyncio.StreamReader) -> None:
     while await stream.read(64 * 1024):
         pass
 
 
+def _is_stderr_noise(line: str) -> bool:
+    """Known-harmless nix stderr noise: the sandboxed evaluator parses
+    the host nix.conf with a libstore that lacks daemon-only settings,
+    and concurrent evals contend on the local sqlite caches (matching
+    "SQLite database" alone would also swallow corruption errors)."""
+    return "warning: unknown setting" in line or (
+        "SQLite database" in line and "is busy" in line
+    )
+
+
 async def _read_stderr_tail(
-    stream: asyncio.StreamReader, limit: int = STDERR_TAIL_LIMIT
+    stream: asyncio.StreamReader,
+    limit: int = STDERR_TAIL_LIMIT,
+    on_line: StderrLineCallback | None = None,
 ) -> bytes:
-    """Read a stream to EOF keeping only the last `limit` bytes."""
+    """Read stderr to EOF keeping only the last `limit` bytes, dropping
+    known-noise lines and live-streaming warnings/errors to the
+    optional `on_line` callback."""
     buf = bytearray()
+    pending = bytearray()
+
+    async def keep(raw_line: bytes) -> bool:
+        text = strip_ansi(raw_line.decode(errors="replace")).strip()
+        if _is_stderr_noise(text):
+            return False
+        if on_line is not None and ("warning:" in text or "error:" in text):
+            await on_line(text)
+        return True
+
     while chunk := await stream.read(64 * 1024):
-        buf += chunk
+        pending += chunk
+        *lines, rest = pending.split(b"\n")
+        pending = bytearray(rest)
+        # A single line larger than the tail limit (huge eval trace):
+        # keep it without waiting for its newline so memory stays bounded.
+        if len(pending) > 2 * limit:
+            buf += pending
+            pending.clear()
+        for line in lines:
+            if await keep(line):
+                buf += line + b"\n"
         if len(buf) > 2 * limit:
             del buf[:-limit]
+    if pending and await keep(bytes(pending)):
+        buf += pending
     return bytes(buf[-limit:])
 
 
@@ -486,9 +486,12 @@ class EvalRunner:
         branch_config: BranchConfig,
         settings: EvalSettings,
         on_jobs: JobBatchCallback | None = None,
+        on_stderr_line: StderrLineCallback | None = None,
     ) -> EvalResult:
         async with self._semaphore:
-            return await self._run(worktree_path, branch_config, settings, on_jobs)
+            return await self._run(
+                worktree_path, branch_config, settings, on_jobs, on_stderr_line
+            )
 
     async def _run(
         self,
@@ -496,6 +499,7 @@ class EvalRunner:
         branch_config: BranchConfig,
         settings: EvalSettings,
         on_jobs: JobBatchCallback | None = None,
+        on_stderr_line: StderrLineCallback | None = None,
     ) -> EvalResult:
         settings.gc_roots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -528,6 +532,7 @@ class EvalRunner:
                 settings,
                 preexec_fn=join_eval_cgroup if eval_cgroup is not None else None,
                 on_jobs=on_jobs,
+                on_stderr_line=on_stderr_line,
                 eval_cgroup=eval_cgroup,
             )
         finally:
@@ -541,6 +546,7 @@ class EvalRunner:
         settings: EvalSettings,
         preexec_fn: Callable[[], None] | None = None,
         on_jobs: JobBatchCallback | None = None,
+        on_stderr_line: StderrLineCallback | None = None,
         eval_cgroup: Path | None = None,
     ) -> EvalResult:
         cmd = build_full_command(worktree_path, branch_config, settings)
@@ -575,7 +581,7 @@ class EvalRunner:
             async with asyncio.timeout(settings.timeout):
                 _, stderr_bytes = await asyncio.gather(
                     _read_job_stream(proc.stdout, jobs, parse_errors, on_jobs),
-                    _read_stderr_tail(proc.stderr),
+                    _read_stderr_tail(proc.stderr, on_line=on_stderr_line),
                 )
                 returncode = await proc.wait()
         except BaseException as e:
@@ -588,7 +594,6 @@ class EvalRunner:
                 raise EvalError(msg) from None
             raise
         stderr_text = stderr_bytes.decode(errors="replace")
-        warnings = extract_eval_warnings(stderr_text)
 
         if returncode != 0:
             tail = "\n".join(stderr_text.splitlines()[-50:])
@@ -606,4 +611,4 @@ class EvalRunner:
         if parse_errors:
             msg = "; ".join(parse_errors)
             raise EvalError(msg)
-        return EvalResult(jobs=jobs, warnings=warnings)
+        return EvalResult(jobs=jobs)

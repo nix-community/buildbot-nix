@@ -74,12 +74,6 @@
         </div>
       </div>
       {% if build.error %}<pre class="error">{{ build.error | excerpt(2000) | ansi }}</pre>{% endif %}
-      {% if build.eval_warnings %}
-        <details>
-          <summary>evaluation warnings</summary>
-          <pre class="error warning">{{ build.eval_warnings | ansi }}</pre>
-        </details>
-      {% endif %}
       {% if build.status in RUNNING_STATUSES and attrs_total %}
         <div class="build-progress"
              role="progressbar"
@@ -99,6 +93,25 @@
             {% endfor %}
           </div>
           <span class="muted">{{ attrs_done }} of {{ attrs_total }} attributes done</span>
+        </div>
+      {% endif %}
+      {% if build.eval_warnings %}
+        {% set lw_total = build.eval_warnings | sum(attribute="count") %}
+        <div class="live-warnings">
+          <div class="lw-head">
+            eval warnings
+            <span class="lw-badge">{{ build.eval_warnings | length }} kind{{ "s" if build.eval_warnings | length != 1 }}</span>
+            <span class="lw-muted">· {{ lw_total }} occurrence{{ "s" if lw_total != 1 }}</span>
+          </div>
+          <ul>
+            {% for g in build.eval_warnings %}
+              <li class="{{ g.level }}">
+                <span class="lw-level">{{ "error" if g.level == "error" else "warn" }}</span>
+                <span class="lw-msg">{{ g.message }}</span>
+                <span class="lw-count{{ ' hot' if g.count > 1 }}">×{{ g.count }}</span>
+              </li>
+            {% endfor %}
+          </ul>
         </div>
       {% endif %}
       <p>
