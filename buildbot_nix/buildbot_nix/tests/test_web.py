@@ -36,7 +36,7 @@ from buildbot_nix.web.state_routes import create_state_router
 from buildbot_nix.web.templating import branch_url, commit_url, pr_url, timeago
 
 from .e2e.support import seed
-from .support import WebHarness, cookie_header, web_harness
+from .support import WebHarness, cookie_header, insert_project, web_harness
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -281,6 +281,60 @@ def test_legacy_project_urls_redirect(client: WebHarness) -> None:
     r = client.get("/api/projects/acme/widget")
     assert r.headers["location"] == "/api/repos/github/acme/widget"
     assert client.get("/projects/acme/nope").status_code == 404
+
+
+class _StubVisibility:
+    def __init__(self, visible: list[int]) -> None:
+        self.visible = visible
+
+    async def visible_repo_ids(
+        self,
+        user: object,  # noqa: ARG002
+        token: object = None,  # noqa: ARG002
+    ) -> list[int]:
+        return self.visible
+
+
+def test_legacy_redirect_hides_invisible_projects(client: WebHarness) -> None:
+    """Redirect-vs-404 must not let anonymous users probe private
+    repo existence."""
+    ctx = client.ctx
+
+    async def setup() -> int:
+        return await insert_project(
+            ctx.pool, "secret", forge_repo_id="web-secret", private=True
+        )
+
+    secret_id = client.loop.run_until_complete(setup())
+    ctx.visibility = cast("VisibilityService", _StubVisibility([]))
+    try:
+        assert client.get("/projects/acme/secret").status_code == 404
+        ctx.visibility = cast("VisibilityService", _StubVisibility([secret_id]))
+        assert client.get("/projects/acme/secret").status_code == 307
+    finally:
+        ctx.visibility = None
+        client.loop.run_until_complete(
+            ctx.pool.execute("DELETE FROM projects WHERE id = $1", secret_id)
+        )
+
+
+def test_legacy_redirect_404s_on_ambiguous_owner_name(client: WebHarness) -> None:
+    """The same owner/name on two forges must not resolve to an
+    arbitrary one."""
+    ctx = client.ctx
+
+    async def setup() -> int:
+        return await insert_project(
+            ctx.pool, "widget", forge="gitea", forge_repo_id="web-gitea-1"
+        )
+
+    other_id = client.loop.run_until_complete(setup())
+    try:
+        assert client.get("/projects/acme/widget").status_code == 404
+    finally:
+        client.loop.run_until_complete(
+            ctx.pool.execute("DELETE FROM projects WHERE id = $1", other_id)
+        )
 
 
 def test_health_and_static(client: WebHarness) -> None:

@@ -212,7 +212,14 @@ def create_legacy_router(ctx: WebContext) -> APIRouter:
         request: Request, owner: str, name: str, rest: str
     ) -> RedirectResponse:
         candidates = await ctx.queries.repo_candidates(owner, name)
-        if not candidates:
+        # Same visibility rule as the canonical routes: redirect-vs-404
+        # must not let outsiders probe private repo existence.
+        visible = await ctx.visible_repo_ids(request)
+        if visible is not None:
+            candidates = [c for c in candidates if c["id"] in visible]
+        # Ambiguous owner/name across forges: 404 instead of silently
+        # picking one — the caller must use the forge-qualified URL.
+        if len({c["forge"] for c in candidates}) != 1:
             raise HTTPException(status_code=404)
         forge = candidates[0]["forge"]
         prefix = "/api/repos" if request.url.path.startswith("/api/") else "/repos"
