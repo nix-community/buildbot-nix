@@ -46,7 +46,9 @@ def branch_key(branch: str, pr_number: int | None = None) -> str:
     if branch.startswith(("refs/pull/", "refs/merge-requests/")):
         # refs/pull/123/merge -> refs/pull/123
         return branch.rsplit("/", 1)[0]
-    return branch
+    # Namespaced: a branch literally named "pr/7" must not share the
+    # supersede context of pull request 7.
+    return f"branch/{branch}"
 
 
 @dataclass

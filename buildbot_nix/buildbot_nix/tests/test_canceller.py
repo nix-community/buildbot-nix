@@ -21,10 +21,12 @@ def test_skip_ci_markers() -> None:
 
 
 def test_branch_key() -> None:
-    assert branch_key("main") == "main"
+    assert branch_key("main") == "branch/main"
     assert branch_key("refs/pull/123/merge") == "refs/pull/123"
     assert branch_key("refs/merge-requests/9/head") == "refs/merge-requests/9"
     assert branch_key("anything", pr_number=7) == "pr/7"
+    # A branch literally named pr/7 must not collide with PR 7.
+    assert branch_key("pr/7") != branch_key("x", pr_number=7)
 
 
 def reg(  # noqa: PLR0913
