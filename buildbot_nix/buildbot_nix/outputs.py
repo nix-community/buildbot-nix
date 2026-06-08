@@ -2,8 +2,9 @@
 
 For push events on branches with `updateOutputs`, the store path of
 each attribute result is written to
-<outputs_path>/<owner>/<repo>/<branch>/<attr> (URL-quoted, traversal-
-safe) so external tooling (e.g. deploys, nginx autoindex) can find the
+<outputs_path>/<forge>/<owner>/<repo>/<branch>/<attr> (URL-quoted,
+traversal-safe; forge-scoped so the same owner/repo on two forges
+cannot overwrite each other) so external tooling (e.g. deploys, nginx autoindex) can find the
 latest outputs. Per-branch gating (`match_glob`/`update_outputs`/
 `register_gcroots`) lives in config.BranchConfigDict.
 """
@@ -41,6 +42,7 @@ def join_all_traversalsafe(root: Path, *paths: str) -> Path:
 
 def write_output_path(  # noqa: PLR0913
     outputs_path: Path,
+    forge: str,
     owner: str,
     repo: str,
     branch: str,
@@ -53,6 +55,7 @@ def write_output_path(  # noqa: PLR0913
     """
     file = join_all_traversalsafe(
         outputs_path,
+        urllib.parse.quote_plus(forge),
         urllib.parse.quote_plus(owner),
         urllib.parse.quote_plus(repo),
         urllib.parse.quote_plus(branch),

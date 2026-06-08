@@ -85,15 +85,23 @@ def test_gcroot_already_points_to(tmp_path: Path) -> None:
 
 def test_write_output_path(tmp_path: Path) -> None:
     file = write_output_path(
-        tmp_path, "acme", "widget", "main", "checks.x86_64-linux.foo", "/nix/store/o"
+        tmp_path,
+        "github",
+        "acme",
+        "widget",
+        "main",
+        "checks.x86_64-linux.foo",
+        "/nix/store/o",
     )
     assert file.read_text() == "/nix/store/o"
-    assert file == tmp_path / "acme" / "widget" / "main" / "checks.x86_64-linux.foo"
+    assert file == (
+        tmp_path / "github" / "acme" / "widget" / "main" / "checks.x86_64-linux.foo"
+    )
 
 
 def test_write_output_path_quotes_separators(tmp_path: Path) -> None:
     file = write_output_path(
-        tmp_path, "acme", "widget", "feature/x", "attr", "/nix/store/o"
+        tmp_path, "github", "acme", "widget", "feature/x", "attr", "/nix/store/o"
     )
     # Branch slashes are quoted, not directories.
     assert file.parent.name == "feature%2Fx"
@@ -152,3 +160,16 @@ def test_branch_config_merge_or() -> None:
     # Overlapping globs merge with OR semantics.
     assert cfg.do_register_gcroot("main", "x1")
     assert cfg.do_update_outputs("main", "x1")
+
+
+def test_write_output_path_is_forge_scoped(tmp_path: Path) -> None:
+    # Same owner/repo on two forges must not overwrite each other.
+    f1 = write_output_path(
+        tmp_path, "github", "acme", "widget", "main", "a", "/nix/store/1"
+    )
+    f2 = write_output_path(
+        tmp_path, "gitea", "acme", "widget", "main", "a", "/nix/store/2"
+    )
+    assert f1 != f2
+    assert f1.read_text() == "/nix/store/1"
+    assert f2.read_text() == "/nix/store/2"

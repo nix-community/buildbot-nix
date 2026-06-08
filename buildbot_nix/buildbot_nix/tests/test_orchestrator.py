@@ -1878,3 +1878,54 @@ def test_effect_log_does_not_collide_with_attribute_log(
             await pool.close()
 
     asyncio.run(run())
+
+
+def test_post_process_paths_are_forge_scoped(
+    postgres_dsn: str, tmp_path: Path, upstream: Path
+) -> None:
+    """Gcroots and outputs for the same owner/repo on two forges must
+    not collide; the forge belongs in both path schemes."""
+
+    async def run() -> None:
+        add_commit(upstream, "forge-scope")
+        pool, orchestrator, _, project = await make_env(
+            postgres_dsn,
+            tmp_path,
+            upstream,
+            FakeEvalRunner(
+                [mk_job("a", cache_status=CacheStatus.local, out="/nix/store/a-out")]
+            ),
+            FakeExecutor(),
+            name="forge-scope",
+        )
+        gcroot_projects: list[str] = []
+        output_calls: list[tuple] = []
+
+        async def capture_gcroot(
+            gcroots_dir: Path, proj: str, attr: str, out: str
+        ) -> None:
+            gcroot_projects.append(proj)
+
+        def capture_output(*args: object) -> Path:
+            output_calls.append(args)
+            return tmp_path / "out"
+
+        orchestrator.register_gcroot = capture_gcroot
+        orchestrator.write_output_path = capture_output
+        orchestrator.config.outputs_path = tmp_path / "outputs"
+        try:
+            build = await orchestrator.handle_change_event(
+                ChangeEvent(
+                    repo=project,
+                    branch="main",
+                    commit_sha=git(upstream, "rev-parse", "HEAD"),
+                )
+            )
+            assert build is not None
+            assert gcroot_projects == [project.key]
+            assert output_calls
+            assert "github" in output_calls[0]
+        finally:
+            await pool.close()
+
+    asyncio.run(run())

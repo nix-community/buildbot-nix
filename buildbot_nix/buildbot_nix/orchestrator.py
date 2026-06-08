@@ -67,7 +67,7 @@ if TYPE_CHECKING:
     from .scheduler import CachedFailure, FailedBuildCache
 
     GcrootRegistrar = Callable[[Path, str, str, str], Awaitable[None]]
-    OutputWriter = Callable[[Path, str, str, str, str, str], Path]
+    OutputWriter = Callable[[Path, str, str, str, str, str, str], Path]
 
 logger = logging.getLogger(__name__)
 
@@ -1009,15 +1009,18 @@ class Orchestrator:
         for attr, out_path in skipped:
             if not out_path:
                 continue
+            # Forge-scoped paths: the same owner/repo on two forges
+            # must not share gc-roots or outputs files.
             if branches.do_register_gcroot(repo.default_branch, event.branch):
                 await self.register_gcroot(
-                    self.config.gcroots_dir, repo.name, attr, out_path
+                    self.config.gcroots_dir, repo.key, attr, out_path
                 )
             if self.config.outputs_path is not None and branches.do_update_outputs(
                 repo.default_branch, event.branch
             ):
                 self.write_output_path(
                     self.config.outputs_path,
+                    repo.forge,
                     repo.owner,
                     repo.repo,
                     event.branch,
