@@ -690,7 +690,16 @@ def create_project_hook(
     }
     for hook in hooks:
         if hook["config"]["url"] == webhook_url + "change_hook/github":
-            log.msg(f"hook for {owner}/{repo} already exists")
+            # Always update the hook to ensure the secret stays in sync
+            # (GitHub doesn't expose secrets via API, so we can't detect changes)
+            hook_id = hook["id"]
+            log.msg(f"updating existing hook for {owner}/{repo}")
+            http_request(
+                f"https://api.github.com/repos/{owner}/{repo}/hooks/{hook_id}",
+                method="PATCH",
+                headers=headers,
+                data=data,
+            )
             return
 
     http_request(
