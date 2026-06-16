@@ -8,6 +8,8 @@
     # used for development
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
+    sphinxcontrib-nixdomain.url = "github:minijackson/sphinxcontrib-nixdomain";
+    sphinxcontrib-nixdomain.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -37,7 +39,10 @@
               lib
               system
               ;
-            pkgs = nixpkgs.legacyPackages.${system};
+            pkgs = import nixpkgs {
+              inherit system;
+              overlays = [ inputs.sphinxcontrib-nixdomain.overlays.default ];
+            };
           }
         );
     in

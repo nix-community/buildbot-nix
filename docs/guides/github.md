@@ -69,10 +69,10 @@ definitions:
 ]
 ```
 
-- `name`: The worker name (matches `services.buildbot-nix.worker.name`, defaults
+- `name`: The worker name (matches {nix:option}`services.buildbot-nix.worker.name`, defaults
   to hostname)
 - `pass`: The password (must match
-  `services.buildbot-nix.worker.workerPasswordFile` contents)
+  {nix:option}`services.buildbot-nix.worker.workerPasswordFile` contents)
 - `cores`: Number of CPU cores (must match the actual core count of the worker
   machine)
 

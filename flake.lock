@@ -1,5 +1,20 @@
 {
   "nodes": {
+    "flake-compat": {
+      "locked": {
+        "lastModified": 1767039857,
+        "narHash": "sha256-vNpUSpF5Nuw8xvDLj2KCwwksIbjua2LZCqhV1LNRDns=",
+        "owner": "edolstra",
+        "repo": "flake-compat",
+        "rev": "5edf11c44bc78a0d334f6334cdaf7d60d732daab",
+        "type": "github"
+      },
+      "original": {
+        "owner": "edolstra",
+        "repo": "flake-compat",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1781377469,
@@ -17,10 +32,54 @@
         "url": "https://github.com/NixOS/nixpkgs"
       }
     },
+    "pyproject-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "sphinxcontrib-nixdomain",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1780416763,
+        "narHash": "sha256-rRK3IFixgsrK6S3e14Xz9HAZm7+kMAIl3oi5zZlcwYI=",
+        "owner": "nix-community",
+        "repo": "pyproject.nix",
+        "rev": "ad83f1ead0e78e57b188f35cb57298affb06fc5f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "pyproject.nix",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "nixpkgs": "nixpkgs",
+        "sphinxcontrib-nixdomain": "sphinxcontrib-nixdomain",
         "treefmt-nix": "treefmt-nix"
+      }
+    },
+    "sphinxcontrib-nixdomain": {
+      "inputs": {
+        "flake-compat": "flake-compat",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "pyproject-nix": "pyproject-nix"
+      },
+      "locked": {
+        "lastModified": 1781248849,
+        "narHash": "sha256-ghd8rIui7LiuwXKBzGQcru/AenigCK25xvY+lU5SVto=",
+        "owner": "minijackson",
+        "repo": "sphinxcontrib-nixdomain",
+        "rev": "3c390f516799050e12dc3976c1b9a3af6d9bb950",
+        "type": "github"
+      },
+      "original": {
+        "owner": "minijackson",
+        "repo": "sphinxcontrib-nixdomain",
+        "type": "github"
       }
     },
     "treefmt-nix": {
