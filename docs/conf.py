@@ -33,6 +33,8 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "furo"
+html_static_path = ["_static"]
+html_css_files = ["field-lists.css"]
 
 
 # -- Options for the MyST parser ---------------------------------------------
@@ -41,6 +43,7 @@ html_theme = "furo"
 # These syntax extensions are required by `sphinxcontrib-nixdomain`
 myst_enable_extensions = [
     "colon_fence",
+    "deflist",
     "fieldlist",
 ]
 

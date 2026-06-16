@@ -40,18 +40,21 @@ For some actions a login is required. The authentication backend is set by the
 {nix:option}`services.buildbot-nix.master.authBackend` NixOS option ("github", "gitea",
 "oidc", or others).
 
-**Note**: You can configure both GitHub and Gitea integrations simultaneously,
+:::{note}
+You can configure both GitHub and Gitea integrations simultaneously,
 regardless of which authentication backend you choose. The auth backend only
 determines how users log in to the Buildbot interface.
+:::
 
 We have the following two roles:
 
-- Admins:
-  - The list of admin usernames is hard-coded in the NixOS configuration.
-  - admins can reload the project list
-- Organisation member:
-  - All member of the organisation where this repository is located
-  - They can restart builds
+Admins:
+: - The list of admin usernames is hard-coded in the NixOS configuration.
+: - admins can reload the project list
+
+Organisation member:
+: - All member of the organisation where this repository is located
+: - They can restart builds
 
 #### GitHub Integration
 
@@ -79,18 +82,21 @@ See {doc}`oidc` for configuration details.
 
 ### Fully Private
 
-To enable fully private mode, set `acessMode.fullyPrivate` to an attrset
-containing the required options for fully private use, refer to the examples and
-module implementation (`nix/master.nix`).
+To enable fully private mode, set
+{nix:option}`services.buildbot-nix.master.accessMode.fullyPrivate` to an
+attrset containing the required options for fully private use, refer to the
+examples and module implementation (`nix/master.nix`).
 
 This access mode honors the `admins` option in addition to the
-`accessMode.fullyPrivate.organisations` option. To allow access from certain
-organisations, you must explicitly list them.
+{nix:option}`services.buildbot-nix.master.accessMode.fullyPrivate.organisations`
+option. To allow access from certain organisations, you must explicitly list
+them.
 
-If you've set `authBackend` previously, unset it, or you will get an error about
-a conflicting definitions. `fullyPrivate` requires the `authBackend` to be set
-to `basichttpauth` to function (this is handled by the module, which is why you
-can leave it unset). For a concrete example please refer to
+If you've set {nix:option}`services.buildbot-nix.master.authBackend`
+previously, unset it, or you will get an error about a conflicting definitions.
+`fullyPrivate` requires the `authBackend` to be set to `basichttpauth` to
+function (this is handled by the module, which is why you can leave it unset).
+For a concrete example please refer to
 [fully-private-github](../../examples/fully-private-github.nix)
 
 ## Per Repository Configuration
@@ -100,22 +106,59 @@ root of whichever branch it's currently evaluating, parse it as TOML and apply
 the configuration specified. The following table illustrates the supported
 options.
 
-|                          | key                        | type        | description                                                                 | default      | example                                                                                                                                                                                                 |
-| :----------------------- | :------------------------- | :---------- | :-------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| lock file                | `lock_file`                | `str`       | dictates which lock file `buildbot-nix` will use when evaluating your flake | `flake.lock` | have multiple lockfiles, one for `nixpkgs-stable`, one for `nixpkgs-unstable` or by default pin an input to a private repo, but have a lockfile with that private repo replaced by a public repo for CI |
-| attribute                | `attribute`                | `str`       | which attribute in the flake to evaluate and build                          | `checks`     | using a different attribute, like `hydraJobs`                                                                                                                                                           |
-| flake_dir                | `flake_dir`                | `str`       | which directory the flake is located                                        | `.`          | using a different flake, like `./tests`                                                                                                                                                                 |
-| effects on pull requests | `effects_on_pull_requests` | `bool`      | run hercules-ci effects on pull requests                                    | `false`      | set to `true` to run effects on PRs                                                                                                                                                                     |
-| effects branches         | `effects_branches`         | `list[str]` | glob patterns for additional branches that run effects                      | `[]`         | `["staging", "release/*"]`                                                                                                                                                                              |
+:::{confval} lock_file
+:type: `str`
+:default: `flake.lock`
 
-By default, effects only run on the default branch. The `effects_branches` and
-`effects_on_pull_requests` settings are always read from the **default
-branch's** `buildbot-nix.toml` (via `git show`) so that pull request authors
-cannot grant themselves effects access.
+Dictates which lock file `buildbot-nix` will use when evaluating your flake.
 
-> **⚠️ Security warning:** PR effects receive the same
-> `effects_per_repo_secrets` as default-branch effects. A malicious PR can
-> modify the effect code to exfiltrate these secrets. Only enable
-> `effects_on_pull_requests` for repositories where you trust all contributors,
-> or where no secrets are configured.
+:example:
+  have multiple lockfiles, one for nixpkgs-stable, one for nixpkgs-unstable or
+  by default pin an input to a private repo, but have a lockfile with that
+  private repo replaced by a public repo for CI
+:::
 
+:::{confval} attribute
+:type: `str`
+:default: `checks`
+
+Which attribute in the flake to evaluate and build.
+
+:example: using a different attribute, like `hydraJobs`
+:::
+
+:::{confval} flake_dir
+:type: `str`
+:default: `.`
+Which directory the flake is located.
+
+:example: using a different flake, like `./tests`
+:::
+
+:::{confval} effects_on_pull_requests
+:type: `bool`
+:default: `false`
+
+Run hercules-ci effects on pull requests.
+:::
+
+:::{confval} effects_branches
+:type: `list[str]`
+:default:  `[]`
+
+Glob patterns for additional branches that run effects
+
+:example: `["staging", "release/*"]`
+:::
+
+By default, effects only run on the default branch. The
+{confval}`effects_branches` and {confval}`effects_on_pull_requests` settings
+are always read from the **default branch's** `buildbot-nix.toml` (via `git
+show`) so that pull request authors cannot grant themselves effects access.
+
+:::{caution}
+PR effects receive the same `effects_per_repo_secrets` as default-branch
+effects. A malicious PR can modify the effect code to exfiltrate these secrets.
+Only enable {confval}`effects_on_pull_requests` for repositories where you
+trust all contributors, or where no secrets are configured.
+:::
