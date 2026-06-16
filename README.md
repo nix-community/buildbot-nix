@@ -80,4 +80,4 @@ We have a matrix channel at
 For commercial support, please contact [Mic92](https://github.com/Mic92/) at
 joerg@thalheim.io or reach out to [Numtide](https://numtide.com/contact/).
 
-  [documentation]: ./docs/index.md
+  [documentation]: https://buildbot-nix.readthedocs.io/en/stable/

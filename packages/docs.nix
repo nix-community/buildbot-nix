@@ -10,6 +10,7 @@ stdenvNoCC.mkDerivation {
   src = ../.;
   setSourceRoot = "sourceRoot=$(echo */docs)";
 
+  # Must be in sync with docs/requirements.txt
   nativeBuildInputs = with python.pkgs; [
     furo
     myst-parser
