@@ -39,8 +39,9 @@ let
     let
       names = lib.attrNames attr;
     in
-      assert lib.assertMsg (lib.length names == 1) "attribute set doesn't contain just one attribute, instead it contains: ${lib.concatStringsSep ", " names}";
-      attr.${lib.head names};
+    assert lib.assertMsg (lib.length names == 1)
+      "attribute set doesn't contain just one attribute, instead it contains: ${lib.concatStringsSep ", " names}";
+    attr.${lib.head names};
 
   backendPort =
     if (cfg.accessMode ? "fullyPrivate") then
