@@ -22,24 +22,23 @@
       webhookSecretFile = pkgs.writeText "webhook-secret" "changeMe";
       topic = "build-with-buildbot";
     };
-    github = {
-      enable = true;
-      webhookSecretFile = pkgs.writeText "github_webhook_secret" "changeMe";
-      topic = "build-with-buildbot";
-      appSecretKeyFile = pkgs.writeText "github_app_secret_key" "changeMe";
-      appId = 0;
-    };
 
     # optional nix-eval-jobs settings
     evalWorkerCount = 2; # limit number of concurrent evaluations
     evalMaxMemorySize = 4096; # limit memory usage per evaluation
 
-    accessMode.fullyPrivate."github" = {
+    accessMode.fullyPrivate."keycloak" = {
       # this is a randomly generated alphanumeric secret, which is used to encrypt the cookies set by
       # oauth2-proxy, it must be 8, 16, or 32 characters long
       cookieSecretFile = pkgs.writeText "github_cookie_secret" "changeMe";
       clientSecretFile = pkgs.writeText "github_oauth_secret" "changeMe";
       clientId = "Iv1.XXXXXXXXXXXXXXXX";
+
+      oidcIssuerUrl = "https://<keycloak host>/realms/<your realm>";
+
+      roles = [
+        "numtiders"
+      ];
     };
   };
 
