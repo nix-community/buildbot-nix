@@ -34,7 +34,8 @@ let
       ]
       name;
 
-  getAttrTag = attr:
+  getAttrTag =
+    attr:
     let
       names = lib.attrNames attr;
     in
