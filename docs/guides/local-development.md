@@ -60,9 +60,9 @@ nix run .#flake-fmt
 nix develop -c mypy buildbot_nix
 ```
 
-# Debugging NixOS Tests
+## Debugging NixOS Tests
 
-## Quick Start
+### Quick Start
 
 Build and run test driver with port forwarding:
 
@@ -82,7 +82,7 @@ QEMU_NET_OPTS="hostfwd=tcp:127.0.0.1:8010-:8010,hostfwd=tcp:127.0.0.1:3742-:3742
 
 Access Buildbot at http://localhost:8010 and Gitea at http://localhost:3742
 
-## Using Breakpoints
+### Using Breakpoints
 
 Add `breakpoint()` in test script to pause execution:
 
@@ -94,17 +94,17 @@ testScript = ''
 ''
 ```
 
-## Testing OIDC Authentication
+### Testing OIDC Authentication
 
-see [OIDC docs](./OIDC.md) for details.
+see [OIDC docs](./oidc.md) for details.
 
-## Cleanup
+### Cleanup
 
 ```bash
 rm -rf .buildbot-dev
 ```
 
-## Troubleshooting
+### Troubleshooting
 
 - **Port conflict**: Change `PORT = 8012` in `packages/master.cfg.py`
 - **Logs**: See `.buildbot-dev/twistd.log` or console

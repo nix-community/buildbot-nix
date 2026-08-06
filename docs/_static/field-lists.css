@@ -1,0 +1,38 @@
+/* Put field list in the same line */
+
+dl {
+  margin-bottom: 15px;
+}
+
+dl.field-list {
+  display: grid;
+  grid-template-columns: fit-content(30%) auto;
+}
+
+dl.field-list > dt {
+	/*font-weight: bold;*/
+	word-break: break-word;
+	margin-top: 0em;
+	padding-left: 0.5em;
+	padding-right: 5px;
+	font-size: var(--font-size--normal) !important;
+}
+
+dl.field-list > dd > :first-child {
+	margin-top: 0 !important;
+}
+
+dl.field-list > dd > :last-child {
+	margin-bottom: 0 !important;
+}
+
+dl.field-list > dd {
+	padding-left: 0.5em;
+	margin-top: 0em;
+	margin-left: 0em;
+	margin-bottom: .25em;
+}
+
+dl.field-list > dd a {
+	overflow-wrap: anywhere;
+}
