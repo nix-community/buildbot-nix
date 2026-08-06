@@ -325,7 +325,16 @@ def create_repo_hook(config: RepoHookConfig) -> None:
     }
     for hook in hooks:
         if hook["config"]["url"] == config.instance_url + "change_hook/gitea":
-            log.msg(f"hook for {config.owner}/{config.repo} already exists")
+            # Always update the hook to ensure the secret stays in sync
+            # (Gitea doesn't expose secrets via API, so we can't detect changes)
+            hook_id = hook["id"]
+            log.msg(f"updating existing hook for {config.owner}/{config.repo}")
+            http_request(
+                f"{config.gitea_url}/api/v1/repos/{config.owner}/{config.repo}/hooks/{hook_id}",
+                method="PATCH",
+                headers=headers,
+                data=data,
+            )
             return
 
     log.msg(f"creating hook for {config.owner}/{config.repo}")
