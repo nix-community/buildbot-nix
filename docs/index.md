@@ -1,12 +1,10 @@
-# Buildbot-nix
+# buildbot-nix documentation
 
 Buildbot-nix is a NixOS module designed to integrate
 [Buildbot](https://www.buildbot.net/), a continuous integration (CI) framework,
 into the Nix ecosystem. This module is under active development, and while it's
 generally stable and widely used, please be aware that some APIs may change over
 time.
-
-[Documentation]
 
 ## Features
 
@@ -25,8 +23,23 @@ time.
 
 ## Getting Started with Buildbot Setup
 
-To set up Buildbot using Buildbot-nix,
-read the [documentation].
+To set up Buildbot using Buildbot-nix, you can start by exploring the provided
+examples:
+
+- Check out the basic setup in [example](../examples/default.nix).
+- Learn about configuring the Buildbot master in
+  [master module](../nixosModules/master.nix).
+- Understand how to set up a Buildbot worker in
+  [worker module](../nixosModules/worker.nix).
+- For local development, see {doc}`guides/local-development`
+
+Additionally, you can find real-world examples at the end of this document.
+
+Buildbot masters and workers can be deployed either on the same machine or on
+separate machines. To support multiple architectures, configure them as
+[nix remote builders](https://nixos.org/manual/nix/stable/advanced-topics/distributed-builds).
+For a practical NixOS example, see
+[this remote builder configuration](https://github.com/Mic92/dotfiles/blob/main/machines/eve/modules/remote-builder.nix).
 
 ## Incompatibilities with the lix overlay
 
@@ -80,4 +93,25 @@ We have a matrix channel at
 For commercial support, please contact [Mic92](https://github.com/Mic92/) at
 joerg@thalheim.io or reach out to [Numtide](https://numtide.com/contact/).
 
-  [documentation]: https://buildbot-nix.readthedocs.io/en/stable/
+## Contents
+
+```{toctree}
+:maxdepth: 2
+:caption: Guides:
+
+guides/using
+guides/binary-caches
+guides/github
+guides/gitea
+guides/oidc
+guides/effects
+guides/local-development
+```
+
+```{toctree}
+:caption: NixOS options reference:
+:glob:
+:titlesonly:
+
+options-reference/*
+```

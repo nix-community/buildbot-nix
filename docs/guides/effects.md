@@ -1,6 +1,6 @@
-# (experimental) Hercules CI effects
+# Hercules CI effects (experimental)
 
-See [flake.nix](../flake.nix) for an example and the
+See [flake.nix](../../flake.nix) for an example and the
 [Hercules CI effects documentation](https://docs.hercules-ci.com/hercules-ci/effects/)
 for the upstream reference.
 
