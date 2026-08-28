@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ lib, pkgs, inputs, ... }:
 let
   buildbotPackages = pkgs.callPackage ./buildbot-packages.nix { };
 
@@ -20,6 +20,7 @@ let
       };
       buildbot-nix = self.callPackage ./buildbot-nix.nix { };
       buildbot-gitea = self.callPackage ./buildbot-gitea.nix { };
+      option-docs = self.callPackage ./option-docs.nix { inherit (inputs) self; };
     }
     // lib.optionalAttrs pkgs.stdenv.isLinux {
       buildbot-effects = self.callPackage ./buildbot-effects.nix { };
