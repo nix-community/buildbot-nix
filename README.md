@@ -27,10 +27,8 @@ To set up Buildbot using Buildbot-nix, you can start by exploring the provided
 examples:
 
 - Check out the basic setup in [example](./examples/default.nix).
-- Learn about configuring the Buildbot master in
-  [master module](./nix/master.nix).
-- Understand how to set up a Buildbot worker in
-  [worker module](./nix/worker.nix).
+- Learn about configuring the Buildbot master and worker in
+  [master module](./docs/OPTIONS.md).
 - For local development, see
   [Local Development Guide](./docs/LOCAL_DEVELOPMENT.md).
 
