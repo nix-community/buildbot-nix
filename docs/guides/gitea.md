@@ -12,7 +12,7 @@ status updates, and secure authentication.
 
 2. **Generate an access token**:
    - Log in as the dedicated user
-   - Go to Settings → Applications → Generate New Token
+   - Go to {menuselection}`Settings --> Applications --> Generate New Token`
    - Required permissions:
      - `write:repository` - To create webhooks and update commit statuses
      - `write:user` - To access user information
@@ -22,9 +22,9 @@ status updates, and secure authentication.
 
 1. **Create an OAuth2 Application**:
    - Navigate to one of these locations:
-     - Site Administration → Applications (for admins, applies globally)
-     - Organization Settings → Applications (for organization-wide access)
-     - User Settings → Applications (for personal use)
+     - {menuselection}`Site Administration --> Applications` (for admins, applies globally)
+     - {menuselection}`Organization Settings --> Applications` (for organization-wide access)
+     - {menuselection}`User Settings --> Applications` (for personal use)
 
 2. **Configure the OAuth2 app**:
    - **Application Name**: `buildbot-nix`
@@ -115,4 +115,4 @@ For each repository you want to build:
   - For OAuth issues, verify the redirect URI matches exactly
 
 - **Private repositories**: If using SSH, ensure the SSH key is properly
-  configured and the known_hosts file contains the Gitea server
+  configured and the `known_hosts` file contains the Gitea server

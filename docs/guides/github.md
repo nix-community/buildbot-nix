@@ -69,10 +69,10 @@ definitions:
 ]
 ```
 
-- `name`: The worker name (matches `services.buildbot-nix.worker.name`, defaults
+- `name`: The worker name (matches {nix:option}`services.buildbot-nix.worker.name`, defaults
   to hostname)
 - `pass`: The password (must match
-  `services.buildbot-nix.worker.workerPasswordFile` contents)
+  {nix:option}`services.buildbot-nix.worker.workerPasswordFile` contents)
 - `cores`: Number of CPU cores (must match the actual core count of the worker
   machine)
 
@@ -99,27 +99,34 @@ For each repository you want to build:
 
 ## How It Works
 
-- **Authentication**: Uses GitHub App JWT tokens for API access and installation
-  tokens for repository-specific operations
-- **Project Discovery**: Automatically discovers repositories the app has access
-  to, filtered by topic if configured
-- **Webhook Management**: Automatically creates and manages webhooks for push
-  and pull_request events
-- **Status Updates**: Reports build status back to GitHub commits and pull
-  requests
-- **Access Control**:
-  - Admins: Configured users can reload projects and manage builds
+Authentication:
+: Uses GitHub App JWT tokens for API access and installation tokens for
+  repository-specific operations
+
+Project Discovery:
+: Automatically discovers repositories the app has access to, filtered by topic
+  if configured
+
+Webhook Management:
+: Automatically creates and manages webhooks for push and pull_request events
+
+Status Updates:
+: Reports build status back to GitHub commits and pull requests
+
+Access Control:
+: - Admins: Configured users can reload projects and manage builds
   - Organization members: Can restart their own builds
 
 ## Troubleshooting
 
-- **Projects not appearing**: Check that:
+Projects not appearing:
+: Check that:
   - The GitHub App is installed for the repository
   - The repository has the configured topic (if filtering by topic)
   - Reload projects manually through the Buildbot UI
 
-- **Webhooks not created**: Verify the app has webhook write permission for the
-  repository
+Webhooks not created:
+: Verify the app has webhook write permission for the repository
 
-- **Authentication issues**: Ensure the private key file is readable by the
-  buildbot service
+Authentication issues:
+: Ensure the private key file is readable by the buildbot service
