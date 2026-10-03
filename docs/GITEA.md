@@ -8,7 +8,10 @@ status updates, and secure authentication.
 
 1. **Create a dedicated Gitea user** (recommended for organizations):
    - This user will manage webhooks and report build statuses
-   - Add this user as a collaborator to all repositories you want to build
+   - If this user is a **site admin**, it will automatically discover all
+     repositories on the instance — no per-repo collaborator setup needed
+   - Otherwise, add this user as a collaborator to each repository you want to
+     build
 
 2. **Generate an access token**:
    - Log in as the dedicated user
@@ -68,7 +71,9 @@ services.buildbot-nix.master = {
 For each repository you want to build:
 
 1. **Grant repository access**:
-   - Add the buildbot user as a collaborator with admin access
+   - If the buildbot user is a **site admin**, this step is not needed — it
+     already has admin access to all repositories
+   - Otherwise, add the buildbot user as a collaborator with admin access
    - Admin access is required for webhook creation
 
 2. **Add the configured topic** (if using topic filtering):
@@ -102,7 +107,8 @@ For each repository you want to build:
 ## Troubleshooting
 
 - **Projects not appearing**: Check that:
-  - The buildbot user has admin access to the repository
+  - The buildbot user is a site admin, or has been added as a collaborator with
+    admin access to the repository
   - The repository has the configured topic (if filtering by topic)
   - The access token has the correct permissions
   - Reload projects manually through the Buildbot UI
