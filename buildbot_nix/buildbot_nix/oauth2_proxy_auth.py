@@ -4,9 +4,9 @@ import base64
 import typing
 from typing import Any, ClassVar
 
-from buildbot.util import bytes2unicode, unicode2bytes
+from buildbot.util import unicode2bytes
 from buildbot.util.twisted import async_to_deferred
-from buildbot.www.auth import AuthBase, UserInfoProviderBase
+from buildbot.www.auth import AuthBase
 from twisted.logger import Logger
 from twisted.web.error import Error
 from twisted.web.pages import forbidden
@@ -20,14 +20,14 @@ log = Logger()
 
 
 class OAuth2ProxyAuth(AuthBase):
-    header: ClassVar[bytes] = b"Authorization"
+    authorization_header: ClassVar[bytes] = b"Authorization"
+    preferred_username_header: ClassVar[bytes] = b"X-Forwarded-Preferred-Username"
+    email_header: ClassVar[bytes] = b"X-Forwarded-Email"
     prefix: ClassVar[bytes] = b"Basic "
     password: bytes
 
     def __init__(self, password: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        if self.userInfoProvider is None:
-            self.userInfoProvider = UserInfoProviderBase()
         self.password = unicode2bytes(password)
 
     def getLoginResource(self) -> IResource:  # noqa: N802
@@ -37,34 +37,53 @@ class OAuth2ProxyAuth(AuthBase):
         return typing.cast("IResource", Redirect(b"/oauth2/sign_out"))
 
     @async_to_deferred
+    async def updateUserInfo(self, request: Any) -> None:  # noqa: N802
+        session = request.getSession()
+        session.updateSession(request)
+
+    async def get_header_checked(self, request: Request, header: bytes) -> bytes:
+        header_content: bytes | None = request.getHeader(header)
+        if header_content is None:
+            msg = (
+                b"missing http header " + header + b". Check your oauth2-proxy config!"
+            )
+            log.error(str(msg))
+            raise Error(403, msg)
+        return header_content
+
+    @async_to_deferred
     async def maybeAutoLogin(  # noqa: N802
         self, request: Request
     ) -> None:
-        header = request.getHeader(self.header)
-        if header is None:
-            msg = (
-                b"missing http header "
-                + self.header
-                + b". Check your oauth2-proxy config!"
-            )
-            raise Error(403, msg)
-        if not header.startswith(self.prefix):
+        authorization = await self.get_header_checked(
+            request, self.authorization_header
+        )
+        if not authorization.startswith(self.prefix):
             msg = (
                 b"invalid http header "
-                + self.header
+                + self.authorization_header
                 + b". Check your oauth2-proxy config!"
             )
+            log.error(str(msg))
             raise Error(403, msg)
-        header = header.removeprefix(self.prefix)
-        (username_bytes, password) = base64.b64decode(header).split(b":")
-        username = bytes2unicode(username_bytes)
+        header = authorization.removeprefix(self.prefix)
+        (_, password) = base64.b64decode(header).split(b":")
 
         if password != self.password:
             msg = b"invalid password given. Check your oauth2-proxy config!!"
+            log.error(str(msg))
             raise Error(403, msg)
 
+        preferred_username = await self.get_header_checked(
+            request, self.preferred_username_header
+        )
+        email = await self.get_header_checked(request, self.email_header)
+
         session = request.getSession()  # type: ignore[no-untyped-call]
-        user_info = {"username": username}
+        user_info = {
+            "username": preferred_username.decode("utf-8"),
+            "email": email.decode("utf-8"),
+        }
         if session.user_info != user_info:
             session.user_info = user_info
             await self.updateUserInfo(request)

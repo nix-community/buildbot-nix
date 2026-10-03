@@ -34,9 +34,18 @@ let
       ]
       name;
 
+  getAttrTag =
+    attr:
+    let
+      names = lib.attrNames attr;
+    in
+    assert lib.assertMsg (lib.length names == 1)
+      "attribute set doesn't contain just one attribute, instead it contains: ${lib.concatStringsSep ", " names}";
+    attr.${lib.head names};
+
   backendPort =
     if (cfg.accessMode ? "fullyPrivate") then
-      cfg.accessMode.fullyPrivate.port
+      (getAttrTag cfg.accessMode.fullyPrivate).port
     else
       config.services.buildbot-master.port;
 in
@@ -255,62 +264,95 @@ in
           };
 
           fullyPrivate = lib.mkOption {
-            type = lib.types.submodule {
-              options = {
-                backend = lib.mkOption {
-                  type = lib.types.enum [
-                    "gitea"
-                    "github"
+            type =
+              let
+                common = {
+                  options = {
+                    cookieSecretFile = lib.mkOption {
+                      type = lib.types.path;
+                      description = ''
+                        Path to a file containing the cookie secret.
+                      '';
+                    };
+
+                    clientSecretFile = lib.mkOption {
+                      type = lib.types.path;
+                      description = ''
+                        Path to a file containing the client secret.
+                      '';
+                    };
+
+                    clientId = lib.mkOption {
+                      type = lib.types.str;
+                      description = ''
+                        Client secret used for OAuth2 authentication.
+                      '';
+                    };
+
+                    port = lib.mkOption {
+                      type = lib.types.port;
+                      description = ''
+                        Port number at which the `oauth2-proxy' will listen on.
+                      '';
+                      default = 8020;
+                    };
+                  };
+                };
+
+                giteaGithub = {
+                  imports = [
+                    common
                   ];
-                  description = "Authentication provider for the oauth2-proxy reverse proxy.";
+                  options = {
+                    teams = lib.mkOption {
+                      type = lib.types.listOf lib.types.str;
+                      description = ''
+                        A list of teams that should be given access to BuildBot.
+                      '';
+                      default = [ ];
+                    };
+
+                    users = lib.mkOption {
+                      type = lib.types.listOf lib.types.str;
+                      description = ''
+                        A list of users that should be given access to BuildBot.
+                      '';
+                      default = [ ];
+                    };
+                  };
+                };
+              in
+              lib.types.attrTag {
+                gitea = lib.mkOption {
+                  type = lib.types.submodule giteaGithub;
                 };
 
-                cookieSecretFile = lib.mkOption {
-                  type = lib.types.path;
-                  description = ''
-                    Path to a file containing the cookie secret.
-                  '';
+                github = lib.mkOption {
+                  type = lib.types.submodule giteaGithub;
                 };
 
-                clientSecretFile = lib.mkOption {
-                  type = lib.types.path;
-                  description = ''
-                    Path to a file containing the client secret.
-                  '';
-                };
+                keycloak = lib.mkOption {
+                  type = lib.types.submodule {
+                    imports = [ common ];
 
-                clientId = lib.mkOption {
-                  type = lib.types.str;
-                  description = ''
-                    Client secret used for OAuth2 authentication.
-                  '';
-                };
+                    options = {
+                      oidcIssuerUrl = lib.mkOption {
+                        type = lib.types.str;
+                        description = ''
+                          https://<keycloak host>/realms/<your realm>
+                        '';
+                      };
 
-                teams = lib.mkOption {
-                  type = lib.types.listOf lib.types.str;
-                  description = ''
-                    A list of teams that should be given access to BuildBot.
-                  '';
-                  default = [ ];
-                };
-
-                users = lib.mkOption {
-                  type = lib.types.listOf lib.types.str;
-                  description = ''
-                    A list of users that should be given access to BuildBot.
-                  '';
-                  default = [ ];
-                };
-
-                port = lib.mkOption {
-                  type = lib.types.port;
-                  description = ''
-                    Port number at which the `oauth2-proxy' will listen on.
-                  '';
-                  default = 8020;
+                      roles = lib.mkOption {
+                        type = lib.types.nullOr (lib.types.listOf lib.types.str);
+                        description = ''
+                          Required realm roles.
+                        '';
+                      };
+                    };
+                  };
                 };
               };
-            };
             description = ''
               Puts the buildbot instance behind `oauth2-proxy' which protects the whole instance. This makes
               buildbot-native authentication unnecessary unless one desires a mode where the team that can access
@@ -1145,14 +1187,14 @@ in
     services.oauth2-proxy = lib.mkIf (cfg.accessMode ? "fullyPrivate") {
       enable = true;
 
-      clientID = cfg.accessMode.fullyPrivate.clientId;
+      clientID = (getAttrTag cfg.accessMode.fullyPrivate).clientId;
 
       extraConfig = lib.mkMerge [
         {
           config = "/etc/oauth2-proxy/oauth2-proxy.toml";
           redirect-url = "https://${cfg.domain}/oauth2/callback";
 
-          http-address = "127.0.0.1:${builtins.toString cfg.accessMode.fullyPrivate.port}";
+          http-address = "127.0.0.1:${builtins.toString (getAttrTag cfg.accessMode.fullyPrivate).port}";
 
           upstream = "http://127.0.0.1:${builtins.toString config.services.buildbot-master.port}";
 
@@ -1164,24 +1206,28 @@ in
           ];
         }
         (lib.mkIf (cfg.authBackend == "httpbasicauth") { set-basic-auth = true; })
-        (lib.mkIf
-          (lib.elem cfg.accessMode.fullyPrivate.backend [
-            "github"
-            "gitea"
-          ])
-          {
-            github-user = lib.concatStringsSep "," (cfg.accessMode.fullyPrivate.users ++ cfg.admins);
-            github-team = cfg.accessMode.fullyPrivate.teams;
-            email-domain = "*";
-          }
-        )
-        (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "github") { provider = "github"; })
-        (lib.mkIf (cfg.accessMode.fullyPrivate.backend == "gitea") {
+        (lib.mkIf (cfg.accessMode.fullyPrivate ? github || cfg.accessMode.fullyPrivate ? gitea) {
+          github-user = lib.concatStringsSep "," (
+            cfg.accessMode.fullyPrivate.gitea.users or cfg.accessMode.fullyPrivate.github.users ++ cfg.admins
+          );
+          github-team = cfg.accessMode.fullyPrivate.gitea.teams or cfg.accessMode.fullyPrivate.github.teams;
+          email-domain = "*";
+        })
+        (lib.mkIf (cfg.accessMode.fullyPrivate ? github) { provider = "github"; })
+        (lib.mkIf (cfg.accessMode.fullyPrivate ? gitea) {
           provider = "github";
           provider-display-name = "Gitea";
           login-url = "${cfg.gitea.instanceUrl}/login/oauth/authorize";
           redeem-url = "${cfg.gitea.instanceUrl}/login/oauth/access_token";
           validate-url = "${cfg.gitea.instanceUrl}/api/v1/user/emails";
+        })
+        (lib.mkIf (cfg.accessMode.fullyPrivate ? keycloak) {
+          provider = "keycloak-oidc";
+          oidc-issuer-url = cfg.accessMode.fullyPrivate.keycloak.oidcIssuerUrl; # https://<keycloak host>/realms/<your realm>
+          email-domain = "*";
+          allowed-role = lib.mkIf (
+            cfg.accessMode.fullyPrivate.keycloak.roles != null
+          ) cfg.accessMode.fullyPrivate.keycloak.roles;
         })
       ];
     };
@@ -1190,8 +1236,8 @@ in
       serviceConfig = {
         ConfigurationDirectory = "oauth2-proxy";
         LoadCredential = [
-          "client-secret:${cfg.accessMode.fullyPrivate.clientSecretFile}"
-          "cookie-secret:${cfg.accessMode.fullyPrivate.cookieSecretFile}"
+          "client-secret:${(getAttrTag cfg.accessMode.fullyPrivate).clientSecretFile}"
+          "cookie-secret:${(getAttrTag cfg.accessMode.fullyPrivate).cookieSecretFile}"
           "basic-auth-password:${cfg.httpBasicAuthPasswordFile}"
         ];
       };
