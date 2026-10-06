@@ -12,13 +12,6 @@ let
 in
 {
   options.services.buildbot-nix.master.cachix = {
-    enable = lib.mkEnableOption "Enable Cachix integration";
-
-    name = lib.mkOption {
-      type = lib.types.str;
-      description = "Cachix name";
-    };
-
     auth = lib.mkOption {
       description = "Authentication method for Cachix. Choose either signingKey or authToken.";
       type = lib.types.attrTag {
