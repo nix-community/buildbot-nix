@@ -1,0 +1,6 @@
+# Must be in sync with packages/docs.nix
+furo
+myst-parser
+sphinx
+sphinx-design
+sphinxcontrib-nixdomain

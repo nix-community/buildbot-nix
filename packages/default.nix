@@ -1,4 +1,10 @@
-{ lib, pkgs, ... }:
+{
+  lib,
+  pkgs,
+  inputs,
+  system,
+  ...
+}:
 let
   buildbotPackages = pkgs.callPackage ./buildbot-packages.nix { };
 
@@ -20,6 +26,28 @@ let
       };
       buildbot-nix = self.callPackage ./buildbot-nix.nix { };
       buildbot-gitea = self.callPackage ./buildbot-gitea.nix { };
+
+      docs = self.callPackage ./docs.nix {
+        nixdomainObjects = inputs.sphinxcontrib-nixdomain.lib.documentObjects {
+          sources = {
+            self = inputs.self.outPath;
+            nixpkgs = inputs.nixpkgs.outPath;
+          };
+          options.options =
+            (inputs.nixpkgs.lib.nixosSystem {
+              inherit system;
+              modules = [
+                inputs.self.nixosModules.buildbot-master
+                inputs.self.nixosModules.buildbot-worker
+              ];
+            }).options;
+          packages.packages = self;
+          library = {
+            name = "buildbotLib";
+            library = inputs.self.lib;
+          };
+        };
+      };
     }
     // lib.optionalAttrs pkgs.stdenv.isLinux {
       buildbot-effects = self.callPackage ./buildbot-effects.nix { };
