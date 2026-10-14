@@ -13,14 +13,6 @@ let
 in
 {
   options.services.buildbot-nix.master.niks3 = {
-    enable = lib.mkEnableOption "Enable niks3 integration";
-
-    serverUrl = lib.mkOption {
-      type = lib.types.str;
-      description = "niks3 server URL";
-      example = "https://niks3.yourdomain.com";
-    };
-
     authTokenFile = lib.mkOption {
       type = lib.types.path;
       description = ''

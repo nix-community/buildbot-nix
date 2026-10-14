@@ -70,6 +70,8 @@
         { pkgs, ... }: (treefmt-nix.lib.evalModule pkgs ./formatter/treefmt.nix).config.build.wrapper
       );
 
+      clan.modules."buildbot" = lib.modules.importApply ./nix/clan-module.nix { inherit inputs; };
+
       herculesCI = import ./herculesCI {
         inherit self;
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
