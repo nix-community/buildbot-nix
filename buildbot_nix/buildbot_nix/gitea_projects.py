@@ -415,9 +415,16 @@ class ReloadGiteaProjects(ThreadDeferredBuildStep):
 def refresh_projects(config: GiteaConfig) -> list[RepoData]:
     repos = []
 
+    # Use /repos/search so that site admins discover all repos on the instance,
+    # not just repos they personally own or collaborate on.
+    search_url = f"{config.instance_url}/api/v1/repos/search?limit=100"
+    if config.filters.topic is not None:
+        search_url += f"&q={config.filters.topic}&topic=true"
+
     for repo in paginated_github_request(
-        f"{config.instance_url}/api/v1/user/repos?limit=100",
+        search_url,
         config.token,
+        subkey="data",
     ):
         if not repo["permissions"]["admin"]:
             name = repo["full_name"]
@@ -425,15 +432,6 @@ def refresh_projects(config: GiteaConfig) -> list[RepoData]:
                 f"skipping {name} because we do not have admin privileges, needed for hook management",
             )
         else:
-            try:
-                # Gitea doesn't include topics in the default repo listing, unlike GitHub
-                topics: list[str] = http_request(
-                    f"{config.instance_url}/api/v1/repos/{repo['owner']['login']}/{repo['name']}/topics",
-                    headers={"Authorization": f"token {config.token}"},
-                ).json()["topics"]
-                repo["topics"] = topics
-                repos.append(RepoData.model_validate(repo))
-            except OSError:
-                pass
+            repos.append(RepoData.model_validate(repo))
 
     return repos
