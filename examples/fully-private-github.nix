@@ -34,8 +34,7 @@
     evalWorkerCount = 2; # limit number of concurrent evaluations
     evalMaxMemorySize = 4096; # limit memory usage per evaluation
 
-    accessMode.fullyPrivate = {
-      backend = "github";
+    accessMode.fullyPrivate."github" = {
       # this is a randomly generated alphanumeric secret, which is used to encrypt the cookies set by
       # oauth2-proxy, it must be 8, 16, or 32 characters long
       cookieSecretFile = pkgs.writeText "github_cookie_secret" "changeMe";
