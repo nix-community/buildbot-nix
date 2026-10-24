@@ -1,5 +1,10 @@
 # Buildbot-nix
 
+> [!IMPORTANT]
+> This project is archived and has been replaced by
+> [nixbot](https://github.com/Mic92/nixbot). See the
+> [migration guide](https://github.com/Mic92/nixbot/blob/main/docs/MIGRATION.md).
+
 Buildbot-nix is a NixOS module designed to integrate
 [Buildbot](https://www.buildbot.net/), a continuous integration (CI) framework,
 into the Nix ecosystem. This module is under active development, and while it's
